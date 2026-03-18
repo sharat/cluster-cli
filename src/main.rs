@@ -1,4 +1,5 @@
 use anyhow::Result;
+use clap::Parser;
 use crossterm::{
     cursor::{SetCursorStyle, Show},
     event::{Event, EventStream},
@@ -22,8 +23,17 @@ use data::fetcher::Fetcher;
 use data::models::{ConnectionIssue, ConnectionIssueKind};
 use events::{AppEvent, FetchCommand};
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[derive(Parser)]
+#[command(name = "cluster")]
+#[command(about = "A fast, interactive terminal UI for monitoring Kubernetes cluster health")]
+#[command(version = VERSION)]
+struct Cli {}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _cli = Cli::parse();
     let mut config = Config::load()?;
 
     tracing_subscriber::fmt().with_writer(io::stderr).init();
