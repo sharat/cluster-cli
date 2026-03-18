@@ -187,10 +187,7 @@ impl AppState {
 
         for pod in pods {
             let key = pod_history_key(pod);
-            let memory_history = self
-                .pod_memory_history
-                .entry(key.clone())
-                .or_default();
+            let memory_history = self.pod_memory_history.entry(key.clone()).or_default();
             memory_history.push(pod.memory_pct);
             if memory_history.len() > MAX_HISTORY_SAMPLES {
                 memory_history.remove(0);
