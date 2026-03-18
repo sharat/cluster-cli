@@ -25,6 +25,18 @@ struct Args {
     /// Node pool name filter (e.g. "nodepool1")
     #[arg(long)]
     node_pool_filter: Option<String>,
+
+    /// Upgrade to the latest version
+    #[arg(long)]
+    upgrade: bool,
+
+    /// Check for updates and exit
+    #[arg(long)]
+    check_update: bool,
+
+    /// Show version and installation info
+    #[arg(long)]
+    version: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
