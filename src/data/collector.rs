@@ -334,7 +334,7 @@ fn get_node_info(nodes_json: &Value, node_name: &str) -> Option<NodeInfo> {
     items
         .iter()
         .find(|item| metadata_name(item) == node_name)
-        .and_then(|item| get_node_info_for_item(item))
+        .and_then(get_node_info_for_item)
 }
 
 fn get_node_info_for_item(item: &Value) -> Option<NodeInfo> {
@@ -1243,7 +1243,7 @@ pub async fn fetch_current_namespace() -> Result<String> {
     .await?;
     let ns = output.trim().to_string();
     if ns.is_empty() {
-        return Err(KubectlError::with_issue(
+        Err(KubectlError::with_issue(
             ConnectionIssue {
                 kind: ConnectionIssueKind::NamespaceUnavailable,
                 namespace: None,
@@ -1251,7 +1251,7 @@ pub async fn fetch_current_namespace() -> Result<String> {
             },
             "No namespace is configured in the current kubectl context.",
         )
-        .into());
+        .into())
     } else {
         Ok(ns)
     }

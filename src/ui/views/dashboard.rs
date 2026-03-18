@@ -56,7 +56,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
 
 fn render_connection_blocker(f: &mut Frame, area: Rect, app: &AppState) {
     let popup_w = area.width.saturating_sub(10).clamp(60, 100);
-    let popup_h = 9u16.min(area.height.max(9));
+    let popup_h = 9u16;
     let x = area.x + area.width.saturating_sub(popup_w) / 2;
     let y = area.y + area.height.saturating_sub(popup_h) / 2;
     let popup_area = Rect::new(x, y, popup_w.min(area.width), popup_h.min(area.height));
@@ -314,7 +314,7 @@ fn render_ns_popup(f: &mut Frame, area: Rect, app: &AppState) {
 
 fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
     let popup_w = 60u16;
-    let popup_h = (app.ns_list.len() as u16 + 2).min(20).max(5);
+    let popup_h = (app.ns_list.len() as u16 + 2).clamp(5, 20);
     let x = area.x + area.width.saturating_sub(popup_w) / 2;
     let y = area.y + area.height.saturating_sub(popup_h) / 2;
     let popup_area = Rect::new(x, y, popup_w.min(area.width), popup_h.min(area.height));

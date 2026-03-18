@@ -190,13 +190,13 @@ impl AppState {
             let memory_history = self
                 .pod_memory_history
                 .entry(key.clone())
-                .or_insert_with(Vec::new);
+                .or_default();
             memory_history.push(pod.memory_pct);
             if memory_history.len() > MAX_HISTORY_SAMPLES {
                 memory_history.remove(0);
             }
 
-            let cpu_history = self.pod_cpu_history.entry(key).or_insert_with(Vec::new);
+            let cpu_history = self.pod_cpu_history.entry(key).or_default();
             cpu_history.push(pod.cpu_pct);
             if cpu_history.len() > MAX_HISTORY_SAMPLES {
                 cpu_history.remove(0);

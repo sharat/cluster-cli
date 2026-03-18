@@ -109,8 +109,8 @@ fn precompute_utilization_colors() -> [[Color; MAX_CACHED_WIDTH]; MAX_CACHED_WID
     let mut cache = [[Color::Rgb(0, 0, 0); MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH];
 
     for width in 1..=MAX_CACHED_WIDTH {
-        for step in 0..width {
-            cache[width - 1][step] = compute_utilization_gradient_color(step, width);
+        for (step, cache_entry) in cache[width - 1].iter_mut().enumerate().take(width) {
+            *cache_entry = compute_utilization_gradient_color(step, width);
         }
     }
 
@@ -159,8 +159,8 @@ fn precompute_health_colors() -> [[Color; MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH] {
     let mut cache = [[Color::Rgb(0, 0, 0); MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH];
 
     for width in 1..=MAX_CACHED_WIDTH {
-        for step in 0..width {
-            cache[width - 1][step] = compute_health_gradient_color(step, width);
+        for (step, cache_entry) in cache[width - 1].iter_mut().enumerate().take(width) {
+            *cache_entry = compute_health_gradient_color(step, width);
         }
     }
 
