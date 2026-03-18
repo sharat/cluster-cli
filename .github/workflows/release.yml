@@ -101,8 +101,11 @@ jobs:
           if [ -z "$PREV_TAG" ]; then
             echo "changelog=Initial release $VERSION" >> $GITHUB_OUTPUT
           else
-            echo "changelog=Changes since $PREV_TAG:" >> $GITHUB_OUTPUT
-            git log --pretty=format:"- %s" $PREV_TAG..HEAD >> $GITHUB_OUTPUT
+            CHANGELOG=$(git log --pretty=format:"- %s" $PREV_TAG..HEAD)
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            echo "Changes since $PREV_TAG:" >> $GITHUB_OUTPUT
+            echo "$CHANGELOG" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           fi
       - name: Create Release
         uses: softprops/action-gh-release@v2
