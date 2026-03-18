@@ -29,7 +29,7 @@ chrono = "0.4"
 anyhow = "1"
 
 clap = { version = "4", features = ["derive"] }
-dirs = "5"
+dirs = "6"
 toml = "0.8"
 
 tracing = "0.1"
