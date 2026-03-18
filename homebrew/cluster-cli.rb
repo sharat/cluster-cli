@@ -7,17 +7,16 @@ class ClusterCli < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/sharat/cluster-cli/releases/download/v#{version}/cluster-aarch64-apple-darwin.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_MACOS_ARM64"
+      sha256 "c22f25bb884be312b35d8e4ac46b981546a2f8b093b7d0114fdc195809c6aeb4"
     else
-      url "https://github.com/sharat/cluster-cli/releases/download/v#{version}/cluster-x86_64-apple-darwin.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_MACOS_X86_64"
+      odie "cluster-cli only supports Apple Silicon (ARM64). Intel Macs are not supported."
     end
   end
 
   on_linux do
     if Hardware::CPU.intel?
       url "https://github.com/sharat/cluster-cli/releases/download/v#{version}/cluster-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_LINUX_X86_64"
+      sha256 "31513c766045b6aba276a62f37d0ef0b5670b222b3662d2d032ffcb8b923cd94"
     end
   end
 
