@@ -256,6 +256,9 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
         KeyCode::Esc => {
             if app.incident_focus.is_some() {
                 app.clear_incident_focus();
+            } else if app.connection_issue.is_some() {
+                // Allow quitting with Esc when there's a connection error
+                return Some(AppCommand::Quit);
             }
         }
         KeyCode::Char('/') => {

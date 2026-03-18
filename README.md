@@ -375,6 +375,11 @@ cluster is designed to work with any Kubernetes cluster:
 
 The only requirement is a properly configured `kubectl` context with appropriate permissions.
 
+## Disclaimer
+
+**This software is provided "as is", without warranty of any kind.**  
+Use at your own risk. This tool may contain bugs or inaccuracies. Always verify critical information using official Kubernetes tools (`kubectl`, dashboard, etc.). The authors are not responsible for any issues arising from the use of this software.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
