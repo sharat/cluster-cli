@@ -20,6 +20,9 @@ updates:
     labels:
       - "dependencies"
       - "rust"
+    # Only update direct dependencies, ignore transitive ones
+    allow:
+      - dependency-type: "direct"
     # Group all Cargo dependencies into a single PR
     groups:
       cargo-dependencies:
