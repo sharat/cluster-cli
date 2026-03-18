@@ -68,7 +68,7 @@ jobs:
           certutil -hashfile cluster-${{ matrix.target }}.zip SHA256 | findstr /v "hash" > cluster-${{ matrix.target }}.zip.sha256
         shell: cmd
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cluster-${{ matrix.target }}
           path: |
