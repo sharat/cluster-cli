@@ -17,7 +17,7 @@ name = "cluster"
 path = "src/main.rs"
 
 [dependencies]
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = { version = "0.28", features = ["event-stream"] }
 
 tokio = { version = "1", features = ["full"] }
