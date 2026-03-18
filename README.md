@@ -307,6 +307,20 @@ Logs are emitted to stderr only when enabled with `RUST_LOG`. The app does not c
 
 ## Development
 
+### Getting Started
+
+Clone the repository and set up the development environment:
+
+```bash
+git clone https://github.com/sharat/cluster-cli.git
+cd cluster-cli
+
+# Set up git hooks (optional but recommended)
+./setup-hooks.sh
+```
+
+**Note**: Git hooks are not automatically installed when cloning (Git security feature). Run `./setup-hooks.sh` to enable pre-commit checks for formatting and linting.
+
 ### Build
 
 ```bash
