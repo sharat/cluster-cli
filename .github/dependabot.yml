@@ -20,23 +20,11 @@ updates:
     labels:
       - "dependencies"
       - "rust"
-    # Group patch updates together
+    # Group all Cargo dependencies into a single PR
     groups:
-      patch-updates:
+      cargo-dependencies:
         patterns:
           - "*"
-        update-types:
-          - "patch"
-      minor-updates:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-      major-updates:
-        patterns:
-          - "*"
-        update-types:
-          - "major"
 
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
