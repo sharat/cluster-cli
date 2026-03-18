@@ -16,7 +16,11 @@ fn create_test_node(memory_pct: u8, ready: bool, unhealthy_conditions: u8) -> No
         unhealthy_conditions,
         ready,
         conditions: NodeConditions {
-            ready: if ready { ConditionStatus::True } else { ConditionStatus::False },
+            ready: if ready {
+                ConditionStatus::True
+            } else {
+                ConditionStatus::False
+            },
             memory_pressure: ConditionStatus::False,
             disk_pressure: ConditionStatus::False,
             pid_pressure: ConditionStatus::False,
@@ -80,7 +84,7 @@ fn create_test_event(reason: &str, event_type: EventType, count: u32) -> Cluster
 fn test_critical_node_penalty() {
     let nodes = vec![create_test_node(90, true, 0)];
     let health = calculate_health(&nodes, &[], &[]);
-    
+
     assert!(health.score < 100, "Critical node should reduce score");
     assert_eq!(health.critical_nodes, 1);
 }
@@ -89,7 +93,7 @@ fn test_critical_node_penalty() {
 fn test_unhealthy_node_penalty() {
     let nodes = vec![create_test_node(40, false, 2)];
     let health = calculate_health(&nodes, &[], &[]);
-    
+
     assert!(health.score < 100, "Unhealthy node should reduce score");
     assert_eq!(health.critical_nodes, 1);
 }
@@ -98,7 +102,7 @@ fn test_unhealthy_node_penalty() {
 fn test_critical_pod_penalty() {
     let pods = vec![create_test_pod(90, "Running", true, 0, false, false)];
     let health = calculate_health(&[], &pods, &[]);
-    
+
     assert!(health.score < 100, "Critical pod should reduce score");
     assert_eq!(health.critical_pods, 1);
 }
@@ -107,7 +111,7 @@ fn test_critical_pod_penalty() {
 fn test_failed_pod_penalty() {
     let pods = vec![create_test_pod(40, "Failed", false, 0, false, false)];
     let health = calculate_health(&[], &pods, &[]);
-    
+
     assert!(health.score < 100, "Failed pod should reduce score");
     assert_eq!(health.critical_pods, 1); // Failed pod counted once (not double-counted)
 }
@@ -116,7 +120,7 @@ fn test_failed_pod_penalty() {
 fn test_pending_pod_penalty() {
     let pods = vec![create_test_pod(40, "Pending", false, 0, false, false)];
     let health = calculate_health(&[], &pods, &[]);
-    
+
     assert!(health.score < 100, "Pending pod should reduce score");
 }
 
@@ -124,7 +128,7 @@ fn test_pending_pod_penalty() {
 fn test_unknown_phase_pod_penalty() {
     let pods = vec![create_test_pod(40, "Unknown", false, 0, false, false)];
     let health = calculate_health(&[], &pods, &[]);
-    
+
     assert!(health.score < 100, "Unknown phase pod should reduce score");
 }
 
@@ -132,7 +136,7 @@ fn test_unknown_phase_pod_penalty() {
 fn test_crash_looping_penalty() {
     let pods = vec![create_test_pod(40, "Running", false, 5, true, false)];
     let health = calculate_health(&[], &pods, &[]);
-    
+
     assert!(health.score < 100, "Crash looping pod should reduce score");
     assert_eq!(health.total_restarts, 5);
 }
@@ -141,7 +145,7 @@ fn test_crash_looping_penalty() {
 fn test_oom_killed_penalty() {
     let pods = vec![create_test_pod(40, "Running", false, 0, false, true)];
     let health = calculate_health(&[], &pods, &[]);
-    
+
     assert!(health.score < 100, "OOM killed pod should reduce score");
 }
 
@@ -149,7 +153,7 @@ fn test_oom_killed_penalty() {
 fn test_restart_penalty() {
     let pods = vec![create_test_pod(40, "Running", true, 10, false, false)];
     let health = calculate_health(&[], &pods, &[]);
-    
+
     assert!(health.score < 100, "High restarts should reduce score");
     assert_eq!(health.total_restarts, 10);
 }
@@ -158,7 +162,7 @@ fn test_restart_penalty() {
 fn test_warning_events_penalty() {
     let events = vec![create_test_event("BackOff", EventType::Warning, 5)];
     let health = calculate_health(&[], &[], &events);
-    
+
     assert!(health.score < 100, "Warning events should reduce score");
 }
 
@@ -166,15 +170,22 @@ fn test_warning_events_penalty() {
 fn test_failed_scheduling_penalty() {
     let events = vec![create_test_event("FailedScheduling", EventType::Warning, 3)];
     let health = calculate_health(&[], &[], &events);
-    
-    assert!(health.score < 100, "Failed scheduling events should reduce score");
+
+    assert!(
+        health.score < 100,
+        "Failed scheduling events should reduce score"
+    );
 }
 
 #[test]
 fn test_rollout_failure_penalty() {
-    let events = vec![create_test_event("ProgressDeadlineExceeded", EventType::Warning, 2)];
+    let events = vec![create_test_event(
+        "ProgressDeadlineExceeded",
+        EventType::Warning,
+        2,
+    )];
     let health = calculate_health(&[], &[], &events);
-    
+
     assert!(health.score < 100, "Rollout failures should reduce score");
 }
 
@@ -182,7 +193,7 @@ fn test_rollout_failure_penalty() {
 fn test_normal_events_no_penalty() {
     let events = vec![create_test_event("Created", EventType::Normal, 10)];
     let health = calculate_health(&[], &[], &events);
-    
+
     assert_eq!(health.score, 100, "Normal events should not affect score");
 }
 
@@ -191,7 +202,7 @@ fn test_grade_calculation() {
     // Test grade boundaries
     let nodes = vec![create_test_node(40, true, 0)];
     let pods = vec![create_test_pod(40, "Running", true, 0, false, false)];
-    
+
     let health = calculate_health(&nodes, &pods, &[]);
     assert_eq!(health.grade, 'A');
 }
@@ -211,7 +222,7 @@ fn test_score_never_negative() {
         create_test_event("FailedScheduling", EventType::Warning, 20),
         create_test_event("ProgressDeadlineExceeded", EventType::Warning, 20),
     ];
-    
+
     let health = calculate_health(&nodes, &pods, &events);
     assert_eq!(health.score, 0, "Score should be clamped to 0");
     assert_eq!(health.grade, 'F');
@@ -220,7 +231,7 @@ fn test_score_never_negative() {
 #[test]
 fn test_empty_cluster_perfect_score() {
     let health = calculate_health(&[], &[], &[]);
-    
+
     assert_eq!(health.score, 100);
     assert_eq!(health.grade, 'A');
     assert_eq!(health.critical_nodes, 0);

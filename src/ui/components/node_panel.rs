@@ -70,5 +70,3 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         f.render_stateful_widget(list, inner, &mut state);
     }
 }
-
-

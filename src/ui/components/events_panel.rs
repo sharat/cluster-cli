@@ -46,7 +46,11 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
                 let target_labels: Vec<String> = if bucket.targets.is_empty() {
                     bucket.affected_resources.clone()
                 } else {
-                    bucket.targets.iter().map(|target| target.display_label()).collect()
+                    bucket
+                        .targets
+                        .iter()
+                        .map(|target| target.display_label())
+                        .collect()
                 };
                 let target_hint = if target_labels.is_empty() {
                     bucket

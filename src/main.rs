@@ -18,8 +18,8 @@ mod ui;
 
 use app::AppState;
 use config::Config;
-use data::models::{ConnectionIssue, ConnectionIssueKind};
 use data::fetcher::Fetcher;
+use data::models::{ConnectionIssue, ConnectionIssueKind};
 use events::{AppEvent, FetchCommand};
 
 #[tokio::main]
@@ -69,8 +69,8 @@ async fn main() -> Result<()> {
                 });
             }
             Err(err) => {
-                initial_connection_issue = data::collector::classify_kubectl_error(&err)
-                    .or(Some(ConnectionIssue {
+                initial_connection_issue =
+                    data::collector::classify_kubectl_error(&err).or(Some(ConnectionIssue {
                         kind: ConnectionIssueKind::NamespaceUnavailable,
                         namespace: None,
                         detail: "No namespace is configured in the current kubectl context."

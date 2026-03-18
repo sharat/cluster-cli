@@ -56,11 +56,16 @@ pub fn normal_border_style() -> Style {
 }
 
 pub fn header_style() -> Style {
-    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+    Style::default()
+        .fg(Color::White)
+        .add_modifier(Modifier::BOLD)
 }
 
 pub fn selected_style() -> Style {
-    Style::default().bg(Color::DarkGray).fg(Color::White).add_modifier(Modifier::BOLD)
+    Style::default()
+        .bg(Color::DarkGray)
+        .fg(Color::White)
+        .add_modifier(Modifier::BOLD)
 }
 
 /// Color a resource-usage cell by raw percentage (used in pod table CPU/Mem columns)
@@ -102,13 +107,13 @@ const MAX_CACHED_WIDTH: usize = 50;
 
 fn precompute_utilization_colors() -> [[Color; MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH] {
     let mut cache = [[Color::Rgb(0, 0, 0); MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH];
-    
+
     for width in 1..=MAX_CACHED_WIDTH {
         for step in 0..width {
             cache[width - 1][step] = compute_utilization_gradient_color(step, width);
         }
     }
-    
+
     cache
 }
 
@@ -141,23 +146,24 @@ fn compute_utilization_gradient_color(step: usize, total_steps: usize) -> Color 
 pub fn utilization_gradient_color(step: usize, total_steps: usize) -> Color {
     // Use cached values for common widths
     if total_steps <= MAX_CACHED_WIDTH && step < total_steps {
-        static CACHE: std::sync::OnceLock<[[Color; MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH]> = std::sync::OnceLock::new();
+        static CACHE: std::sync::OnceLock<[[Color; MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH]> =
+            std::sync::OnceLock::new();
         let cache = CACHE.get_or_init(precompute_utilization_colors);
         return cache[total_steps - 1][step];
     }
-    
+
     compute_utilization_gradient_color(step, total_steps)
 }
 
 fn precompute_health_colors() -> [[Color; MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH] {
     let mut cache = [[Color::Rgb(0, 0, 0); MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH];
-    
+
     for width in 1..=MAX_CACHED_WIDTH {
         for step in 0..width {
             cache[width - 1][step] = compute_health_gradient_color(step, width);
         }
     }
-    
+
     cache
 }
 
@@ -190,11 +196,12 @@ fn compute_health_gradient_color(step: usize, total_steps: usize) -> Color {
 pub fn health_gradient_color(step: usize, total_steps: usize) -> Color {
     // Use cached values for common widths
     if total_steps <= MAX_CACHED_WIDTH && step < total_steps {
-        static CACHE: std::sync::OnceLock<[[Color; MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH]> = std::sync::OnceLock::new();
+        static CACHE: std::sync::OnceLock<[[Color; MAX_CACHED_WIDTH]; MAX_CACHED_WIDTH]> =
+            std::sync::OnceLock::new();
         let cache = CACHE.get_or_init(precompute_health_colors);
         return cache[total_steps - 1][step];
     }
-    
+
     compute_health_gradient_color(step, total_steps)
 }
 
@@ -206,7 +213,10 @@ pub fn gradient_bar(pct: u8, width: usize) -> Line<'static> {
 
     for idx in 0..width {
         let span = if idx < filled {
-            Span::styled("█", Style::default().fg(utilization_gradient_color(idx, width)))
+            Span::styled(
+                "█",
+                Style::default().fg(utilization_gradient_color(idx, width)),
+            )
         } else {
             Span::styled("░", Style::default().fg(Color::DarkGray))
         };
@@ -275,7 +285,10 @@ fn placeholder_sparkline(width: usize) -> Line<'static> {
 
 pub fn log_level_style(line: &str) -> Style {
     let line_upper = line.to_uppercase();
-    if line_upper.contains("ERROR") || line_upper.contains("FATAL") || line_upper.contains("CRITICAL") {
+    if line_upper.contains("ERROR")
+        || line_upper.contains("FATAL")
+        || line_upper.contains("CRITICAL")
+    {
         Style::default().fg(Color::Red)
     } else if line_upper.contains("WARN") {
         Style::default().fg(Color::Yellow)

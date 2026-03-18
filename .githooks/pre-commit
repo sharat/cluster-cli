@@ -1,0 +1,43 @@
+#!/bin/bash
+# Pre-commit hook to check formatting and linting
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check if cargo is available
+if ! command -v cargo &> /dev/null; then
+    echo "Error: cargo not found. Please install Rust."
+    exit 1
+fi
+
+# Check formatting
+echo "Checking formatting..."
+if ! cargo fmt -- --check; then
+    echo ""
+    echo "❌ Formatting check failed!"
+    echo "Run 'cargo fmt' to fix formatting automatically."
+    exit 1
+fi
+
+# Check clippy
+echo "Running clippy..."
+if ! cargo clippy -- -D warnings; then
+    echo ""
+    echo "❌ Clippy check failed!"
+    echo "Please fix the warnings above before committing."
+    exit 1
+fi
+
+# Run tests (optional but recommended)
+echo "Running tests..."
+if ! cargo test --quiet; then
+    echo ""
+    echo "❌ Tests failed!"
+    echo "Please fix failing tests before committing."
+    exit 1
+fi
+
+echo ""
+echo "✅ All pre-commit checks passed!"
+exit 0

@@ -72,14 +72,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             let style = theme::status_style(&pod.status);
             let phase_short: String = pod.phase.chars().take(7).collect();
 
-            let cpu_line = resource_triplet_line(
-                pod.cpu_pct,
-                String::new(),
-            );
-            let mem_line = resource_triplet_line(
-                pod.memory_pct,
-                String::new(),
-            );
+            let cpu_line = resource_triplet_line(pod.cpu_pct, String::new());
+            let mem_line = resource_triplet_line(pod.memory_pct, String::new());
 
             Row::new(vec![
                 Cell::from(format!("{} {}", icon, phase_short)),

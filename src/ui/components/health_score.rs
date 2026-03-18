@@ -47,8 +47,14 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             Span::styled(
                 format!(
                     "({:>3}% req {:>3}% lim)  ",
-                    pct(resources.cpu_usage_millicores, resources.cpu_request_millicores),
-                    pct(resources.cpu_usage_millicores, resources.cpu_limit_millicores),
+                    pct(
+                        resources.cpu_usage_millicores,
+                        resources.cpu_request_millicores
+                    ),
+                    pct(
+                        resources.cpu_usage_millicores,
+                        resources.cpu_limit_millicores
+                    ),
                 ),
                 Style::default().fg(Color::White),
             ),
@@ -80,8 +86,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             area,
         );
     } else if app.is_loading {
-        let p = Paragraph::new(" Connecting to cluster...")
-            .style(Style::default().fg(Color::DarkGray));
+        let p =
+            Paragraph::new(" Connecting to cluster...").style(Style::default().fg(Color::DarkGray));
         f.render_widget(p, area);
     }
 }

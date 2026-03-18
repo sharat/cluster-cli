@@ -20,11 +20,11 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // header
+            Constraint::Length(1),  // header
             Constraint::Length(12), // overview
-            Constraint::Length(8), // events
-            Constraint::Fill(1),  // logs
-            Constraint::Length(1), // status bar
+            Constraint::Length(8),  // events
+            Constraint::Fill(1),    // logs
+            Constraint::Length(1),  // status bar
         ])
         .split(area);
 
@@ -47,8 +47,11 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState, pod_name: &str) {
     let text = format!(" [Esc] Back  |  {}  |{}", pod_name, status);
 
     f.render_widget(
-        Paragraph::new(text)
-            .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Paragraph::new(text).style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
         area,
     );
 }
@@ -107,7 +110,9 @@ fn render_overview(f: &mut Frame, area: Rect, app: &AppState) {
             Line::from(""),
             Line::styled(
                 "  Containers:",
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             ),
         ];
 
@@ -201,7 +206,10 @@ fn infer_container_name(message: &str, pod: &PodInfo) -> Option<String> {
     }
 
     if pod.containers.len() == 1 {
-        return pod.containers.first().map(|container| container.name.clone());
+        return pod
+            .containers
+            .first()
+            .map(|container| container.name.clone());
     }
 
     None
@@ -300,15 +308,16 @@ fn render_events(f: &mut Frame, area: Rect, app: &AppState, pod_name: &str) {
                     } else {
                         Style::default().fg(Color::Gray)
                     };
-                    Line::styled(
-                        format!("  {}  {:12}  {}", ts, e.reason, e.message),
-                        style,
-                    )
+                    Line::styled(format!("  {}  {:12}  {}", ts, e.reason, e.message), style)
                 })
                 .collect()
         };
 
-        let scroll = if is_focused { app.detail_scroll as u16 } else { 0 };
+        let scroll = if is_focused {
+            app.detail_scroll as u16
+        } else {
+            0
+        };
         f.render_widget(Paragraph::new(lines).scroll((scroll, 0)), inner);
     }
 }

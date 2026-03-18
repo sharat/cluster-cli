@@ -91,7 +91,8 @@ pub fn build_incident_buckets(
                 );
             }
 
-            if !pod.oom_killed && container.last_termination_reason.as_deref() == Some("OOMKilled") {
+            if !pod.oom_killed && container.last_termination_reason.as_deref() == Some("OOMKilled")
+            {
                 add_incident(
                     &mut buckets,
                     "OOMKilled",
@@ -230,7 +231,10 @@ fn is_timestamp_newer(new: &str, existing: &str) -> bool {
         return false;
     }
     // Try to parse both as RFC3339 for proper comparison
-    match (chrono::DateTime::parse_from_rfc3339(new), chrono::DateTime::parse_from_rfc3339(existing)) {
+    match (
+        chrono::DateTime::parse_from_rfc3339(new),
+        chrono::DateTime::parse_from_rfc3339(existing),
+    ) {
         (Ok(new_dt), Ok(existing_dt)) => new_dt > existing_dt,
         // Fall back to string comparison if parsing fails
         _ => new > existing,
@@ -292,7 +296,7 @@ fn event_target(event: &ClusterEvent) -> IncidentTarget {
 mod tests {
     use super::build_incident_buckets;
     use crate::data::models::{
-        ClusterEvent, ContainerInfo, ConditionStatus, EventType, HealthStatus, IncidentSeverity,
+        ClusterEvent, ConditionStatus, ContainerInfo, EventType, HealthStatus, IncidentSeverity,
         IncidentTarget, NodeConditions, NodeMetric, PodInfo,
     };
 

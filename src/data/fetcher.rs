@@ -4,10 +4,8 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::error;
 
 use crate::config::Config;
+use crate::data::models::{ClusterEvent, ClusterSnapshot, ConnectionIssue, ConnectionIssueKind};
 use crate::data::{collector, health, incidents};
-use crate::data::models::{
-    ClusterEvent, ClusterSnapshot, ConnectionIssue, ConnectionIssueKind,
-};
 use crate::events::{AppEvent, DataEvent, FetchCommand};
 
 pub struct Fetcher {
@@ -114,7 +112,10 @@ impl Fetcher {
             Ok(n) => n,
             Err(e) => {
                 errors.push(format!("Nodes: {}", e));
-                connection_issue = prioritize_connection_issue(connection_issue, collector::classify_kubectl_error(&e));
+                connection_issue = prioritize_connection_issue(
+                    connection_issue,
+                    collector::classify_kubectl_error(&e),
+                );
                 vec![]
             }
         };
@@ -124,7 +125,10 @@ impl Fetcher {
             Err(e) => {
                 error!("Failed to fetch workloads: {}", e);
                 errors.push(format!("Workloads: {}", e));
-                connection_issue = prioritize_connection_issue(connection_issue, collector::classify_kubectl_error(&e));
+                connection_issue = prioritize_connection_issue(
+                    connection_issue,
+                    collector::classify_kubectl_error(&e),
+                );
                 vec![]
             }
         };
@@ -134,7 +138,10 @@ impl Fetcher {
             Err(e) => {
                 error!("Failed to fetch pods: {}", e);
                 errors.push(format!("Pods: {}", e));
-                connection_issue = prioritize_connection_issue(connection_issue, collector::classify_kubectl_error(&e));
+                connection_issue = prioritize_connection_issue(
+                    connection_issue,
+                    collector::classify_kubectl_error(&e),
+                );
                 vec![]
             }
         };
@@ -144,7 +151,10 @@ impl Fetcher {
             Err(e) => {
                 error!("Failed to fetch events: {}", e);
                 errors.push(format!("Events: {}", e));
-                connection_issue = prioritize_connection_issue(connection_issue, collector::classify_kubectl_error(&e));
+                connection_issue = prioritize_connection_issue(
+                    connection_issue,
+                    collector::classify_kubectl_error(&e),
+                );
                 event_cache.get(&cache_key).cloned().unwrap_or_default()
             }
         };
@@ -192,7 +202,9 @@ impl Fetcher {
     async fn fetch_namespaces(&self) {
         match collector::fetch_namespaces().await {
             Ok(namespaces) => {
-                let _ = self.tx.send(AppEvent::Data(DataEvent::Namespaces(namespaces)));
+                let _ = self
+                    .tx
+                    .send(AppEvent::Data(DataEvent::Namespaces(namespaces)));
             }
             Err(e) => {
                 error!("Failed to fetch namespaces: {}", e);
@@ -200,7 +212,10 @@ impl Fetcher {
                 let _ = self
                     .tx
                     .send(AppEvent::Data(DataEvent::ConnectionState(issue)));
-                let _ = self.tx.send(AppEvent::Data(DataEvent::Error(format!("Namespaces: {}", e))));
+                let _ = self.tx.send(AppEvent::Data(DataEvent::Error(format!(
+                    "Namespaces: {}",
+                    e
+                ))));
             }
         }
     }
@@ -219,11 +234,11 @@ impl Fetcher {
             }),
             Err(err) => Err(
                 collector::classify_kubectl_error(&err).unwrap_or(ConnectionIssue {
-                        kind: ConnectionIssueKind::NamespaceUnavailable,
-                        namespace: None,
-                        detail: "No namespace is configured in the current kubectl context."
-                            .to_string(),
-                    }),
+                    kind: ConnectionIssueKind::NamespaceUnavailable,
+                    namespace: None,
+                    detail: "No namespace is configured in the current kubectl context."
+                        .to_string(),
+                }),
             ),
         }
     }
@@ -255,15 +270,18 @@ impl Fetcher {
                     context_name: Some(cluster_label.clone()),
                 };
                 match write_pods_csv(&snapshot, &path) {
-                    Ok(count) => format!("Exported {} pods to {} (cluster: {})", count, path, cluster_label),
+                    Ok(count) => format!(
+                        "Exported {} pods to {} (cluster: {})",
+                        count, path, cluster_label
+                    ),
                     Err(e) => format!("Export failed: {}", e),
                 }
             }
             Err(e) => format!("Export failed: {}", e),
         };
-        let _ = self.tx.send(AppEvent::Data(DataEvent::ExportResult {
-            message,
-        }));
+        let _ = self
+            .tx
+            .send(AppEvent::Data(DataEvent::ExportResult { message }));
     }
 }
 
@@ -299,8 +317,8 @@ fn event_cache_key(context_name: Option<&str>, namespace: &str) -> String {
 }
 
 fn aligned_interval(interval_secs: u64) -> tokio::time::Interval {
-    let first_tick = tokio::time::Instant::now()
-        + Duration::from_secs(secs_until_next_boundary(interval_secs));
+    let first_tick =
+        tokio::time::Instant::now() + Duration::from_secs(secs_until_next_boundary(interval_secs));
     tokio::time::interval_at(first_tick, Duration::from_secs(interval_secs))
 }
 
@@ -350,9 +368,13 @@ fn write_pods_csv(snapshot: &ClusterSnapshot, path: &str) -> Result<usize, Strin
     }
 
     let mut file = File::create(path).map_err(|e| e.to_string())?;
-    
-    writeln!(file, "status,pod,cpu_pct,cpu_use,cpu_req,cpu_lim,mem_pct,mem_use,mem_req,mem_lim,restarts,age").map_err(|e| e.to_string())?;
-    
+
+    writeln!(
+        file,
+        "status,pod,cpu_pct,cpu_use,cpu_req,cpu_lim,mem_pct,mem_use,mem_req,mem_lim,restarts,age"
+    )
+    .map_err(|e| e.to_string())?;
+
     for pod in &snapshot.pods {
         let status_str = match pod.status {
             crate::data::models::HealthStatus::Critical => "Critical",
@@ -361,7 +383,7 @@ fn write_pods_csv(snapshot: &ClusterSnapshot, path: &str) -> Result<usize, Strin
             crate::data::models::HealthStatus::Healthy => "Healthy",
         };
         let phase_status = format!("{} {}", status_str, pod.phase);
-        
+
         writeln!(
             file,
             "{},{},{},{},{},{},{},{},{},{},{},{}",
@@ -377,9 +399,10 @@ fn write_pods_csv(snapshot: &ClusterSnapshot, path: &str) -> Result<usize, Strin
             format_memory(pod.memory_limit_mb),
             pod.restarts,
             pod.age,
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
     }
-    
+
     Ok(snapshot.pods.len())
 }
 

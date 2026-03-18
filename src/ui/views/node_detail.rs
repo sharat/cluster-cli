@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, Row, Table, Paragraph},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
     Frame,
 };
 
@@ -48,14 +48,14 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
 fn render_header(f: &mut Frame, area: Rect, node: &crate::data::models::NodeMetric) {
     let icon = theme::status_icon(&node.status);
     let style = theme::status_style(&node.status);
-    
+
     let title = format!(" {} {} Node Details ", icon, node.name);
-    
+
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_style(style);
-    
+
     f.render_widget(block, area);
 }
 
@@ -83,7 +83,11 @@ fn render_resources(f: &mut Frame, area: Rect, node: &crate::data::models::NodeM
     let rows = vec![
         Row::new(vec![
             Cell::from("CPU Usage").style(Style::default().fg(Color::Cyan)),
-            Cell::from(format!("{}m / {}m", node.cpu_millicores, node.cpu_capacity * 1000)),
+            Cell::from(format!(
+                "{}m / {}m",
+                node.cpu_millicores,
+                node.cpu_capacity * 1000
+            )),
             Cell::from(usage_meter(node.cpu_pct)),
         ]),
         Row::new(vec![
@@ -113,12 +117,19 @@ fn render_resources(f: &mut Frame, area: Rect, node: &crate::data::models::NodeM
         ]),
     ];
 
-    let table = Table::new(rows, [Constraint::Length(20), Constraint::Fill(1), Constraint::Length(10)])
-        .header(
-            Row::new(vec!["Resource", "Value", "Usage"])
-                .style(Style::default().add_modifier(Modifier::BOLD))
-        )
-        .block(Block::default().title(" Resources ").borders(Borders::ALL));
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(20),
+            Constraint::Fill(1),
+            Constraint::Length(10),
+        ],
+    )
+    .header(
+        Row::new(vec!["Resource", "Value", "Usage"])
+            .style(Style::default().add_modifier(Modifier::BOLD)),
+    )
+    .block(Block::default().title(" Resources ").borders(Borders::ALL));
 
     f.render_widget(table, area);
 }
@@ -149,43 +160,53 @@ fn render_info(f: &mut Frame, area: Rect, node: &crate::data::models::NodeMetric
             condition_row("MemoryPressure", node.conditions.memory_pressure, false),
             condition_row("DiskPressure", node.conditions.disk_pressure, false),
             condition_row("PIDPressure", node.conditions.pid_pressure, false),
-            condition_row("NetworkUnavailable", node.conditions.network_unavailable, false),
+            condition_row(
+                "NetworkUnavailable",
+                node.conditions.network_unavailable,
+                false,
+            ),
             Row::new(vec![
                 Cell::from("Scheduling"),
                 Cell::from(scheduling_line(node)),
-            ]).style(Style::default().fg(Color::Cyan)),
+            ])
+            .style(Style::default().fg(Color::Cyan)),
             Row::new(vec![
                 Cell::from("Kernel Version"),
                 Cell::from(node_info.kernel_version.clone()),
-            ]).style(Style::default().fg(Color::Cyan)),
+            ])
+            .style(Style::default().fg(Color::Cyan)),
             Row::new(vec![
                 Cell::from("OS Image"),
                 Cell::from(node_info.os_image.clone()),
-            ]).style(Style::default().fg(Color::Cyan)),
+            ])
+            .style(Style::default().fg(Color::Cyan)),
             Row::new(vec![
                 Cell::from("Container Runtime"),
                 Cell::from(node_info.container_runtime.clone()),
-            ]).style(Style::default().fg(Color::Cyan)),
+            ])
+            .style(Style::default().fg(Color::Cyan)),
             Row::new(vec![
                 Cell::from("Kubelet Version"),
                 Cell::from(node_info.kubelet_version.clone()),
-            ]).style(Style::default().fg(Color::Cyan)),
+            ])
+            .style(Style::default().fg(Color::Cyan)),
             Row::new(vec![
                 Cell::from("Architecture"),
                 Cell::from(node_info.architecture.clone()),
-            ]).style(Style::default().fg(Color::Cyan)),
+            ])
+            .style(Style::default().fg(Color::Cyan)),
             Row::new(vec![
                 Cell::from("Operating System"),
                 Cell::from(node_info.operating_system.clone()),
-            ]).style(Style::default().fg(Color::Cyan)),
+            ])
+            .style(Style::default().fg(Color::Cyan)),
         ];
 
-        let table = Table::new(rows, [Constraint::Length(20), Constraint::Fill(1)])
-            .header(
-                Row::new(vec!["Property", "Value"])
-                    .style(Style::default().add_modifier(Modifier::BOLD))
-            );
-        
+        let table = Table::new(rows, [Constraint::Length(20), Constraint::Fill(1)]).header(
+            Row::new(vec!["Property", "Value"])
+                .style(Style::default().add_modifier(Modifier::BOLD)),
+        );
+
         f.render_widget(table, inner);
     } else {
         let rows = vec![
@@ -193,32 +214,39 @@ fn render_info(f: &mut Frame, area: Rect, node: &crate::data::models::NodeMetric
             condition_row("MemoryPressure", node.conditions.memory_pressure, false),
             condition_row("DiskPressure", node.conditions.disk_pressure, false),
             condition_row("PIDPressure", node.conditions.pid_pressure, false),
-            condition_row("NetworkUnavailable", node.conditions.network_unavailable, false),
+            condition_row(
+                "NetworkUnavailable",
+                node.conditions.network_unavailable,
+                false,
+            ),
             Row::new(vec![
                 Cell::from("Scheduling"),
                 Cell::from(scheduling_line(node)),
-            ]).style(Style::default().fg(Color::Cyan)),
-            Row::new(vec![
-                Cell::from("Node Info"),
-                Cell::from("Not available"),
-            ]).style(Style::default().fg(Color::Yellow)),
+            ])
+            .style(Style::default().fg(Color::Cyan)),
+            Row::new(vec![Cell::from("Node Info"), Cell::from("Not available")])
+                .style(Style::default().fg(Color::Yellow)),
         ];
 
-        let table = Table::new(rows, [Constraint::Length(20), Constraint::Fill(1)])
-            .header(
-                Row::new(vec!["Property", "Value"])
-                    .style(Style::default().add_modifier(Modifier::BOLD))
-            );
+        let table = Table::new(rows, [Constraint::Length(20), Constraint::Fill(1)]).header(
+            Row::new(vec!["Property", "Value"])
+                .style(Style::default().add_modifier(Modifier::BOLD)),
+        );
 
         f.render_widget(table, inner);
     }
 }
 
-fn condition_row(label: &'static str, status: ConditionStatus, healthy_when_true: bool) -> Row<'static> {
+fn condition_row(
+    label: &'static str,
+    status: ConditionStatus,
+    healthy_when_true: bool,
+) -> Row<'static> {
     Row::new(vec![
         Cell::from(label),
         Cell::from(condition_line(status, healthy_when_true)),
-    ]).style(Style::default().fg(Color::Cyan))
+    ])
+    .style(Style::default().fg(Color::Cyan))
 }
 
 fn condition_line(status: ConditionStatus, healthy_when_true: bool) -> Line<'static> {
@@ -231,7 +259,10 @@ fn condition_line(status: ConditionStatus, healthy_when_true: bool) -> Line<'sta
     };
 
     Line::from(vec![
-        Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            icon,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" "),
         Span::styled(
             format!("({})", status.as_str()),
@@ -248,7 +279,10 @@ fn scheduling_line(node: &NodeMetric) -> Line<'static> {
     };
 
     Line::from(vec![
-        Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            label,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" "),
         Span::styled(
             if node.cordoned || node.draining {

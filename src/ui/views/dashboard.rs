@@ -19,11 +19,11 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // header
-            Constraint::Length(2), // health + namespace resources
+            Constraint::Length(1),  // header
+            Constraint::Length(2),  // health + namespace resources
             Constraint::Length(10), // nodes + workloads + events
-            Constraint::Fill(1),  // pods
-            Constraint::Length(1), // status bar
+            Constraint::Fill(1),    // pods
+            Constraint::Length(1),  // status bar
         ])
         .split(area);
 
@@ -32,10 +32,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
 
     let middle = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(42),
-            Constraint::Percentage(58),
-        ])
+        .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
         .split(chunks[2]);
 
     components::node_panel::render(f, middle[0], app);
@@ -78,25 +75,40 @@ fn render_connection_blocker(f: &mut Frame, area: Rect, app: &AppState) {
         .unwrap_or_else(|| "Unable to connect to the cluster.".to_string());
 
     let lines = vec![
-        Line::from(vec![
-            Span::styled(
-                "Connection required",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            ),
-        ]),
+        Line::from(vec![Span::styled(
+            "Connection required",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        )]),
         Line::from(""),
         Line::from(message),
         Line::from(""),
         Line::from(vec![
             Span::styled(
                 "Actions: ",
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("n", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "n",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" choose namespace  "),
-            Span::styled("N", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "N",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" enter namespace  "),
-            Span::styled("r", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "r",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" retry"),
         ]),
     ];
@@ -135,12 +147,12 @@ fn render_workload_popup(f: &mut Frame, area: Rect, app: &AppState) {
     let list = List::new(items)
         .highlight_style(theme::selected_style())
         .highlight_symbol("> ");
-        let mut state = ListState::default();
-        if !workloads.is_empty() {
-            let bounded_cursor = app.workload_cursor.min(workloads.len().saturating_sub(1));
-            state.select(Some(bounded_cursor));
-        }
-        f.render_stateful_widget(list, columns[0], &mut state);
+    let mut state = ListState::default();
+    if !workloads.is_empty() {
+        let bounded_cursor = app.workload_cursor.min(workloads.len().saturating_sub(1));
+        state.select(Some(bounded_cursor));
+    }
+    f.render_stateful_widget(list, columns[0], &mut state);
 
     let detail = workloads
         .get(app.workload_cursor.min(workloads.len().saturating_sub(1)))
@@ -149,7 +161,9 @@ fn render_workload_popup(f: &mut Frame, area: Rect, app: &AppState) {
 
     let detail_block = Block::default().borders(Borders::LEFT);
     f.render_widget(
-        Paragraph::new(detail).block(detail_block).wrap(Wrap { trim: true }),
+        Paragraph::new(detail)
+            .block(detail_block)
+            .wrap(Wrap { trim: true }),
         columns[1],
     );
 }
@@ -160,20 +174,20 @@ fn workload_list_item(workload: &WorkloadSummary) -> ListItem<'static> {
         Line::from(vec![
             Span::styled(
                 format!("{:<4}", workload.kind.short_label()),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" "),
             Span::styled(workload.name.clone(), status_style),
         ]),
-        Line::from(vec![
-            Span::styled(
-                format!(
-                    "ready {}/{}  avail {}",
-                    workload.ready_replicas, workload.desired_replicas, workload.available_replicas
-                ),
-                Style::default().fg(Color::Gray),
+        Line::from(vec![Span::styled(
+            format!(
+                "ready {}/{}  avail {}",
+                workload.ready_replicas, workload.desired_replicas, workload.available_replicas
             ),
-        ]),
+            Style::default().fg(Color::Gray),
+        )]),
     ])
 }
 
@@ -182,7 +196,9 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
         Line::from(vec![
             Span::styled(
                 format!("{} ", workload.kind.short_label()),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 workload.name.clone(),
@@ -231,7 +247,9 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
         "Recent events",
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
     )]));
 
     if workload.recent_events.is_empty() {
@@ -248,7 +266,9 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
             lines.push(Line::from(vec![
                 Span::styled(
                     format!("{:<10}", event.reason),
-                    Style::default().fg(event_color).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(event_color)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(format!(" x{} ", event.count)),
                 Span::styled(event.message.clone(), Style::default().fg(Color::White)),
@@ -300,12 +320,12 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
     let popup_area = Rect::new(x, y, popup_w.min(area.width), popup_h.min(area.height));
 
     f.render_widget(Clear, popup_area);
-    
+
     let block = Block::default()
         .title(" Select Namespace (↑/↓ to navigate, Enter to select, Esc to cancel) ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
-    
+
     f.render_widget(block.clone(), popup_area);
 
     let inner = Rect::new(
@@ -322,12 +342,27 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
         .map(|(i, ns)| {
             let (style, prefix) = if i == app.ns_list_cursor {
                 if ns == &app.config.namespace {
-                    (Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD), "● ")
+                    (
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                        "● ",
+                    )
                 } else {
-                    (Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD), "  ")
+                    (
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                        "  ",
+                    )
                 }
             } else if ns == &app.config.namespace {
-                (Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD), "● ")
+                (
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                    "● ",
+                )
             } else {
                 (Style::default().fg(Color::Gray), "  ")
             };
@@ -336,7 +371,7 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
         .collect();
 
     let list = List::new(items).block(Block::default());
-    
+
     let mut state = ListState::default();
     if !app.ns_list.is_empty() {
         state.select(Some(app.ns_list_cursor));
@@ -411,26 +446,33 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
     };
 
     let ns = &app.config.namespace;
-    
-    let mut spans = vec![
-        Span::styled(" cluster-rs  ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-    ];
-    
-    let cluster_label = app.config.cluster_name.as_deref().or_else(|| {
-        app.snapshot.as_ref()?.context_name.as_deref()
-    });
+
+    let mut spans = vec![Span::styled(
+        " cluster-rs  ",
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    )];
+
+    let cluster_label = app
+        .config
+        .cluster_name
+        .as_deref()
+        .or_else(|| app.snapshot.as_ref()?.context_name.as_deref());
     if let Some(cluster) = cluster_label {
         spans.push(Span::styled(
             format!("{}  ", cluster),
-            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
         ));
     }
-    
+
     spans.push(Span::styled(
         format!("ns:{}", ns),
         Style::default().fg(Color::Cyan),
     ));
-    
+
     spans.push(Span::styled(
         format!("  {}{}  ", time, refresh_info),
         Style::default().fg(Color::White),

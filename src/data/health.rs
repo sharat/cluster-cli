@@ -55,7 +55,7 @@ pub fn calculate_health(
 
         // Track unique critical pods (avoid double-counting)
         let mut is_critical = false;
-        
+
         if pod.memory_pct >= CRITICAL_THRESHOLD {
             score = score.saturating_sub(10);
             is_critical = true;
@@ -85,7 +85,7 @@ pub fn calculate_health(
             score = score.saturating_sub(15);
             is_critical = true;
         }
-        
+
         if is_critical {
             critical_pods += 1;
         }
@@ -155,8 +155,7 @@ fn is_high_signal_warning(event: &ClusterEvent) -> bool {
 mod tests {
     use super::calculate_health;
     use crate::data::models::{
-        ClusterEvent, ConditionStatus, EventType, HealthStatus, NodeConditions, NodeMetric,
-        PodInfo,
+        ClusterEvent, ConditionStatus, EventType, HealthStatus, NodeConditions, NodeMetric, PodInfo,
     };
 
     #[test]

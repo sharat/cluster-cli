@@ -43,7 +43,8 @@ impl fmt::Display for KubectlError {
 impl std::error::Error for KubectlError {}
 
 async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
-    ensure_readonly_kubectl_args(program, args).map_err(|err| KubectlError::new(err.to_string()))?;
+    ensure_readonly_kubectl_args(program, args)
+        .map_err(|err| KubectlError::new(err.to_string()))?;
 
     let output = Command::new(program)
         .args(args)
@@ -69,10 +70,9 @@ async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
         let stderr_trimmed = stderr.trim();
         let issue = classify_connection_issue(args, stderr_trimmed);
         return Err(match issue {
-            Some(issue) => KubectlError::with_issue(
-                issue,
-                format!("{program} failed: {stderr_trimmed}"),
-            ),
+            Some(issue) => {
+                KubectlError::with_issue(issue, format!("{program} failed: {stderr_trimmed}"))
+            }
             None => KubectlError::new(format!("{program} failed: {stderr_trimmed}")),
         });
     }
@@ -89,7 +89,10 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
         ["get", ..] | ["top", ..] | ["logs", ..] => Ok(()),
         ["config", "current-context", ..] | ["config", "view", ..] => Ok(()),
         [] => anyhow::bail!("kubectl command is empty"),
-        _ => anyhow::bail!("Rejected non-read-only kubectl command: kubectl {}", args.join(" ")),
+        _ => anyhow::bail!(
+            "Rejected non-read-only kubectl command: kubectl {}",
+            args.join(" ")
+        ),
     }
 }
 
@@ -118,7 +121,9 @@ fn build_node_metrics(top_output: &str, info_json: &Value) -> Vec<NodeMetric> {
 
     if let Some(items) = info_json.get("items").and_then(|v| v.as_array()) {
         for item in items {
-            if let Some(node) = build_node_metric(item, top_map.get(metadata_name(item).as_str()).copied()) {
+            if let Some(node) =
+                build_node_metric(item, top_map.get(metadata_name(item).as_str()).copied())
+            {
                 nodes.push(node);
             }
         }
@@ -406,12 +411,12 @@ fn get_node_health_state(nodes_json: &Value, node_name: &str) -> (NodeConditions
             .unwrap_or(false);
         let draining = false;
 
-        if let Some(condition_entries) = item.pointer("/status/conditions").and_then(|v| v.as_array()) {
+        if let Some(condition_entries) = item
+            .pointer("/status/conditions")
+            .and_then(|v| v.as_array())
+        {
             for condition in condition_entries {
-                let condition_type = condition
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let condition_type = condition.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 let status = parse_condition_status(
                     condition
                         .get("status")
@@ -487,12 +492,12 @@ fn get_node_health_state_for_item(item: &Value) -> (NodeConditions, u8, bool, bo
         .unwrap_or(false);
     let draining = false;
 
-    if let Some(condition_entries) = item.pointer("/status/conditions").and_then(|v| v.as_array()) {
+    if let Some(condition_entries) = item
+        .pointer("/status/conditions")
+        .and_then(|v| v.as_array())
+    {
         for condition in condition_entries {
-            let condition_type = condition
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let condition_type = condition.get("type").and_then(|v| v.as_str()).unwrap_or("");
             let status = parse_condition_status(
                 condition
                     .get("status")
@@ -565,7 +570,10 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
         if parts.len() < 3 {
             continue;
         }
-        top_map.insert(parts[0].to_string(), (parse_cpu(parts[1]), parse_memory_mb(parts[2])));
+        top_map.insert(
+            parts[0].to_string(),
+            (parse_cpu(parts[1]), parse_memory_mb(parts[2])),
+        );
     }
 
     let mut pods = Vec::new();
@@ -615,9 +623,7 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
                 .map(calculate_age)
                 .unwrap_or_else(|| "?".to_string());
 
-            let spec_containers = item
-                .pointer("/spec/containers")
-                .and_then(|v| v.as_array());
+            let spec_containers = item.pointer("/spec/containers").and_then(|v| v.as_array());
             let init_containers = item
                 .pointer("/spec/initContainers")
                 .and_then(|v| v.as_array());
@@ -667,8 +673,7 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
             let crash_looping = container_statuses
                 .map(|arr| {
                     arr.iter().any(|c| {
-                        c.pointer("/state/waiting/reason")
-                            .and_then(|v| v.as_str())
+                        c.pointer("/state/waiting/reason").and_then(|v| v.as_str())
                             == Some("CrashLoopBackOff")
                     })
                 })
@@ -725,13 +730,12 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
     let daemonset_args = ["get", "daemonsets", "-n", namespace, "-o", "json"];
     let replicaset_args = ["get", "replicasets", "-n", namespace, "-o", "json"];
 
-    let (deployments_result, statefulsets_result, daemonsets_result, replicasets_result) =
-        tokio::join!(
-            run_cmd("kubectl", &deployment_args),
-            run_cmd("kubectl", &statefulset_args),
-            run_cmd("kubectl", &daemonset_args),
-            run_cmd("kubectl", &replicaset_args),
-        );
+    let (deployments_result, statefulsets_result, daemonsets_result, replicasets_result) = tokio::join!(
+        run_cmd("kubectl", &deployment_args),
+        run_cmd("kubectl", &statefulset_args),
+        run_cmd("kubectl", &daemonset_args),
+        run_cmd("kubectl", &replicaset_args),
+    );
 
     let deployment_json: Value =
         serde_json::from_str(&deployments_result.unwrap_or_else(|_| "{}".to_string()))
@@ -760,8 +764,8 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
             let ready = status_u32(item, "/status/readyReplicas");
             let available = status_u32(item, "/status/availableReplicas");
             let updated = status_u32(item, "/status/updatedReplicas");
-            let unavailable = status_u32(item, "/status/unavailableReplicas")
-                .max(desired.saturating_sub(ready));
+            let unavailable =
+                status_u32(item, "/status/unavailableReplicas").max(desired.saturating_sub(ready));
             let progressing = find_condition_reason(item, "Progressing");
             let available_condition = find_condition_status(item, "Available");
             let status = workload_health(unavailable, progressing.as_deref(), available_condition);
@@ -861,8 +865,8 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
             let ready = status_u32(item, "/status/numberReady");
             let available = status_u32(item, "/status/numberAvailable");
             let updated = status_u32(item, "/status/updatedNumberScheduled");
-            let unavailable = status_u32(item, "/status/numberUnavailable")
-                .max(desired.saturating_sub(ready));
+            let unavailable =
+                status_u32(item, "/status/numberUnavailable").max(desired.saturating_sub(ready));
             let status = workload_health(unavailable, None, Some(ConditionStatus::True));
             let rollout_status =
                 daemonset_rollout_status(desired, ready, available, updated, unavailable);
@@ -895,10 +899,7 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
     Ok(workloads)
 }
 
-pub fn attach_workload_events(
-    workloads: &mut [WorkloadSummary],
-    events: &[ClusterEvent],
-) {
+pub fn attach_workload_events(workloads: &mut [WorkloadSummary], events: &[ClusterEvent]) {
     for workload in workloads.iter_mut() {
         let mut recent_events: Vec<ClusterEvent> = events
             .iter()
@@ -915,9 +916,7 @@ pub fn attach_workload_events(
         if recent_events.is_empty() {
             recent_events = events
                 .iter()
-                .filter(|event| {
-                    event.kind == workload.kind.as_str() && event.name == workload.name
-                })
+                .filter(|event| event.kind == workload.kind.as_str() && event.name == workload.name)
                 .take(3)
                 .cloned()
                 .collect();
@@ -933,10 +932,16 @@ fn sum_container_cpu_resources(containers: Option<&Vec<Value>>) -> (u64, u64) {
 
     if let Some(containers) = containers {
         for container in containers {
-            if let Some(value) = container.pointer("/resources/requests/cpu").and_then(|v| v.as_str()) {
+            if let Some(value) = container
+                .pointer("/resources/requests/cpu")
+                .and_then(|v| v.as_str())
+            {
                 requests += parse_cpu(value);
             }
-            if let Some(value) = container.pointer("/resources/limits/cpu").and_then(|v| v.as_str()) {
+            if let Some(value) = container
+                .pointer("/resources/limits/cpu")
+                .and_then(|v| v.as_str())
+            {
                 limits += parse_cpu(value);
             }
         }
@@ -957,7 +962,10 @@ fn sum_container_memory_resources(containers: Option<&Vec<Value>>) -> (u64, u64)
             {
                 requests += parse_memory_mb(value);
             }
-            if let Some(value) = container.pointer("/resources/limits/memory").and_then(|v| v.as_str()) {
+            if let Some(value) = container
+                .pointer("/resources/limits/memory")
+                .and_then(|v| v.as_str())
+            {
                 limits += parse_memory_mb(value);
             }
         }
@@ -972,10 +980,16 @@ fn max_container_cpu_resources(containers: Option<&Vec<Value>>) -> (u64, u64) {
 
     if let Some(containers) = containers {
         for container in containers {
-            if let Some(value) = container.pointer("/resources/requests/cpu").and_then(|v| v.as_str()) {
+            if let Some(value) = container
+                .pointer("/resources/requests/cpu")
+                .and_then(|v| v.as_str())
+            {
                 max_requests = max_requests.max(parse_cpu(value));
             }
-            if let Some(value) = container.pointer("/resources/limits/cpu").and_then(|v| v.as_str()) {
+            if let Some(value) = container
+                .pointer("/resources/limits/cpu")
+                .and_then(|v| v.as_str())
+            {
                 max_limits = max_limits.max(parse_cpu(value));
             }
         }
@@ -996,7 +1010,10 @@ fn max_container_memory_resources(containers: Option<&Vec<Value>>) -> (u64, u64)
             {
                 max_requests = max_requests.max(parse_memory_mb(value));
             }
-            if let Some(value) = container.pointer("/resources/limits/memory").and_then(|v| v.as_str()) {
+            if let Some(value) = container
+                .pointer("/resources/limits/memory")
+                .and_then(|v| v.as_str())
+            {
                 max_limits = max_limits.max(parse_memory_mb(value));
             }
         }
@@ -1110,7 +1127,15 @@ fn summarize_container_state(status: &Value) -> String {
 pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
     let output = run_cmd(
         "kubectl",
-        &["get", "events", "-n", namespace, "--sort-by=.lastTimestamp", "-o", "json"],
+        &[
+            "get",
+            "events",
+            "-n",
+            namespace,
+            "--sort-by=.lastTimestamp",
+            "-o",
+            "json",
+        ],
     )
     .await?;
 
@@ -1174,7 +1199,7 @@ pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
 
 pub async fn fetch_namespaces() -> Result<Vec<String>> {
     let output = run_cmd("kubectl", &["get", "namespaces", "--no-headers"]).await?;
-    
+
     let mut namespaces: Vec<String> = output
         .lines()
         .filter_map(|line| {
@@ -1182,7 +1207,7 @@ pub async fn fetch_namespaces() -> Result<Vec<String>> {
             parts.first().map(|s| s.to_string())
         })
         .collect();
-    
+
     namespaces.sort();
     Ok(namespaces)
 }
@@ -1207,7 +1232,13 @@ pub async fn fetch_current_context() -> Result<String> {
 pub async fn fetch_current_namespace() -> Result<String> {
     let output = run_cmd(
         "kubectl",
-        &["config", "view", "--minify", "-o", "jsonpath={.contexts[0].context.namespace}"],
+        &[
+            "config",
+            "view",
+            "--minify",
+            "-o",
+            "jsonpath={.contexts[0].context.namespace}",
+        ],
     )
     .await?;
     let ns = output.trim().to_string();
@@ -1216,8 +1247,7 @@ pub async fn fetch_current_namespace() -> Result<String> {
             ConnectionIssue {
                 kind: ConnectionIssueKind::NamespaceUnavailable,
                 namespace: None,
-                detail: "No namespace is configured in the current kubectl context."
-                    .to_string(),
+                detail: "No namespace is configured in the current kubectl context.".to_string(),
             },
             "No namespace is configured in the current kubectl context.",
         )
@@ -1316,9 +1346,7 @@ fn metadata_name(item: &Value) -> String {
 }
 
 fn status_u32(item: &Value, pointer: &str) -> u32 {
-    item.pointer(pointer)
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32
+    item.pointer(pointer).and_then(|v| v.as_u64()).unwrap_or(0) as u32
 }
 
 fn find_condition_reason(item: &Value, condition_type: &str) -> Option<String> {
@@ -1367,7 +1395,10 @@ fn build_deployment_replicaset_map(replicasets_json: &Value) -> HashMap<String, 
                 continue;
             }
 
-            if let Some(owner_refs) = item.pointer("/metadata/ownerReferences").and_then(|v| v.as_array()) {
+            if let Some(owner_refs) = item
+                .pointer("/metadata/ownerReferences")
+                .and_then(|v| v.as_array())
+            {
                 for owner in owner_refs {
                     if owner.get("kind").and_then(|v| v.as_str()) == Some("Deployment") {
                         if let Some(deployment_name) = owner.get("name").and_then(|v| v.as_str()) {
@@ -1444,7 +1475,9 @@ fn statefulset_rollout_status(
     if updated < desired {
         return format!("updating pods: {updated}/{desired} updated");
     }
-    if !update_revision.is_empty() && !current_revision.is_empty() && update_revision != current_revision
+    if !update_revision.is_empty()
+        && !current_revision.is_empty()
+        && update_revision != current_revision
     {
         return format!("revision shift: {current}/{desired} current");
     }
@@ -1477,7 +1510,7 @@ fn calculate_age(timestamp: &str) -> String {
     // Try RFC3339 first, then RFC2822, then other common formats
     let parsed = chrono::DateTime::parse_from_rfc3339(timestamp)
         .or_else(|_| chrono::DateTime::parse_from_rfc2822(timestamp));
-    
+
     if let Ok(t) = parsed {
         let now = chrono::Utc::now();
         // Use safe duration calculation to avoid panics
@@ -1501,9 +1534,9 @@ fn calculate_age(timestamp: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        attach_workload_events, build_node_metrics, deployment_rollout_status,
-        derive_node_status, derive_pod_status, effective_pod_cpu_resources,
-        effective_pod_memory_resources, ensure_readonly_kubectl_args, workload_health,
+        attach_workload_events, build_node_metrics, deployment_rollout_status, derive_node_status,
+        derive_pod_status, effective_pod_cpu_resources, effective_pod_memory_resources,
+        ensure_readonly_kubectl_args, workload_health,
     };
     use crate::data::models::{
         ClusterEvent, ConditionStatus, EventType, HealthStatus, WorkloadKind, WorkloadSummary,
@@ -1533,14 +1566,7 @@ mod tests {
             "rollout in progress: 4/5 ready, 1 unavailable"
         );
         assert_eq!(
-            deployment_rollout_status(
-                5,
-                2,
-                2,
-                3,
-                Some("ProgressDeadlineExceeded"),
-                None,
-            ),
+            deployment_rollout_status(5, 2, 2, 3, Some("ProgressDeadlineExceeded"), None,),
             "deadline exceeded"
         );
     }

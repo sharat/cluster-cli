@@ -241,10 +241,20 @@ impl IncidentSeverity {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IncidentTarget {
-    Pod { pod_name: String },
-    Node { node_name: String },
-    Workload { kind: String, name: String },
-    Container { pod_name: String, container_name: String },
+    Pod {
+        pod_name: String,
+    },
+    Node {
+        node_name: String,
+    },
+    Workload {
+        kind: String,
+        name: String,
+    },
+    Container {
+        pod_name: String,
+        container_name: String,
+    },
 }
 
 impl IncidentTarget {

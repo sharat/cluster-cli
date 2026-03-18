@@ -20,10 +20,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         .filter(|(_, t)| t.elapsed().as_secs() < 5);
 
     let (text, style) = if let Some((msg, _)) = fresh_error {
-        (
-            format!(" ⚠  {} ", msg),
-            Style::default().fg(Color::Yellow),
-        )
+        (format!(" ⚠  {} ", msg), Style::default().fg(Color::Yellow))
     } else if app.is_loading {
         (
             " ⟳ Loading...".to_string(),

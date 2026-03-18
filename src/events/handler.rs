@@ -25,7 +25,11 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 app.clear_incident_focus();
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                let len = app.snapshot.as_ref().map(|s| s.workloads.len()).unwrap_or(0);
+                let len = app
+                    .snapshot
+                    .as_ref()
+                    .map(|s| s.workloads.len())
+                    .unwrap_or(0);
                 if app.workload_cursor + 1 < len {
                     app.workload_cursor += 1;
                 }
@@ -125,7 +129,12 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 app.refresh_input.clear();
             }
             KeyCode::Enter => {
-                let parsed = app.refresh_input.trim().parse::<u64>().ok().filter(|secs| *secs > 0);
+                let parsed = app
+                    .refresh_input
+                    .trim()
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|secs| *secs > 0);
                 app.refresh_input_active = false;
                 app.refresh_input.clear();
 
@@ -320,9 +329,10 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                     }));
                 }
             } else if app.focused_panel == Panel::Nodes {
-                let node_info = app.snapshot.as_ref().and_then(|s| {
-                    s.nodes.get(app.node_cursor).map(|n| n.name.clone())
-                });
+                let node_info = app
+                    .snapshot
+                    .as_ref()
+                    .and_then(|s| s.nodes.get(app.node_cursor).map(|n| n.name.clone()));
                 if let Some(node_name) = node_info {
                     app.view = AppView::NodeDetail { node_name };
                     app.detail_scroll = 0;
@@ -487,7 +497,11 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
                 app.node_cursor = app.node_cursor.min(node_len - 1);
             }
 
-            let workload_len = app.snapshot.as_ref().map(|s| s.workloads.len()).unwrap_or(0);
+            let workload_len = app
+                .snapshot
+                .as_ref()
+                .map(|s| s.workloads.len())
+                .unwrap_or(0);
             if workload_len == 0 {
                 app.workload_cursor = 0;
             } else {
@@ -535,7 +549,10 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
         DataEvent::Namespaces(namespaces) => {
             app.ns_list = namespaces;
             if app.ns_list_active {
-                let current_idx = app.ns_list.iter().position(|ns| ns == &app.config.namespace);
+                let current_idx = app
+                    .ns_list
+                    .iter()
+                    .position(|ns| ns == &app.config.namespace);
                 if let Some(idx) = current_idx {
                     app.ns_list_cursor = idx;
                 }
@@ -599,10 +616,16 @@ mod tests {
     fn w_toggles_workload_popup_on_dashboard() {
         let mut app = AppState::new(Config::default());
 
-        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+        );
         assert!(app.workload_popup_active);
 
-        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+        );
         assert!(!app.workload_popup_active);
     }
 
@@ -611,11 +634,17 @@ mod tests {
         let mut app = AppState::new(Config::default());
         app.pod_cursor = 3;
 
-        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
         assert_eq!(app.pod_sort_mode, PodSortMode::Restarts);
         assert_eq!(app.pod_cursor, 0);
 
-        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
         assert_eq!(app.pod_sort_mode, PodSortMode::Cpu);
     }
 
@@ -632,7 +661,10 @@ mod tests {
         snapshot.context_name = Some("prod-cluster".to_string());
         app.snapshot = Some(snapshot);
 
-        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE));
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE),
+        );
 
         assert!(app.export_input_active);
         assert!(app.export_input.ends_with(".csv"));
@@ -655,10 +687,7 @@ mod tests {
         app.export_input = "custom-export.csv".to_string();
         app.snapshot = Some(snapshot);
 
-        let command = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        let command = handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
         assert!(!app.export_input_active);
         assert!(app.export_input.is_empty());
@@ -773,7 +802,10 @@ mod tests {
 
         assert!(command.is_none());
         assert_eq!(app.focused_panel, Panel::Pods);
-        let focus = app.incident_focus.as_ref().expect("incident focus should be set");
+        let focus = app
+            .incident_focus
+            .as_ref()
+            .expect("incident focus should be set");
         assert_eq!(focus.reason, "CrashLoopBackOff");
         assert!(focus.pod_names.contains("api-0"));
         assert!(focus.pod_names.contains("worker-0"));

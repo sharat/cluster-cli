@@ -179,13 +179,11 @@ impl AppState {
     }
 
     pub fn update_pod_history(&mut self, pods: &[PodInfo]) {
-        let active_keys: HashSet<String> = pods
-            .iter()
-            .map(pod_history_key)
-            .collect();
+        let active_keys: HashSet<String> = pods.iter().map(pod_history_key).collect();
         self.pod_memory_history
             .retain(|key, _| active_keys.contains(key));
-        self.pod_cpu_history.retain(|key, _| active_keys.contains(key));
+        self.pod_cpu_history
+            .retain(|key, _| active_keys.contains(key));
 
         for pod in pods {
             let key = pod_history_key(pod);
@@ -224,8 +222,8 @@ impl AppState {
             .pods
             .iter()
             .filter(|pod| {
-                let matches_manual =
-                    self.pod_filter.is_empty() || contains_case_insensitive(&pod.name, &self.pod_filter);
+                let matches_manual = self.pod_filter.is_empty()
+                    || contains_case_insensitive(&pod.name, &self.pod_filter);
                 let matches_incident = incident_focus
                     .map(|focus| focus.matches(pod))
                     .unwrap_or(true);
@@ -256,7 +254,7 @@ impl AppState {
                 .iter()
                 .filter(|p| p.namespace == self.config.namespace)
                 .collect();
-            
+
             summary.pod_count = namespace_pods.len();
             for pod in namespace_pods {
                 summary.cpu_usage_millicores += pod.cpu_millicores;
@@ -352,14 +350,12 @@ impl AppState {
     pub fn blocking_connection_message(&self) -> Option<String> {
         let issue = self.connection_issue.as_ref()?;
         Some(match issue.kind {
-            crate::data::models::ConnectionIssueKind::KubectlMissing => format!(
-                "{} Press `r` to retry.",
-                issue.detail
-            ),
-            crate::data::models::ConnectionIssueKind::NoContext => format!(
-                "{} Press `r` to retry.",
-                issue.detail
-            ),
+            crate::data::models::ConnectionIssueKind::KubectlMissing => {
+                format!("{} Press `r` to retry.", issue.detail)
+            }
+            crate::data::models::ConnectionIssueKind::NoContext => {
+                format!("{} Press `r` to retry.", issue.detail)
+            }
             crate::data::models::ConnectionIssueKind::NamespaceUnavailable => {
                 if issue.namespace.is_none() && self.config.namespace.is_empty() {
                     issue.detail.clone()
@@ -475,15 +471,15 @@ fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
     if needle.is_empty() {
         return true;
     }
-    
+
     let mut haystack_chars = haystack.chars();
     let mut needle_chars = needle.chars();
-    
+
     let Some(first_needle) = needle_chars.next() else {
         return true;
     };
     let first_needle_lower = first_needle.to_lowercase().next().unwrap_or(first_needle);
-    
+
     'outer: loop {
         // Find first matching character
         loop {
@@ -493,11 +489,11 @@ fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
                 None => return false,
             }
         }
-        
+
         // Check if rest of needle matches
         let mut haystack_clone = haystack_chars.clone();
         let mut needle_clone = needle_chars.clone();
-        
+
         loop {
             match (haystack_clone.next(), needle_clone.next()) {
                 (Some(h), Some(n)) => {
@@ -509,7 +505,7 @@ fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
                 }
                 (None, Some(_)) => return false, // haystack ended before needle
                 (Some(_), None) => return true,  // matched all of needle
-                (None, None) => return true,    // matched all of needle
+                (None, None) => return true,     // matched all of needle
             }
         }
     }
@@ -672,10 +668,20 @@ mod tests {
         app.update_pod_history(&[pod("pod-a", "ns", 20, 40), pod("pod-b", "ns", 30, 50)]);
         app.update_pod_history(&[pod("pod-b", "ns", 35, 60)]);
 
-        assert!(app.get_pod_memory_history(&pod("pod-a", "ns", 20, 40)).is_none());
-        assert!(app.get_pod_cpu_history(&pod("pod-a", "ns", 20, 40)).is_none());
-        assert_eq!(app.get_pod_memory_history(&pod("pod-b", "ns", 35, 60)), Some(&vec![50, 60]));
-        assert_eq!(app.get_pod_cpu_history(&pod("pod-b", "ns", 35, 60)), Some(&vec![30, 35]));
+        assert!(app
+            .get_pod_memory_history(&pod("pod-a", "ns", 20, 40))
+            .is_none());
+        assert!(app
+            .get_pod_cpu_history(&pod("pod-a", "ns", 20, 40))
+            .is_none());
+        assert_eq!(
+            app.get_pod_memory_history(&pod("pod-b", "ns", 35, 60)),
+            Some(&vec![50, 60])
+        );
+        assert_eq!(
+            app.get_pod_cpu_history(&pod("pod-b", "ns", 35, 60)),
+            Some(&vec![30, 35])
+        );
     }
 
     #[test]
@@ -700,12 +706,26 @@ mod tests {
             vec![
                 pod_with_state("worker", "ns", HealthStatus::Warning, 1, 90, 10, true, 1, 1),
                 pod_with_state("api", "ns", HealthStatus::Critical, 5, 20, 50, false, 0, 1),
-                pod_with_state("batch", "ns", HealthStatus::Elevated, 3, 20, 80, false, 0, 1),
+                pod_with_state(
+                    "batch",
+                    "ns",
+                    HealthStatus::Elevated,
+                    3,
+                    20,
+                    80,
+                    false,
+                    0,
+                    1,
+                ),
             ],
             vec![],
         ));
 
-        let names: Vec<&str> = app.filtered_pods().iter().map(|pod| pod.name.as_str()).collect();
+        let names: Vec<&str> = app
+            .filtered_pods()
+            .iter()
+            .map(|pod| pod.name.as_str())
+            .collect();
 
         assert_eq!(names, vec!["worker", "api", "batch"]);
     }
@@ -716,7 +736,17 @@ mod tests {
         app.snapshot = Some(snapshot_with(
             vec![
                 pod_with_state("api", "ns", HealthStatus::Critical, 1, 20, 50, false, 0, 1),
-                pod_with_state("batch", "ns", HealthStatus::Elevated, 3, 20, 80, false, 0, 1),
+                pod_with_state(
+                    "batch",
+                    "ns",
+                    HealthStatus::Elevated,
+                    3,
+                    20,
+                    80,
+                    false,
+                    0,
+                    1,
+                ),
                 pod_with_state("worker", "ns", HealthStatus::Warning, 1, 90, 10, true, 1, 1),
             ],
             vec![
@@ -760,7 +790,11 @@ mod tests {
         ));
         app.pod_sort_mode = PodSortMode::LatestIncident;
 
-        let names: Vec<&str> = app.filtered_pods().iter().map(|pod| pod.name.as_str()).collect();
+        let names: Vec<&str> = app
+            .filtered_pods()
+            .iter()
+            .map(|pod| pod.name.as_str())
+            .collect();
 
         assert_eq!(names, vec!["batch", "worker", "api"]);
     }
@@ -865,7 +899,10 @@ mod tests {
         let filtered = app.filtered_pods();
 
         assert_eq!(
-            filtered.iter().map(|pod| pod.name.as_str()).collect::<Vec<_>>(),
+            filtered
+                .iter()
+                .map(|pod| pod.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["worker", "api", "batch"]
         );
     }
@@ -892,7 +929,10 @@ mod tests {
         app.snapshot = Some(ClusterSnapshot {
             nodes: vec![],
             workloads: vec![],
-            pods: vec![pod("api", "default", 10, 10), pod("worker", "default", 10, 10)],
+            pods: vec![
+                pod("api", "default", 10, 10),
+                pod("worker", "default", 10, 10),
+            ],
             events: vec![],
             incident_buckets: vec![bucket.clone()],
             health: HealthScore {

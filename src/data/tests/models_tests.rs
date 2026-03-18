@@ -70,14 +70,14 @@ fn test_pod_history_new() {
 #[test]
 fn test_pod_history_add_sample() {
     let mut history = PodHistory::new("test-pod".to_string(), "default".to_string());
-    
+
     history.add_sample(50, 5);
     assert_eq!(history.memory_samples.len(), 1);
     assert_eq!(history.memory_samples.front(), Some(&50));
-    
+
     history.add_sample(75, 5);
     assert_eq!(history.memory_samples.len(), 2);
-    
+
     // Test max samples limit
     for i in 0..10 {
         history.add_sample(i as u8, 5);

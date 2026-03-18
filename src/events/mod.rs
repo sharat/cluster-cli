@@ -19,10 +19,22 @@ pub enum DataEvent {
 
 #[derive(Debug)]
 pub enum FetchCommand {
-    RefreshAll { namespace: String },
-    UpdateRefreshInterval { namespace: String, interval_secs: u64 },
-    StartLogStream { pod: String, namespace: String },
+    RefreshAll {
+        namespace: String,
+    },
+    UpdateRefreshInterval {
+        namespace: String,
+        interval_secs: u64,
+    },
+    StartLogStream {
+        pod: String,
+        namespace: String,
+    },
     StopLogStream,
     FetchNamespaces,
-    ExportPods { cluster_name: Option<String>, namespace: String, path: String },
+    ExportPods {
+        cluster_name: Option<String>,
+        namespace: String,
+        path: String,
+    },
 }

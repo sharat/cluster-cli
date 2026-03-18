@@ -1,3 +1,3 @@
 pub mod dashboard;
-pub mod pod_detail;
 pub mod node_detail;
+pub mod pod_detail;
