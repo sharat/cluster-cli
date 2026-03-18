@@ -44,6 +44,20 @@ For the current detailed feature inventory, see [features.md](features.md).
 
 ## Installation
 
+### Quick Install (Recommended)
+
+Install the latest release directly using curl:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash
+```
+
+Or install to a custom directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | INSTALL_DIR=$HOME/.local/bin bash
+```
+
 ### Build from Source
 
 ```bash
