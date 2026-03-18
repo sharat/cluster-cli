@@ -103,6 +103,10 @@ cluster -n my-namespace -c my-cluster --refresh 300
 # Just ensure kubectl is configured with the correct context
 ```
 
+### Trying it Out
+
+Don't have a Kubernetes cluster with workloads yet? You can try `cluster-cli` with example applications from the [Kubernetes Examples repository](https://github.com/kubernetes/examples). Deploy any example (like the guestbook or nginx apps) to your cluster, then run `cluster-cli` to see the dashboard in action.
+
 ## Configuration
 
 ### Configuration File

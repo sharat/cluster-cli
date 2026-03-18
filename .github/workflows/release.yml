@@ -1,0 +1,130 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt -- --check
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+      - name: Run tests
+        run: cargo test --verbose
+
+  build:
+    name: Build Release
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: cluster
+            archive: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary: cluster
+            archive: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: cluster.exe
+            archive: zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Package (Unix)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czvf ../../../cluster-${{ matrix.target }}.tar.gz ${{ matrix.binary }}
+          cd ../../..
+          sha256sum cluster-${{ matrix.target }}.tar.gz > cluster-${{ matrix.target }}.tar.gz.sha256
+      - name: Package (Windows)
+        if: matrix.archive == 'zip'
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ../../../cluster-${{ matrix.target }}.zip ${{ matrix.binary }}
+          cd ../../..
+          certutil -hashfile cluster-${{ matrix.target }}.zip SHA256 | findstr /v "hash" > cluster-${{ matrix.target }}.zip.sha256
+        shell: cmd
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cluster-${{ matrix.target }}
+          path: |
+            cluster-${{ matrix.target }}.*
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: cluster-*
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Get previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+          
+          if [ -z "$PREV_TAG" ]; then
+            echo "changelog=Initial release $VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "changelog=Changes since $PREV_TAG:" >> $GITHUB_OUTPUT
+            git log --pretty=format:"- %s" $PREV_TAG..HEAD >> $GITHUB_OUTPUT
+          fi
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ steps.changelog.outputs.version }}
+          body: |
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Installation
+
+            Download the appropriate binary for your platform:
+            - **Linux x86_64**: `cluster-x86_64-unknown-linux-gnu.tar.gz`
+            - **macOS ARM64**: `cluster-aarch64-apple-darwin.tar.gz`
+            - **Windows x86_64**: `cluster-x86_64-pc-windows-msvc.zip`
+
+            ### Verify checksums
+            SHA256 checksums are provided for each archive.
+          files: |
+            artifacts/cluster-*/*.tar.gz
+            artifacts/cluster-*/*.zip
+            artifacts/cluster-*/*.sha256
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
