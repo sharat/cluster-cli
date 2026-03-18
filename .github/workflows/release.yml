@@ -105,7 +105,7 @@ jobs:
             git log --pretty=format:"- %s" $PREV_TAG..HEAD >> $GITHUB_OUTPUT
           fi
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ steps.changelog.outputs.version }}
           body: |
