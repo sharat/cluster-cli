@@ -10,7 +10,8 @@ NC='\033[0m' # No Color
 # Configuration
 REPO="sharat/cluster-cli"
 BINARY_NAME="cluster"
-INSTALL_DIR="/usr/local/bin"
+# Default to user-local bin directory to avoid sudo
+INSTALL_DIR="${HOME}/.local/bin"
 
 # Print error and exit
 error() {
@@ -105,7 +106,13 @@ main() {
         tar -xzf "$FILENAME"
     fi
     
-    # Check if we need sudo
+    # Create install directory if it doesn't exist
+    if [ ! -d "$INSTALL_DIR" ]; then
+        info "Creating install directory $INSTALL_DIR..."
+        mkdir -p "$INSTALL_DIR"
+    fi
+    
+    # Check if we need sudo (shouldn't for ~/.local/bin)
     if [ -w "$INSTALL_DIR" ]; then
         SUDO=""
     else
@@ -132,8 +139,21 @@ main() {
         echo ""
         echo "To uninstall: rm $INSTALL_DIR/$BINARY_NAME"
     else
-        error "Installation completed but 'cluster' not found in PATH"
-        echo "You may need to add $INSTALL_DIR to your PATH"
+        success "✓ cluster-cli installed to $INSTALL_DIR"
+        echo ""
+        echo "⚠️  $INSTALL_DIR is not in your PATH"
+        echo ""
+        echo "Add this to your shell configuration file:"
+        echo ""
+        if [ -n "$ZSH_VERSION" ]; then
+            echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc"
+            echo "  source ~/.zshrc"
+        else
+            echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc"
+            echo "  source ~/.bashrc"
+        fi
+        echo ""
+        echo "Then run: cluster --help"
     fi
 }
 
@@ -148,7 +168,7 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --install-dir DIR    Install to custom directory (default: /usr/local/bin)"
+            echo "  --install-dir DIR    Install to custom directory (default: ~/.local/bin)"
             echo "  --help, -h          Show this help message"
             echo ""
             echo "Environment variables:"
