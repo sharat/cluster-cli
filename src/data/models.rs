@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::time::Instant;
 
 /// Memory/CPU percentage at which a resource is considered under pressure.
@@ -89,6 +87,8 @@ pub struct NodeInfo {
     pub kubelet_version: String,
     pub architecture: String,
     pub operating_system: String,
+    /// Parsed from kubectl node info but not yet displayed in the UI.
+    #[allow(dead_code)]
     pub kernel: String,
 }
 
@@ -183,6 +183,9 @@ pub struct ResourceUsageSummary {
     pub memory_limit_mb: u64,
 }
 
+/// Historical memory samples per pod, intended for sparkline rendering.
+/// Currently only exercised in tests; the UI uses in-memory vecs in AppState instead.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PodHistory {
     pub name: String,
@@ -190,6 +193,7 @@ pub struct PodHistory {
     pub memory_samples: std::collections::VecDeque<u8>,
 }
 
+#[allow(dead_code)]
 impl PodHistory {
     pub fn new(name: String, namespace: String) -> Self {
         Self {

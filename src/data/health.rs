@@ -2,21 +2,6 @@ use crate::data::models::{
     ClusterEvent, EventType, HealthScore, NodeMetric, PodInfo, GRADE_A_THRESHOLD,
     GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD, RESOURCE_PRESSURE_PCT,
 };
-const WARNING_EVENT_REASONS: &[&str] = &[
-    "FailedScheduling",
-    "FailedMount",
-    "FailedAttachVolume",
-    "BackOff",
-    "Unhealthy",
-    "Failed",
-    "FailedCreate",
-    "FailedCreatePodSandBox",
-    "Evicted",
-    "ProgressDeadlineExceeded",
-    "ReplicaFailure",
-    "FailedDaemonPod",
-    "RolloutAborted",
-];
 const ROLLOUT_FAILURE_REASONS: &[&str] = &[
     "ProgressDeadlineExceeded",
     "ReplicaFailure",
@@ -145,11 +130,6 @@ fn is_rollout_failure(event: &ClusterEvent) -> bool {
     message.contains("progress deadline exceeded")
         || message.contains("replica failure")
         || message.contains("rollout") && message.contains("failed")
-}
-
-#[allow(dead_code)]
-fn is_high_signal_warning(event: &ClusterEvent) -> bool {
-    WARNING_EVENT_REASONS.contains(&event.reason.as_str())
 }
 
 #[cfg(test)]
