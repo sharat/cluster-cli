@@ -1,5 +1,7 @@
 # cluster-rs
 
+![cluster-cli logo](images/logo.png)
+
 [![CI](https://github.com/sharat/cluster-cli/workflows/CI/badge.svg)](https://github.com/sharat/cluster-cli/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -35,6 +37,10 @@ For the current detailed feature inventory, see [features.md](features.md).
 - **Read-Only by Design**: Only read-only `kubectl` commands are allowed; the app does not persist local state
 - **Filtering**: Search pods by name and switch namespaces interactively
 - **Configurable**: Adjust refresh rates, namespaces, and node pool filters
+
+## Screenshot
+
+![cluster-cli screenshot](images/screenshot.png)
 
 ## Prerequisites
 
