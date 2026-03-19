@@ -67,10 +67,10 @@ async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
                         namespace: None,
                         detail: "kubectl was not found in PATH".to_string(),
                     },
-                    format!("Failed to run {program} {:?}: {err}", args),
+                    format!("Failed to run {program} {args:?}: {err}"),
                 )
             } else {
-                KubectlError::new(format!("Failed to run {program} {:?}: {err}", args))
+                KubectlError::new(format!("Failed to run {program} {args:?}: {err}"))
             }
         })?;
 
@@ -91,7 +91,7 @@ async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
 
 pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> {
     if program != "kubectl" {
-        anyhow::bail!("Only kubectl is allowed, got {}", program);
+        anyhow::bail!("Only kubectl is allowed, got {program}");
     }
 
     match args {
@@ -1308,7 +1308,10 @@ fn classify_connection_issue(args: &[&str], stderr: &str) -> Option<ConnectionIs
         return Some(ConnectionIssue {
             kind: ConnectionIssueKind::Generic,
             namespace: None,
-            detail: stderr_trim_or_default(stderr, "Unable to connect to the Kubernetes API server."),
+            detail: stderr_trim_or_default(
+                stderr,
+                "Unable to connect to the Kubernetes API server.",
+            ),
         });
     }
 
@@ -1544,7 +1547,7 @@ fn calculate_age(timestamp: &str) -> String {
         let secs = duration.num_seconds().max(0);
 
         if secs < 60 {
-            format!("{}s", secs)
+            format!("{secs}s")
         } else if secs < 3600 {
             format!("{}m", secs / 60)
         } else if secs < 86400 {

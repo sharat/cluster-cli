@@ -104,7 +104,7 @@ impl Fetcher {
         let (context_name, context_issue) = match context_result {
             Ok(context) => (Some(context), None),
             Err(e) => {
-                errors.push(format!("Context: {}", e));
+                errors.push(format!("Context: {e}"));
                 (None, collector::classify_kubectl_error(&e))
             }
         };
@@ -113,7 +113,7 @@ impl Fetcher {
         let nodes = match nodes_result {
             Ok(n) => n,
             Err(e) => {
-                errors.push(format!("Nodes: {}", e));
+                errors.push(format!("Nodes: {e}"));
                 connection_issue = prioritize_connection_issue(
                     connection_issue,
                     collector::classify_kubectl_error(&e),
@@ -126,7 +126,7 @@ impl Fetcher {
             Ok(workloads) => workloads,
             Err(e) => {
                 error!("Failed to fetch workloads: {}", e);
-                errors.push(format!("Workloads: {}", e));
+                errors.push(format!("Workloads: {e}"));
                 connection_issue = prioritize_connection_issue(
                     connection_issue,
                     collector::classify_kubectl_error(&e),
@@ -139,7 +139,7 @@ impl Fetcher {
             Ok(pods) => pods,
             Err(e) => {
                 error!("Failed to fetch pods: {}", e);
-                errors.push(format!("Pods: {}", e));
+                errors.push(format!("Pods: {e}"));
                 connection_issue = prioritize_connection_issue(
                     connection_issue,
                     collector::classify_kubectl_error(&e),
@@ -152,7 +152,7 @@ impl Fetcher {
             Ok(events) => events,
             Err(e) => {
                 error!("Failed to fetch events: {}", e);
-                errors.push(format!("Events: {}", e));
+                errors.push(format!("Events: {e}"));
                 connection_issue = prioritize_connection_issue(
                     connection_issue,
                     collector::classify_kubectl_error(&e),
@@ -218,10 +218,9 @@ impl Fetcher {
                 let _ = self
                     .tx
                     .send(AppEvent::Data(DataEvent::ConnectionState(issue)));
-                let _ = self.tx.send(AppEvent::Data(DataEvent::Error(format!(
-                    "Namespaces: {}",
-                    e
-                ))));
+                let _ = self
+                    .tx
+                    .send(AppEvent::Data(DataEvent::Error(format!("Namespaces: {e}"))));
             }
         }
     }
@@ -281,14 +280,13 @@ impl Fetcher {
                     context_name: Some(cluster_label.clone()),
                 };
                 match write_pods_csv(&snapshot, &path) {
-                    Ok(count) => format!(
-                        "Exported {} pods to {} (cluster: {})",
-                        count, path, cluster_label
-                    ),
-                    Err(e) => format!("Export failed: {}", e),
+                    Ok(count) => {
+                        format!("Exported {count} pods to {path} (cluster: {cluster_label})")
+                    }
+                    Err(e) => format!("Export failed: {e}"),
                 }
             }
-            Err(e) => format!("Export failed: {}", e),
+            Err(e) => format!("Export failed: {e}"),
         };
         let _ = self
             .tx
@@ -356,10 +354,10 @@ fn write_pods_csv(snapshot: &ClusterSnapshot, path: &str) -> Result<usize, Strin
             if (value.fract() - 0.0).abs() < f64::EPSILON {
                 format!("{}c", value as u64)
             } else {
-                format!("{:.1}c", value)
+                format!("{value:.1}c")
             }
         } else {
-            format!("{}m", millicores)
+            format!("{millicores}m")
         }
     }
 
@@ -371,10 +369,10 @@ fn write_pods_csv(snapshot: &ClusterSnapshot, path: &str) -> Result<usize, Strin
             if (value.fract() - 0.0).abs() < f64::EPSILON {
                 format!("{}Gi", value as u64)
             } else {
-                format!("{:.1}Gi", value)
+                format!("{value:.1}Gi")
             }
         } else {
-            format!("{}Mi", mb)
+            format!("{mb}Mi")
         }
     }
 
@@ -428,8 +426,7 @@ async fn stream_logs(
     let log_args = ["logs", "-n", &namespace, &pod, "--tail=100", "-f"];
     if let Err(e) = collector::ensure_readonly_kubectl_args("kubectl", &log_args) {
         let _ = tx.send(AppEvent::Data(DataEvent::Error(format!(
-            "Rejected log stream command: {}",
-            e
+            "Rejected log stream command: {e}"
         ))));
         return;
     }
@@ -443,8 +440,7 @@ async fn stream_logs(
         Ok(c) => c,
         Err(e) => {
             let _ = tx.send(AppEvent::Data(DataEvent::Error(format!(
-                "Failed to stream logs: {}",
-                e
+                "Failed to stream logs: {e}"
             ))));
             return;
         }

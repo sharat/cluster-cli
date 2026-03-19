@@ -10,7 +10,7 @@ use crate::ui::theme;
 
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let follow_indicator = if app.log_follow { " ▮ following" } else { "" };
-    let title = format!(" Logs (live) [f]ollow{} ", follow_indicator);
+    let title = format!(" Logs (live) [f]ollow{follow_indicator} ");
 
     let block = Block::default()
         .title(title)

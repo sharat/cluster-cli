@@ -363,7 +363,7 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
             } else {
                 (Style::default().fg(Color::Gray), "  ")
             };
-            ListItem::new(format!("{}{}", prefix, ns)).style(style)
+            ListItem::new(format!("{prefix}{ns}")).style(style)
         })
         .collect();
 
@@ -458,7 +458,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
         .or_else(|| app.snapshot.as_ref()?.context_name.as_deref());
     if let Some(cluster) = cluster_label {
         spans.push(Span::styled(
-            format!("{}  ", cluster),
+            format!("{cluster}  "),
             Style::default()
                 .fg(Color::Magenta)
                 .add_modifier(Modifier::BOLD),
@@ -466,12 +466,12 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
     }
 
     spans.push(Span::styled(
-        format!("ns:{}", ns),
+        format!("ns:{ns}"),
         Style::default().fg(Color::Cyan),
     ));
 
     spans.push(Span::styled(
-        format!("  {}{}  ", time, refresh_info),
+        format!("  {time}{refresh_info}  "),
         Style::default().fg(Color::White),
     ));
 

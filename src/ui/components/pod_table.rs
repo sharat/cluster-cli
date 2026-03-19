@@ -76,7 +76,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             let mem_line = resource_triplet_line(pod.memory_pct, String::new());
 
             Row::new(vec![
-                Cell::from(format!("{} {}", icon, phase_short)),
+                Cell::from(format!("{icon} {phase_short}")),
                 Cell::from(pod.name.clone()),
                 Cell::from(cpu_line),
                 Cell::from(format::cpu(pod.cpu_millicores)),
@@ -124,14 +124,14 @@ fn resource_triplet_line(pct: u8, summary: String) -> Line<'static> {
     let mut spans = theme::gradient_bar(pct, 6).spans;
     spans.push(Span::raw(" "));
     spans.push(Span::styled(
-        format!("{:>3}%", pct),
+        format!("{pct:>3}%"),
         Style::default()
             .fg(theme::heat_color(pct))
             .add_modifier(Modifier::BOLD),
     ));
     if !summary.is_empty() {
         spans.push(Span::styled(
-            format!(" {}", summary),
+            format!(" {summary}"),
             Style::default().fg(Color::White),
         ));
     }

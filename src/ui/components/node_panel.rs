@@ -21,7 +21,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let node_count = app.snapshot.as_ref().map(|s| s.nodes.len()).unwrap_or(0);
 
     let block = Block::default()
-        .title(format!(" Nodes ({}) ", node_count))
+        .title(format!(" Nodes ({node_count}) "))
         .borders(Borders::ALL)
         .border_style(border_style);
 
@@ -36,7 +36,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
                 let icon = theme::status_icon(&node.status);
                 let style = theme::status_style(&node.status);
                 let mut spans = vec![
-                    Span::styled(format!("{} ", icon), style),
+                    Span::styled(format!("{icon} "), style),
                     Span::styled(
                         format!("{:<20}", format::truncate_no_ellipsis(&node.name, 20)),
                         Style::default().fg(Color::White),

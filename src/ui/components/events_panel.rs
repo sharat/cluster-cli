@@ -26,7 +26,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         .unwrap_or(0);
 
     let block = Block::default()
-        .title(format!(" Incident Queue ({}) ", incident_count))
+        .title(format!(" Incident Queue ({incident_count}) "))
         .borders(Borders::ALL)
         .border_style(border_style);
 
@@ -105,7 +105,7 @@ fn format_incident_timestamp(timestamp: &str) -> String {
             // On parse failure, show truncated timestamp with ellipsis indicator
             let truncated = format::truncate_no_ellipsis(timestamp, 7);
             if timestamp.len() > 7 {
-                format!("{}...", truncated)
+                format!("{truncated}...")
             } else {
                 truncated
             }

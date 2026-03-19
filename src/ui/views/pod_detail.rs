@@ -40,11 +40,11 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState, pod_name: &str) {
         .current_pod()
         .map(|p| {
             let icon = theme::status_icon(&p.status);
-            format!(" {}  {}", icon, p.phase)
+            format!(" {icon}  {}", p.phase)
         })
         .unwrap_or_default();
 
-    let text = format!(" [Esc] Back  |  {}  |{}", pod_name, status);
+    let text = format!(" [Esc] Back  |  {pod_name}  |{status}");
 
     f.render_widget(
         Paragraph::new(text).style(
@@ -246,11 +246,11 @@ fn container_line(
             Style::default().fg(Color::White),
         ),
         Span::styled(
-            format!("last:{}/{}  ", last_reason, last_exit),
+            format!("last:{last_reason}/{last_exit}  "),
             Style::default().fg(Color::Gray),
         ),
         Span::styled(
-            format!("probe R:{} L:{}", readiness_failures, liveness_failures),
+            format!("probe R:{readiness_failures} L:{liveness_failures}"),
             Style::default().fg(Color::DarkGray),
         ),
     ])
@@ -324,14 +324,14 @@ fn render_events(f: &mut Frame, area: Rect, app: &AppState, pod_name: &str) {
 
 fn metric_line(label: &str, pct: u8, detail: String) -> Line<'static> {
     let mut spans = vec![
-        Span::raw(format!("  {}:  ", label)),
+        Span::raw(format!("  {label}:  ")),
         Span::styled(
-            format!("{:>3}%  ", pct),
+            format!("{pct:>3}%  "),
             Style::default()
                 .fg(theme::heat_color(pct))
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!("{}  ", detail), Style::default().fg(Color::White)),
+        Span::styled(format!("{detail}  "), Style::default().fg(Color::White)),
     ];
     spans.extend(theme::gradient_bar(pct, 24).spans);
     Line::from(spans)
@@ -339,7 +339,7 @@ fn metric_line(label: &str, pct: u8, detail: String) -> Line<'static> {
 
 fn history_line(label: &str, history: Option<&Vec<u8>>) -> Line<'static> {
     let mut spans = vec![
-        Span::raw(format!("  {}: ", label)),
+        Span::raw(format!("  {label}: ")),
         Span::styled("recent ", Style::default().fg(Color::DarkGray)),
     ];
     spans.extend(theme::sparkline(history, 24).spans);

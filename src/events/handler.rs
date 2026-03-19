@@ -195,7 +195,11 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 KeyCode::Esc | KeyCode::Enter => {
                     app.overlay = Overlay::None;
                     let count = app.filtered_pod_count();
-                    app.pod_cursor = if count == 0 { 0 } else { app.pod_cursor.min(count - 1) };
+                    app.pod_cursor = if count == 0 {
+                        0
+                    } else {
+                        app.pod_cursor.min(count - 1)
+                    };
                 }
                 KeyCode::Char(c) => {
                     app.pod_filter.push(c);
@@ -264,8 +268,8 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
             let ns = &app.config.namespace;
             let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
             let filename = match &cluster_name {
-                Some(cluster) => format!("{}-{}-{}.csv", cluster, ns, timestamp),
-                None => format!("{}-{}.csv", ns, timestamp),
+                Some(cluster) => format!("{cluster}-{ns}-{timestamp}.csv"),
+                None => format!("{ns}-{timestamp}.csv"),
             };
             app.export_input = filename;
             app.overlay = Overlay::ExportInput;

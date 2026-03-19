@@ -138,7 +138,7 @@ fn usage_meter(pct: u8) -> Line<'static> {
     let mut spans = theme::gradient_bar(pct, 12).spans;
     spans.push(Span::raw(" "));
     spans.push(Span::styled(
-        format!("{:>3}%", pct),
+        format!("{pct:>3}%"),
         Style::default()
             .fg(theme::heat_color(pct))
             .add_modifier(Modifier::BOLD),

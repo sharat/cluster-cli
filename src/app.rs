@@ -374,8 +374,7 @@ impl AppState {
                             }
                         });
                     format!(
-                        "Namespace `{}` is unavailable. Press `n` to choose a namespace, `N` to enter one manually, or `r` to retry.",
-                        namespace
+                        "Namespace `{namespace}` is unavailable. Press `n` to choose a namespace, `N` to enter one manually, or `r` to retry."
                     )
                 }
             }
@@ -456,8 +455,14 @@ impl AppState {
                     .then_with(|| a.name.cmp(&b.name))
             }
             PodSortMode::LatestIncident => {
-                let a_ts = latest_incidents.and_then(|m| m.get(&a.name)).copied().unwrap_or(i64::MIN);
-                let b_ts = latest_incidents.and_then(|m| m.get(&b.name)).copied().unwrap_or(i64::MIN);
+                let a_ts = latest_incidents
+                    .and_then(|m| m.get(&a.name))
+                    .copied()
+                    .unwrap_or(i64::MIN);
+                let b_ts = latest_incidents
+                    .and_then(|m| m.get(&b.name))
+                    .copied()
+                    .unwrap_or(i64::MIN);
                 b_ts.cmp(&a_ts)
                     .then_with(|| status_rank(&b.status).cmp(&status_rank(&a.status)))
                     .then_with(|| a.name.cmp(&b.name))

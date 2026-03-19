@@ -7,7 +7,7 @@ pub fn cpu(millicores: u64) -> String {
     } else if millicores >= 1000 {
         format_compact_unit(millicores as f64 / 1000.0, "c")
     } else {
-        format!("{}m", millicores)
+        format!("{millicores}m")
     }
 }
 
@@ -18,7 +18,7 @@ pub fn memory(mb: u64) -> String {
     } else if mb >= 1024 {
         format_compact_unit(mb as f64 / 1024.0, "Gi")
     } else {
-        format!("{}Mi", mb)
+        format!("{mb}Mi")
     }
 }
 

@@ -116,12 +116,16 @@ pub struct PodInfo {
     pub memory_mb: u64,
     pub memory_request_mb: u64,
     pub memory_limit_mb: u64,
+    #[allow(dead_code)]
     pub memory_request_pct: u8,
     pub memory_pct: u8,
+    #[allow(dead_code)]
     pub cpu_request_pct: u8,
     pub cpu_pct: u8,
     pub status: HealthStatus,
+    #[allow(dead_code)]
     pub ready_containers: u32,
+    #[allow(dead_code)]
     pub total_containers: u32,
     pub is_ready: bool,
     pub crash_looping: bool,
@@ -244,6 +248,7 @@ impl IncidentSeverity {
         }
     }
 
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             Self::Critical => "critical",
