@@ -1,6 +1,6 @@
 [package]
 name = "cluster-cli"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Sarath C"]
 description = "A fast, interactive terminal UI for monitoring Kubernetes cluster health"
