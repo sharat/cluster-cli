@@ -5,7 +5,9 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::data::models::HealthStatus;
+use crate::data::models::{
+    HealthStatus, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, RESOURCE_PRESSURE_PCT,
+};
 
 pub fn status_style(status: &HealthStatus) -> Style {
     match status {
@@ -70,11 +72,11 @@ pub fn selected_style() -> Style {
 
 /// Color a resource-usage cell by raw percentage (used in pod table CPU/Mem columns)
 pub fn pct_style(pct: u8) -> Style {
-    if pct >= 85 {
+    if pct >= RESOURCE_PRESSURE_PCT {
         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-    } else if pct >= 75 {
+    } else if pct >= GRADE_B_THRESHOLD {
         Style::default().fg(Color::Yellow)
-    } else if pct >= 60 {
+    } else if pct >= GRADE_C_THRESHOLD {
         Style::default().fg(Color::Cyan)
     } else {
         Style::default().fg(Color::Green)

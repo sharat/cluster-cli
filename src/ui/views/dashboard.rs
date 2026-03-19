@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::AppState;
+use crate::app::{AppState, Overlay};
 use crate::data::models::{EventType, HealthStatus, WorkloadSummary};
 use crate::ui::{components, theme};
 
@@ -41,16 +41,13 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     components::pod_table::render(f, chunks[3], app);
     components::status_bar::render(f, chunks[4], app);
 
-    if app.ns_input_active {
-        render_ns_popup(f, area, app);
-    } else if app.ns_list_active {
-        render_ns_list_popup(f, area, app);
-    } else if app.refresh_input_active {
-        render_refresh_popup(f, area, app);
-    } else if app.workload_popup_active {
-        render_workload_popup(f, area, app);
-    } else if app.export_input_active {
-        render_export_popup(f, area, app);
+    match app.overlay {
+        Overlay::NamespaceInput => render_ns_popup(f, area, app),
+        Overlay::NamespaceList => render_ns_list_popup(f, area, app),
+        Overlay::RefreshInput => render_refresh_popup(f, area, app),
+        Overlay::WorkloadPopup => render_workload_popup(f, area, app),
+        Overlay::ExportInput => render_export_popup(f, area, app),
+        _ => {}
     }
 }
 

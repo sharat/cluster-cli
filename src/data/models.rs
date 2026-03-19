@@ -2,6 +2,17 @@
 
 use std::time::Instant;
 
+/// Memory/CPU percentage at which a resource is considered under pressure.
+/// Used for health score penalties and percentage cell coloring.
+pub const RESOURCE_PRESSURE_PCT: u8 = 85;
+
+/// Health score grade boundaries (score out of 100).
+/// Also used by `HealthStatus::from_pct` for percentage-to-status mapping.
+pub const GRADE_A_THRESHOLD: u8 = 90;
+pub const GRADE_B_THRESHOLD: u8 = 75;
+pub const GRADE_C_THRESHOLD: u8 = 60;
+pub const GRADE_D_THRESHOLD: u8 = 45;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum HealthStatus {
     Critical,
@@ -12,13 +23,12 @@ pub enum HealthStatus {
 
 impl HealthStatus {
     pub fn from_pct(pct: u8) -> Self {
-        // Align thresholds with health score grade boundaries for consistency
-        // Grade: A>=90, B>=75, C>=60, D>=45, F<45
-        if pct >= 90 {
+        // Thresholds intentionally aligned with health score grade boundaries
+        if pct >= GRADE_A_THRESHOLD {
             Self::Critical
-        } else if pct >= 75 {
+        } else if pct >= GRADE_B_THRESHOLD {
             Self::Warning
-        } else if pct >= 60 {
+        } else if pct >= GRADE_C_THRESHOLD {
             Self::Elevated
         } else {
             Self::Healthy

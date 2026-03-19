@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{AppState, Panel};
+use crate::app::{AppState, Overlay, Panel};
 use crate::ui::{format, theme};
 
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
@@ -18,7 +18,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         theme::normal_border_style()
     };
 
-    let filter_hint = if app.filter_active {
+    let filter_hint = if app.overlay == Overlay::PodFilter {
         format!(" [/{}█] ", app.pod_filter)
     } else if !app.pod_filter.is_empty() {
         format!(" [filter: {}] ", app.pod_filter)

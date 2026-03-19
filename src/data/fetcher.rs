@@ -8,6 +8,8 @@ use crate::data::models::{ClusterEvent, ClusterSnapshot, ConnectionIssue, Connec
 use crate::data::{collector, health, incidents};
 use crate::events::{AppEvent, DataEvent, FetchCommand};
 
+const MAX_EVENT_CACHE_ENTRIES: usize = 20;
+
 pub struct Fetcher {
     config: Config,
     tx: mpsc::UnboundedSender<AppEvent>,
@@ -197,6 +199,10 @@ impl Fetcher {
 
         let _ = self.tx.send(AppEvent::Data(DataEvent::Refreshed(snapshot)));
         event_cache.insert(cache_key, events);
+        if event_cache.len() > MAX_EVENT_CACHE_ENTRIES {
+            let current_key = event_cache_key(context_name.as_deref(), namespace);
+            event_cache.retain(|k, _| k == &current_key);
+        }
     }
 
     async fn fetch_namespaces(&self) {
@@ -227,19 +233,24 @@ impl Fetcher {
 
         match collector::fetch_current_namespace().await {
             Ok(resolved) if !resolved.trim().is_empty() => Ok(resolved),
-            Ok(_) => Err(ConnectionIssue {
-                kind: ConnectionIssueKind::NamespaceUnavailable,
-                namespace: None,
-                detail: "No namespace is configured in the current kubectl context.".to_string(),
-            }),
-            Err(err) => Err(
-                collector::classify_kubectl_error(&err).unwrap_or(ConnectionIssue {
-                    kind: ConnectionIssueKind::NamespaceUnavailable,
-                    namespace: None,
-                    detail: "No namespace is configured in the current kubectl context."
-                        .to_string(),
-                }),
-            ),
+            // No namespace set in context (common for AKS, EKS, GKE, minikube, docker-desktop,
+            // colima, etc.) — fall back to "default" so the app works out of the box.
+            Ok(_) => Ok("default".to_string()),
+            Err(err) => {
+                // Only block on hard failures (kubectl missing, no context configured).
+                // For any other error, fall back to "default" so local/cloud setups work.
+                match collector::classify_kubectl_error(&err) {
+                    Some(issue)
+                        if matches!(
+                            issue.kind,
+                            ConnectionIssueKind::KubectlMissing | ConnectionIssueKind::NoContext
+                        ) =>
+                    {
+                        Err(issue)
+                    }
+                    _ => Ok("default".to_string()),
+                }
+            }
         }
     }
 

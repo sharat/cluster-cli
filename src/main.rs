@@ -64,28 +64,35 @@ async fn main() -> Result<()> {
 
     let mut initial_connection_issue = None;
 
-    // Resolve namespace from kubectl context if not explicitly configured
+    // Resolve namespace from kubectl context if not explicitly configured.
+    // Contexts provisioned by cloud CLIs (az aks get-credentials, aws eks update-kubeconfig,
+    // gcloud container clusters get-credentials) and local tools (minikube, colima,
+    // docker-desktop, k3d, kind) rarely set a default namespace — fall back to "default".
     if config.namespace.is_empty() {
         match data::collector::fetch_current_namespace().await {
             Ok(ns) if !ns.trim().is_empty() => {
                 config.namespace = ns;
             }
             Ok(_) => {
-                initial_connection_issue = Some(ConnectionIssue {
-                    kind: ConnectionIssueKind::NamespaceUnavailable,
-                    namespace: None,
-                    detail: "No namespace is configured in the current kubectl context."
-                        .to_string(),
-                });
+                // No namespace in context — use "default" so the app works out of the box.
+                config.namespace = "default".to_string();
             }
             Err(err) => {
-                initial_connection_issue =
-                    data::collector::classify_kubectl_error(&err).or(Some(ConnectionIssue {
-                        kind: ConnectionIssueKind::NamespaceUnavailable,
-                        namespace: None,
-                        detail: "No namespace is configured in the current kubectl context."
-                            .to_string(),
-                    }));
+                // Only block on hard failures: kubectl not installed or no context configured.
+                // Everything else falls back to "default" so we can still attempt a fetch.
+                match data::collector::classify_kubectl_error(&err) {
+                    Some(issue)
+                        if matches!(
+                            issue.kind,
+                            ConnectionIssueKind::KubectlMissing | ConnectionIssueKind::NoContext
+                        ) =>
+                    {
+                        initial_connection_issue = Some(issue);
+                    }
+                    _ => {
+                        config.namespace = "default".to_string();
+                    }
+                }
             }
         }
     }

@@ -1,6 +1,7 @@
-use crate::data::models::{ClusterEvent, EventType, HealthScore, NodeMetric, PodInfo};
-
-const CRITICAL_THRESHOLD: u8 = 85;
+use crate::data::models::{
+    ClusterEvent, EventType, HealthScore, NodeMetric, PodInfo, GRADE_A_THRESHOLD,
+    GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD, RESOURCE_PRESSURE_PCT,
+};
 const WARNING_EVENT_REASONS: &[&str] = &[
     "FailedScheduling",
     "FailedMount",
@@ -39,7 +40,7 @@ pub fn calculate_health(
     let mut rollout_failures = 0u32;
 
     for node in nodes {
-        if node.memory_pct >= CRITICAL_THRESHOLD {
+        if node.memory_pct >= RESOURCE_PRESSURE_PCT {
             score = score.saturating_sub(15);
             critical_nodes += 1;
         }
@@ -56,7 +57,7 @@ pub fn calculate_health(
         // Track unique critical pods (avoid double-counting)
         let mut is_critical = false;
 
-        if pod.memory_pct >= CRITICAL_THRESHOLD {
+        if pod.memory_pct >= RESOURCE_PRESSURE_PCT {
             score = score.saturating_sub(10);
             is_critical = true;
         }
@@ -114,13 +115,13 @@ pub fn calculate_health(
 
     let score = score.max(0) as u8;
 
-    let grade = if score >= 90 {
+    let grade = if score >= GRADE_A_THRESHOLD {
         'A'
-    } else if score >= 75 {
+    } else if score >= GRADE_B_THRESHOLD {
         'B'
-    } else if score >= 60 {
+    } else if score >= GRADE_C_THRESHOLD {
         'C'
-    } else if score >= 45 {
+    } else if score >= GRADE_D_THRESHOLD {
         'D'
     } else {
         'F'

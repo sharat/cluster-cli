@@ -69,6 +69,20 @@ impl Panel {
     }
 }
 
+/// Tracks which overlay (popup/input) is currently active. Only one overlay
+/// can be shown at a time; using an enum enforces that invariant at compile time.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum Overlay {
+    #[default]
+    None,
+    WorkloadPopup,
+    NamespaceList,
+    NamespaceInput,
+    RefreshInput,
+    ExportInput,
+    PodFilter,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PodDetailSection {
     Overview,
@@ -92,16 +106,11 @@ pub struct AppState {
     pub snapshot: Option<ClusterSnapshot>,
     pub pod_filter: String,
     pub pod_sort_mode: PodSortMode,
-    pub filter_active: bool,
-    pub ns_input_active: bool,
+    pub overlay: Overlay,
     pub ns_input: String,
-    pub ns_list_active: bool,
     pub ns_list: Vec<String>,
     pub ns_list_cursor: usize,
-    pub refresh_input_active: bool,
     pub refresh_input: String,
-    pub workload_popup_active: bool,
-    pub export_input_active: bool,
     pub export_input: String,
     pub focused_panel: Panel,
     pub node_cursor: usize,
@@ -149,16 +158,11 @@ impl AppState {
             snapshot: None,
             pod_filter: String::new(),
             pod_sort_mode: PodSortMode::Default,
-            filter_active: false,
-            ns_input_active: false,
+            overlay: Overlay::None,
             ns_input: String::new(),
-            ns_list_active: false,
             ns_list: Vec::new(),
             ns_list_cursor: 0,
-            refresh_input_active: false,
             refresh_input: String::new(),
-            workload_popup_active: false,
-            export_input_active: false,
             export_input: String::new(),
             focused_panel: Panel::Pods,
             node_cursor: 0,
@@ -452,9 +456,8 @@ impl AppState {
                     .then_with(|| a.name.cmp(&b.name))
             }
             PodSortMode::LatestIncident => {
-                let latest_incidents = latest_incidents.expect("latest incident map required");
-                let a_ts = latest_incidents.get(&a.name).copied().unwrap_or(i64::MIN);
-                let b_ts = latest_incidents.get(&b.name).copied().unwrap_or(i64::MIN);
+                let a_ts = latest_incidents.and_then(|m| m.get(&a.name)).copied().unwrap_or(i64::MIN);
+                let b_ts = latest_incidents.and_then(|m| m.get(&b.name)).copied().unwrap_or(i64::MIN);
                 b_ts.cmp(&a_ts)
                     .then_with(|| status_rank(&b.status).cmp(&status_rank(&a.status)))
                     .then_with(|| a.name.cmp(&b.name))

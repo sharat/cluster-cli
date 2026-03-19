@@ -1,7 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::{AppState, AppView, Panel, PodDetailSection};
+use crate::app::{AppState, AppView, Overlay, Panel, PodDetailSection};
 use crate::events::{DataEvent, FetchCommand};
+
+// Kubernetes namespace names are limited to 63 characters (RFC 1123)
+const MAX_NAMESPACE_LEN: usize = 63;
 
 pub enum AppCommand {
     Quit,
@@ -18,195 +21,196 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
 }
 
 fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
-    if app.workload_popup_active {
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('w') => {
-                app.workload_popup_active = false;
-                app.clear_incident_focus();
-            }
-            KeyCode::Char('j') | KeyCode::Down => {
-                let len = app
-                    .snapshot
-                    .as_ref()
-                    .map(|s| s.workloads.len())
-                    .unwrap_or(0);
-                if app.workload_cursor + 1 < len {
-                    app.workload_cursor += 1;
+    match app.overlay.clone() {
+        Overlay::WorkloadPopup => {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('w') => {
+                    app.overlay = Overlay::None;
+                    app.clear_incident_focus();
                 }
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                if app.workload_cursor > 0 {
-                    app.workload_cursor -= 1;
+                KeyCode::Char('j') | KeyCode::Down => {
+                    let len = app
+                        .snapshot
+                        .as_ref()
+                        .map(|s| s.workloads.len())
+                        .unwrap_or(0);
+                    if app.workload_cursor + 1 < len {
+                        app.workload_cursor += 1;
+                    }
                 }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if app.workload_cursor > 0 {
+                        app.workload_cursor -= 1;
+                    }
+                }
+                _ => {}
             }
-            _ => {}
+            return None;
         }
-        return None;
-    }
 
-    // Namespace list overlay active
-    if app.ns_list_active {
-        match key.code {
-            KeyCode::Esc => {
-                app.ns_list_active = false;
-                app.ns_list.clear();
-                app.clear_incident_focus();
-            }
-            KeyCode::Enter => {
-                if let Some(ns) = app.ns_list.get(app.ns_list_cursor).cloned() {
-                    app.config.namespace = ns;
-                    app.pod_cursor = 0;
-                    app.node_cursor = 0;
-                    app.workload_cursor = 0;
-                    app.event_cursor = 0;
-                    app.is_loading = true;
-                    app.ns_list_active = false;
+        Overlay::NamespaceList => {
+            match key.code {
+                KeyCode::Esc => {
+                    app.overlay = Overlay::None;
                     app.ns_list.clear();
                     app.clear_incident_focus();
-                    return Some(AppCommand::Fetch(FetchCommand::RefreshAll {
-                        namespace: app.config.namespace.clone(),
-                    }));
                 }
-            }
-            KeyCode::Char('j') | KeyCode::Down => {
-                if app.ns_list_cursor + 1 < app.ns_list.len() {
-                    app.ns_list_cursor += 1;
+                KeyCode::Enter => {
+                    if let Some(ns) = app.ns_list.get(app.ns_list_cursor).cloned() {
+                        app.config.namespace = ns;
+                        app.pod_cursor = 0;
+                        app.node_cursor = 0;
+                        app.workload_cursor = 0;
+                        app.event_cursor = 0;
+                        app.is_loading = true;
+                        app.overlay = Overlay::None;
+                        app.ns_list.clear();
+                        app.clear_incident_focus();
+                        return Some(AppCommand::Fetch(FetchCommand::RefreshAll {
+                            namespace: app.config.namespace.clone(),
+                        }));
+                    }
                 }
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                if app.ns_list_cursor > 0 {
-                    app.ns_list_cursor -= 1;
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if app.ns_list_cursor + 1 < app.ns_list.len() {
+                        app.ns_list_cursor += 1;
+                    }
                 }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if app.ns_list_cursor > 0 {
+                        app.ns_list_cursor -= 1;
+                    }
+                }
+                _ => {}
             }
-            _ => {}
+            return None;
         }
-        return None;
-    }
 
-    // Namespace input overlay active
-    if app.ns_input_active {
-        match key.code {
-            KeyCode::Esc => {
-                app.ns_input_active = false;
-                app.ns_input.clear();
-                app.clear_incident_focus();
-            }
-            KeyCode::Enter => {
-                let ns = app.ns_input.trim().to_string();
-                if !ns.is_empty() {
-                    app.config.namespace = ns;
-                    app.pod_cursor = 0;
-                    app.node_cursor = 0;
-                    app.workload_cursor = 0;
-                    app.event_cursor = 0;
-                    app.is_loading = true;
+        Overlay::NamespaceInput => {
+            match key.code {
+                KeyCode::Esc => {
+                    app.overlay = Overlay::None;
+                    app.ns_input.clear();
                     app.clear_incident_focus();
                 }
-                app.ns_input_active = false;
-                app.ns_input.clear();
-                if app.is_loading {
-                    return Some(AppCommand::Fetch(FetchCommand::RefreshAll {
-                        namespace: app.config.namespace.clone(),
-                    }));
+                KeyCode::Enter => {
+                    let ns = app.ns_input.trim().to_string();
+                    if !ns.is_empty() {
+                        app.config.namespace = ns;
+                        app.pod_cursor = 0;
+                        app.node_cursor = 0;
+                        app.workload_cursor = 0;
+                        app.event_cursor = 0;
+                        app.is_loading = true;
+                        app.clear_incident_focus();
+                    }
+                    app.overlay = Overlay::None;
+                    app.ns_input.clear();
+                    if app.is_loading {
+                        return Some(AppCommand::Fetch(FetchCommand::RefreshAll {
+                            namespace: app.config.namespace.clone(),
+                        }));
+                    }
                 }
-            }
-            KeyCode::Char(c) => {
-                app.ns_input.push(c);
-            }
-            KeyCode::Backspace => {
-                app.ns_input.pop();
-            }
-            _ => {}
-        }
-        return None;
-    }
-
-    // Refresh interval overlay active
-    if app.refresh_input_active {
-        match key.code {
-            KeyCode::Esc => {
-                app.refresh_input_active = false;
-                app.refresh_input.clear();
-            }
-            KeyCode::Enter => {
-                let parsed = app
-                    .refresh_input
-                    .trim()
-                    .parse::<u64>()
-                    .ok()
-                    .filter(|secs| *secs > 0);
-                app.refresh_input_active = false;
-                app.refresh_input.clear();
-
-                if let Some(interval_secs) = parsed {
-                    app.config.refresh_interval_secs = interval_secs;
-                    app.is_loading = true;
-                    return Some(AppCommand::Fetch(FetchCommand::UpdateRefreshInterval {
-                        namespace: app.config.namespace.clone(),
-                        interval_secs,
-                    }));
+                KeyCode::Char(c) if app.ns_input.len() < MAX_NAMESPACE_LEN => {
+                    app.ns_input.push(c);
                 }
-            }
-            KeyCode::Char(c) if c.is_ascii_digit() => {
-                app.refresh_input.push(c);
-            }
-            KeyCode::Backspace => {
-                app.refresh_input.pop();
-            }
-            _ => {}
-        }
-        return None;
-    }
-
-    // Export overlay active
-    if app.export_input_active {
-        match key.code {
-            KeyCode::Esc => {
-                app.export_input_active = false;
-                app.export_input.clear();
-            }
-            KeyCode::Enter => {
-                let path = app.export_input.trim().to_string();
-                let namespace = app.config.namespace.clone();
-                let cluster_name = app.snapshot.as_ref().and_then(|s| s.context_name.clone());
-                app.export_input_active = false;
-                app.export_input.clear();
-                if !path.is_empty() {
-                    return Some(AppCommand::Fetch(FetchCommand::ExportPods {
-                        cluster_name,
-                        namespace,
-                        path,
-                    }));
+                KeyCode::Backspace => {
+                    app.ns_input.pop();
                 }
+                _ => {}
             }
-            KeyCode::Char(c) => {
-                app.export_input.push(c);
-            }
-            KeyCode::Backspace => {
-                app.export_input.pop();
-            }
-            _ => {}
+            return None;
         }
-        return None;
-    }
 
-    // Pod filter overlay active
-    if app.filter_active {
-        match key.code {
-            KeyCode::Esc | KeyCode::Enter => {
-                app.filter_active = false;
+        Overlay::RefreshInput => {
+            match key.code {
+                KeyCode::Esc => {
+                    app.overlay = Overlay::None;
+                    app.refresh_input.clear();
+                }
+                KeyCode::Enter => {
+                    let parsed = app
+                        .refresh_input
+                        .trim()
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|secs| *secs > 0);
+                    app.overlay = Overlay::None;
+                    app.refresh_input.clear();
+
+                    if let Some(interval_secs) = parsed {
+                        app.config.refresh_interval_secs = interval_secs;
+                        app.is_loading = true;
+                        return Some(AppCommand::Fetch(FetchCommand::UpdateRefreshInterval {
+                            namespace: app.config.namespace.clone(),
+                            interval_secs,
+                        }));
+                    }
+                }
+                KeyCode::Char(c) if c.is_ascii_digit() => {
+                    app.refresh_input.push(c);
+                }
+                KeyCode::Backspace => {
+                    app.refresh_input.pop();
+                }
+                _ => {}
             }
-            KeyCode::Char(c) => {
-                app.pod_filter.push(c);
-                app.pod_cursor = 0;
-            }
-            KeyCode::Backspace => {
-                app.pod_filter.pop();
-                app.pod_cursor = 0;
-            }
-            _ => {}
+            return None;
         }
-        return None;
+
+        Overlay::ExportInput => {
+            match key.code {
+                KeyCode::Esc => {
+                    app.overlay = Overlay::None;
+                    app.export_input.clear();
+                }
+                KeyCode::Enter => {
+                    let path = app.export_input.trim().to_string();
+                    let namespace = app.config.namespace.clone();
+                    let cluster_name = app.snapshot.as_ref().and_then(|s| s.context_name.clone());
+                    app.overlay = Overlay::None;
+                    app.export_input.clear();
+                    if !path.is_empty() {
+                        return Some(AppCommand::Fetch(FetchCommand::ExportPods {
+                            cluster_name,
+                            namespace,
+                            path,
+                        }));
+                    }
+                }
+                KeyCode::Char(c) => {
+                    app.export_input.push(c);
+                }
+                KeyCode::Backspace => {
+                    app.export_input.pop();
+                }
+                _ => {}
+            }
+            return None;
+        }
+
+        Overlay::PodFilter => {
+            match key.code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    app.overlay = Overlay::None;
+                    let count = app.filtered_pod_count();
+                    app.pod_cursor = if count == 0 { 0 } else { app.pod_cursor.min(count - 1) };
+                }
+                KeyCode::Char(c) => {
+                    app.pod_filter.push(c);
+                    app.pod_cursor = 0;
+                }
+                KeyCode::Backspace => {
+                    app.pod_filter.pop();
+                    app.pod_cursor = 0;
+                }
+                _ => {}
+            }
+            return None;
+        }
+
+        Overlay::None => {} // fall through to default key handling
     }
 
     match key.code {
@@ -228,10 +232,10 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
         }
         KeyCode::Char('N') => {
             app.ns_input = app.config.namespace.clone();
-            app.ns_input_active = true;
+            app.overlay = Overlay::NamespaceInput;
         }
         KeyCode::Char('n') => {
-            app.ns_list_active = true;
+            app.overlay = Overlay::NamespaceList;
             app.ns_list_cursor = 0;
             return Some(AppCommand::Fetch(FetchCommand::FetchNamespaces));
         }
@@ -243,10 +247,14 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
         }
         KeyCode::Char('R') => {
             app.refresh_input = app.config.refresh_interval_secs.to_string();
-            app.refresh_input_active = true;
+            app.overlay = Overlay::RefreshInput;
         }
         KeyCode::Char('w') => {
-            app.workload_popup_active = !app.workload_popup_active;
+            app.overlay = if app.overlay == Overlay::WorkloadPopup {
+                Overlay::None
+            } else {
+                Overlay::WorkloadPopup
+            };
         }
         KeyCode::Char('s') => {
             app.cycle_pod_sort_mode();
@@ -260,7 +268,7 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 None => format!("{}-{}.csv", ns, timestamp),
             };
             app.export_input = filename;
-            app.export_input_active = true;
+            app.overlay = Overlay::ExportInput;
         }
         KeyCode::Esc => {
             if app.incident_focus.is_some() {
@@ -271,7 +279,7 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
             }
         }
         KeyCode::Char('/') => {
-            app.filter_active = true;
+            app.overlay = Overlay::PodFilter;
         }
         KeyCode::Char('j') | KeyCode::Down => match app.focused_panel {
             Panel::Nodes => {
@@ -390,7 +398,7 @@ fn handle_incident_enter(app: &mut AppState) -> Option<AppCommand> {
             if let Some(index) = resolve_workload_index(app, &kind, &name) {
                 app.workload_cursor = index;
             }
-            app.workload_popup_active = true;
+            app.overlay = Overlay::WorkloadPopup;
             return None;
         }
     }
@@ -548,7 +556,7 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
         }
         DataEvent::Namespaces(namespaces) => {
             app.ns_list = namespaces;
-            if app.ns_list_active {
+            if app.overlay == Overlay::NamespaceList {
                 let current_idx = app
                     .ns_list
                     .iter()
@@ -567,7 +575,7 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
 #[cfg(test)]
 mod tests {
     use super::{handle_data_event, handle_key, AppCommand};
-    use crate::app::{AppState, AppView, Panel, PodSortMode};
+    use crate::app::{AppState, AppView, Overlay, Panel, PodSortMode};
     use crate::config::Config;
     use crate::data::models::{
         ClusterEvent, ClusterSnapshot, ConditionStatus, ContainerInfo, EventType, HealthScore,
@@ -582,7 +590,7 @@ mod tests {
     fn namespace_switch_keeps_existing_snapshot_visible_until_refresh() {
         let mut app = AppState::new(Config::default());
         app.snapshot = Some(snapshot_with_events());
-        app.ns_list_active = true;
+        app.overlay = Overlay::NamespaceList;
         app.ns_list = vec!["default".to_string(), "payments".to_string()];
         app.ns_list_cursor = 1;
 
@@ -620,13 +628,13 @@ mod tests {
             &mut app,
             KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
         );
-        assert!(app.workload_popup_active);
+        assert!(matches!(app.overlay, Overlay::WorkloadPopup));
 
         let _ = handle_key(
             &mut app,
             KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
         );
-        assert!(!app.workload_popup_active);
+        assert!(matches!(app.overlay, Overlay::None));
     }
 
     #[test]
@@ -666,7 +674,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE),
         );
 
-        assert!(app.export_input_active);
+        assert!(matches!(app.overlay, Overlay::ExportInput));
         assert!(app.export_input.ends_with(".csv"));
         assert!(app.export_input.contains("prod-cluster"));
         assert!(app.export_input.contains("payments"));
@@ -683,13 +691,13 @@ mod tests {
         });
         let mut snapshot = snapshot_with_events();
         snapshot.context_name = None;
-        app.export_input_active = true;
+        app.overlay = Overlay::ExportInput;
         app.export_input = "custom-export.csv".to_string();
         app.snapshot = Some(snapshot);
 
         let command = handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-        assert!(!app.export_input_active);
+        assert!(matches!(app.overlay, Overlay::None));
         assert!(app.export_input.is_empty());
         assert!(matches!(
             command,
@@ -770,7 +778,7 @@ mod tests {
 
         let command = handle_key(&mut app, enter_key());
 
-        assert!(app.workload_popup_active);
+        assert!(matches!(app.overlay, Overlay::WorkloadPopup));
         assert_eq!(app.workload_cursor, 0);
         assert!(command.is_none());
     }

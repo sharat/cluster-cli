@@ -1,12 +1,16 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::io::ErrorKind;
+use std::time::Duration;
 
 use anyhow::Result;
 use serde_json::Value;
 use tokio::process::Command;
+use tokio::time::timeout;
 
 use crate::data::models::*;
+
+const KUBECTL_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 pub struct KubectlError {
@@ -46,10 +50,15 @@ async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
     ensure_readonly_kubectl_args(program, args)
         .map_err(|err| KubectlError::new(err.to_string()))?;
 
-    let output = Command::new(program)
-        .args(args)
-        .output()
+    let output = timeout(KUBECTL_TIMEOUT, Command::new(program).args(args).output())
         .await
+        .map_err(|_| {
+            KubectlError::new(format!(
+                "kubectl {} timed out after {}s",
+                args.join(" "),
+                KUBECTL_TIMEOUT.as_secs()
+            ))
+        })?
         .map_err(|err| {
             if err.kind() == ErrorKind::NotFound {
                 KubectlError::with_issue(
@@ -1284,6 +1293,23 @@ fn classify_connection_issue(args: &[&str], stderr: &str) -> Option<ConnectionIs
                 detail: stderr_trim_or_default(stderr, "Requested namespace was not found."),
             });
         }
+    }
+
+    if stderr_lower.contains("unable to connect to the server")
+        || stderr_lower.contains("connection refused")
+        || stderr_lower.contains("no such host")
+        || stderr_lower.contains("i/o timeout")
+        || stderr_lower.contains("timed out")
+        || stderr_lower.contains("dial tcp")
+        || stderr_lower.contains("certificate")
+        || stderr_lower.contains("unauthorized")
+        || stderr_lower.contains("forbidden")
+    {
+        return Some(ConnectionIssue {
+            kind: ConnectionIssueKind::Generic,
+            namespace: None,
+            detail: stderr_trim_or_default(stderr, "Unable to connect to the Kubernetes API server."),
+        });
     }
 
     None
