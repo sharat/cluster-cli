@@ -230,7 +230,7 @@ pub fn gradient_bar(pct: u8, width: usize) -> Line<'static> {
 }
 
 pub fn health_bar(score: u8, width: usize) -> Line<'static> {
-    let filled = (score as usize * width / 100).min(width);
+    let filled = ((score as usize).saturating_mul(width) / 100).min(width);
     let mut spans = Vec::with_capacity(width + 2);
     spans.push(Span::styled("[", Style::default().fg(Color::DarkGray)));
 
