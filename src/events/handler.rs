@@ -214,6 +214,20 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
             return None;
         }
 
+        Overlay::EventDetail => {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('d') => {
+                    app.overlay = Overlay::None;
+                }
+                KeyCode::Enter => {
+                    app.overlay = Overlay::None;
+                    return handle_incident_enter(app);
+                }
+                _ => {}
+            }
+            return None;
+        }
+
         Overlay::None => {} // fall through to default key handling
     }
 
@@ -284,6 +298,11 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
         }
         KeyCode::Char('/') => {
             app.overlay = Overlay::PodFilter;
+        }
+        KeyCode::Char('d') => {
+            if app.focused_panel == Panel::Events && app.selected_incident().is_some() {
+                app.overlay = Overlay::EventDetail;
+            }
         }
         KeyCode::Char('j') | KeyCode::Down => match app.focused_panel {
             Panel::Nodes => {

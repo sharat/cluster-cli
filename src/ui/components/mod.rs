@@ -1,3 +1,4 @@
+pub mod event_detail_overlay;
 pub mod events_panel;
 pub mod health_score;
 pub mod log_viewer;

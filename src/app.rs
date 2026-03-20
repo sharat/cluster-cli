@@ -81,6 +81,7 @@ pub enum Overlay {
     RefreshInput,
     ExportInput,
     PodFilter,
+    EventDetail,
 }
 
 #[derive(Debug, Clone, PartialEq)]

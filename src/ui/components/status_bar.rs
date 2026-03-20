@@ -9,7 +9,7 @@ use crate::app::{AppState, AppView};
 
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let dashboard_help =
-        "[1] Nodes  [2] Incidents  [3] Pods  [Tab] Panel  [j/k] Nav  [Enter] Drill  [w] Workload Popup  [/] Filter  [s] Sort  [E] Export  [n/N] Namespace  [r] Refresh  [R] Rate  [q] Quit";
+        "[1] Nodes  [2] Incidents  [3] Pods  [Tab] Panel  [j/k] Nav  [Enter] Drill  [d] Event Detail  [w] Workload Popup  [/] Filter  [s] Sort  [E] Export  [n/N] Namespace  [r] Refresh  [R] Rate  [q] Quit";
     let detail_help = "[Tab] Section  [j/k] Scroll  [f] Follow  [Esc/q] Back";
     let node_help = "[j/k] Scroll  [Esc/q] Back";
 

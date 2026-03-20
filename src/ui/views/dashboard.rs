@@ -47,6 +47,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         Overlay::RefreshInput => render_refresh_popup(f, area, app),
         Overlay::WorkloadPopup => render_workload_popup(f, area, app),
         Overlay::ExportInput => render_export_popup(f, area, app),
+        Overlay::EventDetail => components::event_detail_overlay::render(f, area, app),
         _ => {}
     }
 }
