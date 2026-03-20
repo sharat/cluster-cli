@@ -988,4 +988,115 @@ mod tests {
             related_event_targets,
         }
     }
+
+    #[test]
+    fn d_opens_event_detail_overlay_when_events_panel_focused() {
+        let mut app = AppState::new(Config::default());
+        app.focused_panel = Panel::Events;
+        app.snapshot = Some(snapshot_with_events());
+
+        let command = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+
+        assert!(matches!(app.overlay, Overlay::EventDetail));
+        assert!(command.is_none());
+    }
+
+    #[test]
+    fn d_does_nothing_when_pods_panel_focused() {
+        let mut app = AppState::new(Config::default());
+        app.focused_panel = Panel::Pods;
+        app.snapshot = Some(snapshot_with_events());
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+
+        assert!(matches!(app.overlay, Overlay::None));
+    }
+
+    #[test]
+    fn d_does_nothing_when_no_incident_in_snapshot() {
+        let mut app = AppState::new(Config::default());
+        app.focused_panel = Panel::Events;
+        // No snapshot — selected_incident() returns None
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+
+        assert!(matches!(app.overlay, Overlay::None));
+    }
+
+    #[test]
+    fn esc_closes_event_detail_overlay() {
+        let mut app = AppState::new(Config::default());
+        app.overlay = Overlay::EventDetail;
+        app.snapshot = Some(snapshot_with_events());
+
+        let command = handle_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(matches!(app.overlay, Overlay::None));
+        assert!(command.is_none());
+    }
+
+    #[test]
+    fn q_closes_event_detail_overlay() {
+        let mut app = AppState::new(Config::default());
+        app.overlay = Overlay::EventDetail;
+        app.snapshot = Some(snapshot_with_events());
+
+        let command = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+        );
+
+        assert!(matches!(app.overlay, Overlay::None));
+        assert!(command.is_none());
+    }
+
+    #[test]
+    fn d_closes_event_detail_overlay_when_already_open() {
+        let mut app = AppState::new(Config::default());
+        app.overlay = Overlay::EventDetail;
+        app.snapshot = Some(snapshot_with_events());
+
+        let command = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+
+        assert!(matches!(app.overlay, Overlay::None));
+        assert!(command.is_none());
+    }
+
+    #[test]
+    fn enter_in_event_detail_overlay_closes_overlay_and_navigates_to_pod_detail() {
+        let mut app = AppState::new(Config::default());
+        app.overlay = Overlay::EventDetail;
+        app.focused_panel = Panel::Events;
+        app.snapshot = Some(snapshot_with_incident_targets(
+            vec![IncidentTarget::Pod {
+                pod_name: "api-0".to_string(),
+            }],
+            vec![pod("api-0", "default")],
+            vec![],
+            vec![],
+            vec![],
+        ));
+
+        let command = handle_key(&mut app, enter_key());
+
+        assert!(matches!(app.overlay, Overlay::None));
+        assert!(matches!(app.view, AppView::PodDetail { ref pod_name } if pod_name == "api-0"));
+        assert!(matches!(
+            command,
+            Some(AppCommand::Fetch(FetchCommand::StartLogStream { ref pod, .. }))
+            if pod == "api-0"
+        ));
+    }
 }
