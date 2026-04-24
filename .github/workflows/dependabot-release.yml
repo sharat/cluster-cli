@@ -1,0 +1,277 @@
+name: Dependabot Release Pipeline
+
+on:
+  schedule:
+    # Runs every Friday at 04:30 UTC (10:00 AM IST)
+    # 1 hour after Dependabot's Friday 09:00 IST run
+    - cron: '30 4 * * 5'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (no actual merges or publishes)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  review-and-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      merged: ${{ steps.merge.outputs.merged }}
+      count: ${{ steps.merge.outputs.count }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Find and merge Dependabot PRs
+        id: merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔍 Checking for open Dependabot PRs..."
+          
+          # Get open Dependabot PRs with clean merge status
+          PRS=$(gh pr list --author "dependabot[bot]" --state open --json number,title,headRefName,mergeStateStatus,url --jq '.[] | select(.mergeStateStatus == "CLEAN" or .mergeStateStatus == "BLOCKED")')
+          
+          if [ -z "$PRS" ]; then
+            echo "✅ No open Dependabot PRs found."
+            echo "merged=false" >> $GITHUB_OUTPUT
+            echo "count=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "📋 Found Dependabot PRs to review"
+          
+          merged_count=0
+          
+          # Process each PR
+          echo "$PRS" | jq -c '.' | while read pr; do
+            pr_number=$(echo "$pr" | jq -r '.number')
+            pr_title=$(echo "$pr" | jq -r '.title')
+            
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔎 Reviewing PR #$pr_number: $pr_title"
+            
+            # Check PR checks status
+            echo "   Checking CI status..."
+            checks=$(gh pr checks "$pr_number" --json name,state --jq '.[]')
+            
+            # Verify all required checks pass
+            failed_checks=$(echo "$checks" | jq -r 'select(.state != "SUCCESS") | .name')
+            
+            if [ -n "$failed_checks" ]; then
+              echo "   ⚠️  CI checks failing, skipping PR #$pr_number"
+              echo "   Failed: $failed_checks"
+              continue
+            fi
+            
+            echo "   ✅ CI passing"
+            
+            # Check for major version bumps in title
+            if echo "$pr_title" | grep -qi "bump.*from.*to"; then
+              old_version=$(echo "$pr_title" | grep -oP 'from \K[^\s]+' || echo "")
+              new_version=$(echo "$pr_title" | grep -oP 'to \K[^\s]+' || echo "")
+              
+              if [ -n "$old_version" ] && [ -n "$new_version" ]; then
+                old_major=$(echo "$old_version" | cut -d. -f1 | sed 's/[^0-9]//g')
+                new_major=$(echo "$new_version" | cut -d. -f1 | sed 's/[^0-9]//g')
+                
+                if [ -n "$old_major" ] && [ -n "$new_major" ] && [ "$new_major" -gt "$old_major" ] 2>/dev/null; then
+                  echo "   ⚠️  Major version bump detected ($old_version → $new_version), skipping"
+                  continue
+                fi
+              fi
+            fi
+            
+            # Merge the PR
+            if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+              echo "   🧪 [DRY RUN] Would merge PR #$pr_number"
+              ((merged_count++))
+            else
+              echo "   🔄 Merging PR #$pr_number..."
+              if gh pr merge "$pr_number" --squash --delete-branch --auto; then
+                echo "   ✅ Merged PR #$pr_number"
+                ((merged_count++))
+              else
+                echo "   ❌ Failed to merge PR #$pr_number"
+              fi
+            fi
+          done
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎉 Merged $merged_count PR(s)!"
+          
+          if [ $merged_count -gt 0 ]; then
+            echo "merged=true" >> $GITHUB_OUTPUT
+          else
+            echo "merged=false" >> $GITHUB_OUTPUT
+          fi
+          echo "count=$merged_count" >> $GITHUB_OUTPUT
+
+  release:
+    needs: review-and-merge
+    if: needs.review-and-merge.outputs.merged == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: cargo fetch
+
+      - name: Wait for main branch CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "⏳ Waiting for main branch CI to complete..."
+          
+          # Poll for CI completion (max 15 minutes)
+          for i in {1..90}; do
+            run=$(gh run list --branch main --limit 1 --json status,conclusion --jq '.[0]')
+            status=$(echo "$run" | jq -r '.status')
+            conclusion=$(echo "$run" | jq -r '.conclusion')
+            
+            if [ "$status" == "completed" ]; then
+              if [ "$conclusion" == "success" ]; then
+                echo "✅ Main branch CI passed!"
+                break
+              else
+                echo "❌ Main branch CI failed ($conclusion). Aborting release."
+                exit 1
+              fi
+            fi
+            
+            echo "   Waiting... ($i/90)"
+            sleep 10
+          done
+
+      - name: Bump version in Cargo.toml
+        id: bump
+        run: |
+          # Get current version from Cargo.toml
+          CURRENT_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= *"\(.*\)".*/\1/')
+          echo "Current version: $CURRENT_VERSION"
+          
+          # Bump patch version
+          IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+          NEW_PATCH=$((patch + 1))
+          NEW_VERSION="$major.$minor.$NEW_PATCH"
+          NEW_TAG="v$NEW_VERSION"
+          
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+          
+          echo "New version: $NEW_VERSION"
+          echo "New tag: $NEW_TAG"
+
+      - name: Update Cargo.toml
+        run: |
+          NEW_VERSION="${{ steps.bump.outputs.new_version }}"
+          
+          # Update version in Cargo.toml using sed
+          sed -i.bak "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
+          rm -f Cargo.toml.bak
+          
+          # Show the change
+          git diff Cargo.toml
+
+      - name: Commit and push
+        run: |
+          NEW_VERSION="${{ steps.bump.outputs.new_version }}"
+          NEW_TAG="${{ steps.bump.outputs.new_tag }}"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add Cargo.toml
+          git commit -m "chore(release): bump version to $NEW_VERSION [skip ci]"
+          git push origin main
+          
+          # Create and push tag (triggers existing release.yml)
+          git tag "$NEW_TAG"
+          git push origin "$NEW_TAG"
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            echo "🧪 [DRY RUN] Would publish version ${{ steps.bump.outputs.new_version }}"
+            cargo publish --dry-run
+          else
+            echo "📤 Publishing to crates.io..."
+            cargo publish --token "$CARGO_REGISTRY_TOKEN"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEW_TAG="${{ steps.bump.outputs.new_tag }}"
+          NEW_VERSION="${{ steps.bump.outputs.new_version }}"
+          
+          # Generate release notes
+          notes="## What's Changed
+
+          Automated patch release with dependency updates.
+
+          Install via Cargo:
+          \`\`\`bash
+cargo install cluster-cli@$NEW_VERSION
+\`\`\`
+
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ github.event.before || 'HEAD~1' }}...$NEW_TAG"
+          
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            echo "🧪 [DRY RUN] Would create release $NEW_TAG"
+          else
+            echo "🏷️  Creating GitHub release..."
+            gh release create "$NEW_TAG" \
+              --title "Release $NEW_VERSION" \
+              --notes "$notes" \
+              --latest
+          fi
