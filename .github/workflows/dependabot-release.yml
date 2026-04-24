@@ -253,25 +253,26 @@ jobs:
         run: |
           NEW_TAG="${{ steps.bump.outputs.new_tag }}"
           NEW_VERSION="${{ steps.bump.outputs.new_version }}"
-          
-          # Generate release notes
-          notes="## What's Changed
+
+          cat > /tmp/release-notes.md << 'EOF'
+          ## What's Changed
 
           Automated patch release with dependency updates.
 
           Install via Cargo:
-          \`\`\`bash
-cargo install cluster-cli@$NEW_VERSION
-\`\`\`
+          ```bash
+          cargo install cluster-cli@${NEW_VERSION}
+          ```
 
-          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ github.event.before || 'HEAD~1' }}...$NEW_TAG"
-          
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ github.event.before || 'HEAD~1' }}...${NEW_TAG}
+          EOF
+
           if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
             echo "🧪 [DRY RUN] Would create release $NEW_TAG"
           else
             echo "🏷️  Creating GitHub release..."
             gh release create "$NEW_TAG" \
               --title "Release $NEW_VERSION" \
-              --notes "$notes" \
+              --notes-file /tmp/release-notes.md \
               --latest
           fi
