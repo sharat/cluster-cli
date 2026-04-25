@@ -261,7 +261,7 @@ jobs:
 
           Install via Cargo:
           ```bash
-          cargo install cluster-cli@${NEW_VERSION}
+          cargo install cluster-cli@'"'"'"${NEW_VERSION}"'"'"'
           ```
 
           **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ github.event.before || 'HEAD~1' }}...${NEW_TAG}
