@@ -196,16 +196,17 @@ brew install sharat/tap/cluster-cli
 git add .
 git commit -m "chore: bump version to 0.1.0"
 
-# 3. Create and push tag
+# 3. Verify and publish to Cargo before pushing the tag
+cargo publish --dry-run
+cargo publish
+
+# 4. Create and push tag
 git tag -a v0.1.0 -m "Release v0.1.0"
 git push origin v0.1.0
 
-# 4. GitHub Actions automatically builds and creates release
+# 5. GitHub Actions automatically builds binaries and creates the GitHub release
 
-# 5. After release is created, update Homebrew formula with SHA256 hashes
-
-# 6. Publish to Cargo (optional - can be done before or after GitHub release)
-cargo publish
+# 6. After release is created, update Homebrew formula with SHA256 hashes
 ```
 
 ### Option 2: Using Justfile
@@ -338,9 +339,9 @@ brew uninstall cluster-cli
 1. ✅ Create a crates.io account and get API token
 2. ✅ Create `sharat/homebrew-tap` repository
 3. ✅ Run `cargo publish --dry-run` to verify
-4. ✅ Create first GitHub release (triggers automatically on tag)
-5. ✅ Update Homebrew formula with SHA256 hashes
-6. ✅ Publish to Cargo with `cargo publish`
+4. ✅ Publish to Cargo with `cargo publish` or configure `CARGO_REGISTRY_TOKEN` for Actions
+5. ✅ Create first GitHub release (triggers automatically on tag)
+6. ✅ Update Homebrew formula with SHA256 hashes
 7. ✅ Test installation: `cargo install cluster-cli` and `brew install sharat/tap/cluster-cli`
 
 ---

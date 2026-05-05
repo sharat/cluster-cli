@@ -39,14 +39,14 @@ cluster-cli is a read-only Kubernetes TUI built on ratatui + crossterm with a to
 |----------|------|---------|
 | CI | `.github/workflows/ci.yml` | Check, build, test on push/PR |
 | Release | `.github/workflows/release.yml` | Multi-platform binary release on git tag |
-| Dependabot | `.github/dependabot.yml` | Weekly Friday 03:30 UTC dependency updates |
+| Dependabot | `.github/dependabot.yml` | Weekly Friday 09:00 IST dependency updates |
 
 ### Release Process
 
 **Trigger:** Git tag push (e.g., `v0.1.3`)
 
 ```bash
-# Bump version in Cargo.toml, commit, create tag, push
+# Bump version in Cargo.toml/Cargo.lock, commit, create tag, push
 # Then tag push triggers release.yml
 cd /Users/sarat/oss/cluster-cli
 # Edit Cargo.toml version manually or use cargo-bump
@@ -68,7 +68,7 @@ git push origin main --follow-tags
 ```bash
 cargo publish
 ```
-- Requires `CARGO_REGISTRY_TOKEN` secret in GitHub (not yet configured ⚠️)
+- Requires `CARGO_REGISTRY_TOKEN` secret in GitHub Actions
 
 ### Requirements
 - `GITHUB_TOKEN` (auto-provided)

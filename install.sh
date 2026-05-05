@@ -50,7 +50,35 @@ detect_arch() {
 
 # Get latest release version
 get_latest_version() {
-    curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+}
+
+verify_checksum() {
+    local file="$1"
+    local checksum_file="$2"
+    local expected
+    local actual
+
+    expected=$(grep -Eo '[a-fA-F0-9]{64}' "$checksum_file" | head -1 | tr 'A-F' 'a-f')
+    if [ -z "$expected" ]; then
+        error "Could not parse checksum from $checksum_file"
+    fi
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual=$(sha256sum "$file" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        actual=$(shasum -a 256 "$file" | awk '{print $1}')
+    elif command -v certutil >/dev/null 2>&1; then
+        actual=$(certutil -hashfile "$file" SHA256 | grep -Eo '[a-fA-F0-9]{64}' | head -1 | tr 'A-F' 'a-f')
+    else
+        error "No SHA256 tool found (need sha256sum, shasum, or certutil)"
+    fi
+
+    if [ "$actual" != "$expected" ]; then
+        error "Checksum mismatch for $file"
+    fi
+
+    success "✓ Checksum verified"
 }
 
 # Main installation
@@ -79,13 +107,14 @@ main() {
         if [ "$ARCH" = "aarch64" ]; then
             FILENAME="cluster-aarch64-apple-darwin.tar.gz"
         else
-            FILENAME="cluster-x86_64-apple-darwin.tar.gz"
+            error "macOS Intel (x86_64) binaries are not published yet. Build from source with: cargo install cluster-cli"
         fi
     else
         FILENAME="cluster-x86_64-unknown-linux-gnu.tar.gz"
     fi
     
     DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/$FILENAME"
+    CHECKSUM_URL="$DOWNLOAD_URL.sha256"
     
     # Create temporary directory
     TMP_DIR=$(mktemp -d)
@@ -96,6 +125,13 @@ main() {
     if ! curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$FILENAME"; then
         error "Failed to download $FILENAME"
     fi
+
+    info "Downloading checksum..."
+    if ! curl -fsSL "$CHECKSUM_URL" -o "$TMP_DIR/$FILENAME.sha256"; then
+        error "Failed to download checksum for $FILENAME"
+    fi
+
+    verify_checksum "$TMP_DIR/$FILENAME" "$TMP_DIR/$FILENAME.sha256"
     
     # Extract
     info "Extracting..."

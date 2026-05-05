@@ -18,14 +18,16 @@
 2. **release** (only if PRs were merged)
    - Waits for main branch CI to pass
    - Bumps patch version in `Cargo.toml`
-   - Commits, creates git tag (`vX.Y.Z`) — **triggers existing release.yml**
+   - Updates `Cargo.lock`
+   - Runs `cargo publish --dry-run`
+   - Commits the version bump
    - Publishes to crates.io
-   - Creates GitHub Release
+   - Creates and pushes git tag (`vX.Y.Z`) — **triggers existing release.yml** to build binaries and create the GitHub Release
 
 ### Requirements:
 - `GITHUB_TOKEN` (auto-provided)
 - `CARGO_REGISTRY_TOKEN` (secret for crates.io)
-- Repository permissions: contents:write, id-token:write
+- Repository permissions: contents:write, pull-requests:write, checks:read, statuses:read, actions:read, id-token:write
 
 ## Triggering Manually
 ```bash
