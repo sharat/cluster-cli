@@ -64,15 +64,11 @@ git push origin main --follow-tags
 5. Create GitHub Release with auto-generated changelog
 6. Attach all binary artifacts
 
-### Publishing to crates.io
-```bash
-cargo publish
-```
-- Requires `CARGO_REGISTRY_TOKEN` secret in GitHub Actions
+### crates.io
+Not currently published to crates.io. Distribution is via GitHub Release binaries, `install.sh`, and the Homebrew formula.
 
 ### Requirements
 - `GITHUB_TOKEN` (auto-provided)
-- `CARGO_REGISTRY_TOKEN` (for crates.io — needs to be configured)
 
 ## Notes
 - Multi-platform releases: Linux, macOS (ARM64), Windows

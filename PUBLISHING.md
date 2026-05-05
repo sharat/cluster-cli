@@ -1,11 +1,10 @@
 # Publishing Guide
 
-This guide covers how to publish `cluster-cli` to Cargo (crates.io) and Homebrew.
+This guide covers how to publish `cluster-cli` via GitHub Releases and Homebrew.
 
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
-- [Publishing to Cargo (crates.io)](#publishing-to-cargo-crateio)
 - [Publishing to Homebrew](#publishing-to-homebrew)
 - [Automated Release Process](#automated-release-process)
 
@@ -15,79 +14,16 @@ This guide covers how to publish `cluster-cli` to Cargo (crates.io) and Homebrew
 
 Before publishing, ensure you have:
 
-1. **Cargo account**: Sign up at [crates.io](https://crates.io) and get an API token
-2. **Homebrew tap repository**: Create a separate repo (e.g., `sharat/homebrew-tap`)
-3. **GitHub token**: For automated releases (already configured in GitHub Actions)
+1. **Homebrew tap repository**: Create a separate repo (e.g., `sharat/homebrew-tap`)
+2. **GitHub token**: For automated releases (already configured in GitHub Actions)
 
 ---
 
-## Publishing to Cargo (crates.io)
+## crates.io
 
-### Step 1: Prepare Your Package
+`cluster-cli` is not currently published to crates.io. Users should install via GitHub Release binaries, `install.sh`, or Homebrew.
 
-Ensure your `Cargo.toml` has all required metadata:
-
-```toml
-[package]
-name = "cluster-cli"
-version = "0.1.0"
-edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
-description = "A fast, interactive terminal UI for monitoring Kubernetes cluster health"
-readme = "README.md"
-license = "MIT"
-repository = "https://github.com/sharat/cluster-cli"
-homepage = "https://github.com/sharat/cluster-cli"
-keywords = ["kubernetes", "k8s", "monitoring", "tui", "terminal"]
-categories = ["command-line-utilities", "development-tools"]
-rust-version = "1.70"
-```
-
-### Step 2: Test Before Publishing
-
-```bash
-# Verify the package builds
-cargo build --release
-
-# Check for any issues
-cargo check
-cargo clippy -- -D warnings
-cargo fmt --check
-
-# Test the package
-cargo test
-
-# Dry run publish (checks for issues without uploading)
-cargo publish --dry-run
-```
-
-### Step 3: Login to crates.io
-
-```bash
-# Get your API token from https://crates.io/settings/tokens
-cargo login
-# Paste your API token when prompted
-```
-
-### Step 4: Publish
-
-```bash
-# Publish to crates.io
-cargo publish
-
-# Or use the justfile command (if added)
-just publish-cargo
-```
-
-### Step 5: Verify
-
-```bash
-# Check your crate is live
-cargo search cluster-cli
-
-# Install from crates.io
-cargo install cluster-cli
-```
+If crates.io distribution is added later, restore a `cargo publish --dry-run`/`cargo publish` step and configure a `CARGO_REGISTRY_TOKEN` secret.
 
 ---
 
@@ -196,17 +132,13 @@ brew install sharat/tap/cluster-cli
 git add .
 git commit -m "chore: bump version to 0.1.0"
 
-# 3. Verify and publish to Cargo before pushing the tag
-cargo publish --dry-run
-cargo publish
-
-# 4. Create and push tag
+# 3. Create and push tag
 git tag -a v0.1.0 -m "Release v0.1.0"
 git push origin v0.1.0
 
-# 5. GitHub Actions automatically builds binaries and creates the GitHub release
+# 4. GitHub Actions automatically builds binaries and creates the GitHub release
 
-# 6. After release is created, update Homebrew formula with SHA256 hashes
+# 5. After release is created, update Homebrew formula with SHA256 hashes
 ```
 
 ### Option 2: Using Justfile
@@ -220,7 +152,7 @@ just release patch   # 0.1.0 -> 0.1.1
 just release minor   # 0.1.0 -> 0.2.0
 just release major   # 0.1.0 -> 1.0.0
 
-# Publish current version without bumping
+# Push a tag for the current version without bumping
 just publish
 
 # Auto-confirm (no prompts)
@@ -283,12 +215,12 @@ jobs:
 
 ### Cargo Commands
 
+Cargo is used for local build verification only; this project is not currently published to crates.io.
+
 ```bash
-cargo login                    # Login to crates.io
-cargo publish --dry-run       # Test publish
-cargo publish                 # Publish to crates.io
-cargo search cluster-cli      # Verify published
-cargo install cluster-cli     # Install from crates.io
+cargo build --release
+cargo test
+cargo clippy -- -D warnings
 ```
 
 ### Homebrew Commands
@@ -313,17 +245,6 @@ brew uninstall cluster-cli
 
 ## Troubleshooting
 
-### Cargo Issues
-
-**Error: "already uploaded"**
-- You cannot re-publish the same version. Bump the version in `Cargo.toml`.
-
-**Error: "crate name already taken"**
-- The name `cluster-cli` might be taken. Check with `cargo search cluster-cli`.
-
-**Error: "missing metadata"**
-- Ensure all required fields are in `Cargo.toml` (description, license, repository, etc.)
-
 ### Homebrew Issues
 
 **Error: "SHA256 mismatch"**
@@ -336,18 +257,14 @@ brew uninstall cluster-cli
 
 ## Next Steps
 
-1. ✅ Create a crates.io account and get API token
-2. ✅ Create `sharat/homebrew-tap` repository
-3. ✅ Run `cargo publish --dry-run` to verify
-4. ✅ Publish to Cargo with `cargo publish` or configure `CARGO_REGISTRY_TOKEN` for Actions
-5. ✅ Create first GitHub release (triggers automatically on tag)
-6. ✅ Update Homebrew formula with SHA256 hashes
-7. ✅ Test installation: `cargo install cluster-cli` and `brew install sharat/tap/cluster-cli`
+1. ✅ Create `sharat/homebrew-tap` repository
+2. ✅ Create first GitHub release (triggers automatically on tag)
+3. ✅ Update Homebrew formula with SHA256 hashes
+4. ✅ Test installation: `install.sh` and `brew install sharat/tap/cluster-cli`
 
 ---
 
 ## Resources
 
-- [Cargo Publishing Guide](https://doc.rust-lang.org/cargo/reference/publishing.html)
 - [Homebrew Formula Cookbook](https://docs.brew.sh/Formula-Cookbook)
 - [Homebrew Tap Guide](https://docs.brew.sh/Taps)

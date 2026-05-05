@@ -19,14 +19,12 @@
    - Waits for main branch CI to pass
    - Bumps patch version in `Cargo.toml`
    - Updates `Cargo.lock`
-   - Runs `cargo publish --dry-run`
+   - Runs `cargo check --locked`
    - Commits the version bump
-   - Publishes to crates.io
    - Creates and pushes git tag (`vX.Y.Z`) — **triggers existing release.yml** to build binaries and create the GitHub Release
 
 ### Requirements:
 - `GITHUB_TOKEN` (auto-provided)
-- `CARGO_REGISTRY_TOKEN` (secret for crates.io)
 - Repository permissions: contents:write, pull-requests:write, checks:read, statuses:read, actions:read, id-token:write
 
 ## Triggering Manually
@@ -45,6 +43,6 @@ gh workflow run dependabot-release.yml --repo sharat/cluster-cli -f dry_run=true
 
 ## Difference from swizzy
 - Uses **Cargo** instead of npm (Rust project)
-- Publishes to **crates.io** instead of npm
+- Ships GitHub Release binaries instead of publishing to npm/crates.io
 - Version bump in `Cargo.toml` instead of `package.json`
 - Same tag format (`vX.Y.Z`) triggers existing `release.yml`
