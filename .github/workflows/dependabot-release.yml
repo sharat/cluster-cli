@@ -158,8 +158,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
-      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -176,50 +174,24 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Wait for main branch CI
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify merged code
         run: |
           set -euo pipefail
 
           if [ "$DRY_RUN" = "true" ]; then
-            echo "🧪 [DRY RUN] Skipping main branch CI wait"
+            echo "🧪 [DRY RUN] Skipping verification"
             exit 0
           fi
 
-          target_sha=$(git ls-remote origin refs/heads/main | awk '{print $1}')
-          echo "⏳ Waiting for main branch CI at $target_sha to complete..."
+          # We just merged a Dependabot PR, but the default GITHUB_TOKEN
+          # cannot trigger push-event workflows (GitHub prevents this to
+          # avoid infinite loops), so the CI workflow never ran on the new
+          # commit. Verify the merged code directly instead of polling for CI.
+          echo "🔍 Verifying merged code builds and passes tests..."
 
-          for i in {1..90}; do
-            run=$(gh run list --workflow CI --branch main --event push --limit 10 --json headSha,status,conclusion,url --jq ".[] | select(.headSha == \"$target_sha\")" | head -n 1)
-
-            if [ -n "$run" ]; then
-              status=$(echo "$run" | jq -r '.status')
-              conclusion=$(echo "$run" | jq -r '.conclusion')
-              url=$(echo "$run" | jq -r '.url')
-
-              if [ "$status" = "completed" ]; then
-                if [ "$conclusion" = "success" ]; then
-                  echo "✅ Main branch CI passed: $url"
-                  break
-                else
-                  echo "❌ Main branch CI failed ($conclusion): $url"
-                  exit 1
-                fi
-              fi
-            fi
-
-            if [ "$i" -eq 90 ]; then
-              echo "❌ Timed out waiting for CI on $target_sha"
-              exit 1
-            fi
-
-            echo "   Waiting... ($i/90)"
-            sleep 10
-          done
-
-          git fetch origin main
-          git reset --hard "$target_sha"
+          cargo fmt -- --check
+          cargo clippy -- -D warnings
+          cargo test --verbose
 
       - name: Bump version
         id: bump
