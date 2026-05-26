@@ -66,17 +66,17 @@ impl Updater {
         // Detect based on binary location
         if let Ok(exe_path) = std::env::current_exe() {
             let exe_str = exe_path.to_string_lossy();
-            
+
             // Check if installed via Homebrew
             if exe_str.contains("/homebrew/") || exe_str.contains("/Cellar/") {
                 return InstallMethod::Homebrew;
             }
-            
+
             // Check if installed via cargo
             if exe_str.contains("/.cargo/") || exe_str.contains("cargo/") {
                 return InstallMethod::Cargo;
             }
-            
+
             // Check if in user local bin (curl install)
             if exe_str.contains("/.local/bin/") || exe_str.contains("/usr/local/bin/") {
                 return InstallMethod::Curl;
@@ -101,12 +101,12 @@ impl Updater {
     /// Store the installation method for future reference
     pub fn store_install_method(method: InstallMethod) -> Result<()> {
         let config_dir = crate::config::Config::dir_path();
-        
+
         std::fs::create_dir_all(&config_dir)?;
-        
+
         let path = config_dir.join(INSTALL_METHOD_FILE);
         std::fs::write(&path, method.as_str())?;
-        
+
         Ok(())
     }
 
@@ -146,7 +146,7 @@ impl Updater {
     pub fn get_update_notification(&self, release: &GithubRelease) -> String {
         let latest = &release.tag_name;
         let current = &self.current_version;
-        
+
         match self.install_method {
             InstallMethod::Homebrew => {
                 format!(
@@ -172,21 +172,15 @@ impl Updater {
     /// Perform the upgrade
     pub async fn upgrade(&self) -> Result<()> {
         match self.install_method {
-            InstallMethod::Homebrew => {
-                self.upgrade_via_homebrew().await
-            }
-            InstallMethod::Curl | InstallMethod::Unknown => {
-                self.upgrade_via_curl().await
-            }
-            InstallMethod::Cargo => {
-                self.upgrade_via_cargo().await
-            }
+            InstallMethod::Homebrew => self.upgrade_via_homebrew().await,
+            InstallMethod::Curl | InstallMethod::Unknown => self.upgrade_via_curl().await,
+            InstallMethod::Cargo => self.upgrade_via_cargo().await,
         }
     }
 
     async fn upgrade_via_homebrew(&self) -> Result<()> {
         println!("Upgrading cluster-cli via Homebrew...");
-        
+
         let output = Command::new("brew")
             .args(&["upgrade", "cluster-cli"])
             .output()
@@ -203,9 +197,9 @@ impl Updater {
 
     async fn upgrade_via_curl(&self) -> Result<()> {
         println!("Upgrading cluster-cli via install script...");
-        
+
         let install_script = r#"curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash"#;
-        
+
         let output = Command::new("bash")
             .arg("-c")
             .arg(install_script)
@@ -224,7 +218,7 @@ impl Updater {
 
     async fn upgrade_via_cargo(&self) -> Result<()> {
         println!("Upgrading cluster-cli via Cargo...");
-        
+
         let output = Command::new("cargo")
             .args(&["install", "cluster-cli"])
             .output()
@@ -257,8 +251,14 @@ mod tests {
     #[test]
     fn test_install_method_from_str() {
         assert_eq!(InstallMethod::from_str("curl"), Some(InstallMethod::Curl));
-        assert_eq!(InstallMethod::from_str("homebrew"), Some(InstallMethod::Homebrew));
+        assert_eq!(
+            InstallMethod::from_str("homebrew"),
+            Some(InstallMethod::Homebrew)
+        );
         assert_eq!(InstallMethod::from_str("cargo"), Some(InstallMethod::Cargo));
-        assert_eq!(InstallMethod::from_str("unknown"), Some(InstallMethod::Unknown));
+        assert_eq!(
+            InstallMethod::from_str("unknown"),
+            Some(InstallMethod::Unknown)
+        );
     }
 }

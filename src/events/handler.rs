@@ -801,22 +801,13 @@ mod tests {
             vec![],
         ));
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(app.pod_detail_section, PodDetailSection::Events);
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(app.pod_detail_section, PodDetailSection::Logs);
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(app.pod_detail_section, PodDetailSection::Overview);
     }
 
@@ -826,10 +817,7 @@ mod tests {
         app.view = AppView::PodDetail {
             pod_name: "api".to_string(),
         };
-        let command = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-        );
+        let command = handle_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(matches!(app.view, AppView::Dashboard));
         assert!(matches!(
             command,
@@ -893,10 +881,7 @@ mod tests {
         app.view = AppView::NodeDetail {
             node_name: "node-a".to_string(),
         };
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(matches!(app.view, AppView::Dashboard));
     }
 
@@ -935,10 +920,7 @@ mod tests {
             detail: "no context".to_string(),
         });
 
-        let command = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-        );
+        let command = handle_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(matches!(command, Some(AppCommand::Quit)));
     }
 
