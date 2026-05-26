@@ -164,7 +164,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PAT }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
