@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "cluster-rs", about = "AKS Cluster Health TUI")]
+#[command(name = "cluster-cli", about = "Kubernetes Cluster Health TUI")]
 struct Args {
     /// Kubernetes namespace to monitor
     #[arg(short, long)]
@@ -61,13 +61,19 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn dir_path() -> PathBuf {
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("cluster-cli")
+    }
+
     pub fn load() -> Result<Self> {
         let args = Args::parse();
         Self::load_from_args(args)
     }
 
     fn load_from_args(args: Args) -> Result<Self> {
-        let config_path = config_file_path();
+        let config_path = Self::dir_path().join("config.toml");
         let mut config = if config_path.exists() {
             let content = std::fs::read_to_string(&config_path)?;
             toml::from_str(&content).unwrap_or_default()
@@ -95,13 +101,6 @@ impl Config {
     }
 }
 
-fn config_file_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("cluster-rs")
-        .join("config.toml")
-}
-
 #[cfg(test)]
 mod tests {
     use super::{Args, Config};
@@ -109,7 +108,7 @@ mod tests {
 
     #[test]
     fn cli_refresh_does_not_override_config_when_flag_is_absent() {
-        let args = Args::parse_from(["cluster-rs"]);
+        let args = Args::parse_from(["cluster-cli"]);
         let config = Config::load_from_args(args).expect("config should load");
 
         assert_eq!(config.refresh_interval_secs, 60);
@@ -117,7 +116,7 @@ mod tests {
 
     #[test]
     fn cli_refresh_overrides_when_explicitly_provided() {
-        let args = Args::parse_from(["cluster-rs", "--refresh", "15"]);
+        let args = Args::parse_from(["cluster-cli", "--refresh", "15"]);
         let config = Config::load_from_args(args).expect("config should load");
 
         assert_eq!(config.refresh_interval_secs, 15);

@@ -445,7 +445,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
     let ns = &app.config.namespace;
 
     let mut spans = vec![Span::styled(
-        " cluster-rs  ",
+        " cluster-cli ",
         Style::default()
             .fg(Color::White)
             .add_modifier(Modifier::BOLD),

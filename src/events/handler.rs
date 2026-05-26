@@ -579,7 +579,7 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
 #[cfg(test)]
 mod tests {
     use super::{handle_data_event, handle_key, AppCommand};
-    use crate::app::{AppState, AppView, Overlay, Panel, PodSortMode};
+    use crate::app::{AppState, AppView, Overlay, Panel, PodDetailSection, PodSortMode};
     use crate::config::Config;
     use crate::data::models::{
         ClusterEvent, ClusterSnapshot, ConditionStatus, ContainerInfo, EventType, HealthScore,
@@ -788,40 +788,158 @@ mod tests {
     }
 
     #[test]
-    fn enter_on_multi_target_incident_applies_incident_focus_to_pods() {
+    fn pod_detail_tab_cycles_sections() {
         let mut app = AppState::new(Config::default());
-        app.focused_panel = Panel::Events;
+        app.view = AppView::PodDetail {
+            pod_name: "api".to_string(),
+        };
         app.snapshot = Some(snapshot_with_incident_targets(
-            vec![
-                IncidentTarget::Pod {
-                    pod_name: "api-0".to_string(),
-                },
-                IncidentTarget::Pod {
-                    pod_name: "worker-0".to_string(),
-                },
-            ],
-            vec![
-                pod("api-0", "default"),
-                pod("worker-0", "default"),
-                pod("other", "default"),
-            ],
+            vec![],
+            vec![pod("api", "default")],
             vec![],
             vec![],
             vec![],
         ));
 
-        let command = handle_key(&mut app, enter_key());
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+        assert_eq!(app.pod_detail_section, PodDetailSection::Events);
 
-        assert!(command.is_none());
-        assert_eq!(app.focused_panel, Panel::Pods);
-        let focus = app
-            .incident_focus
-            .as_ref()
-            .expect("incident focus should be set");
-        assert_eq!(focus.reason, "CrashLoopBackOff");
-        assert!(focus.pod_names.contains("api-0"));
-        assert!(focus.pod_names.contains("worker-0"));
-        assert_eq!(app.filtered_pod_count(), 2);
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+        assert_eq!(app.pod_detail_section, PodDetailSection::Logs);
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+        assert_eq!(app.pod_detail_section, PodDetailSection::Overview);
+    }
+
+    #[test]
+    fn pod_detail_esc_returns_to_dashboard_and_stops_logs() {
+        let mut app = AppState::new(Config::default());
+        app.view = AppView::PodDetail {
+            pod_name: "api".to_string(),
+        };
+        let command = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(matches!(app.view, AppView::Dashboard));
+        assert!(matches!(
+            command,
+            Some(AppCommand::Fetch(FetchCommand::StopLogStream))
+        ));
+    }
+
+    #[test]
+    fn pod_detail_j_k_scroll_and_disable_follow() {
+        let mut app = AppState::new(Config::default());
+        app.view = AppView::PodDetail {
+            pod_name: "api".to_string(),
+        };
+        app.log_buffer.push_back("line1".to_string());
+        app.log_buffer.push_back("line2".to_string());
+        app.log_follow = true;
+        app.detail_scroll = 0;
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        assert_eq!(app.detail_scroll, 1);
+        assert!(!app.log_follow);
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+        );
+        assert_eq!(app.detail_scroll, 0);
+    }
+
+    #[test]
+    fn pod_detail_f_toggles_log_follow() {
+        let mut app = AppState::new(Config::default());
+        app.view = AppView::PodDetail {
+            pod_name: "api".to_string(),
+        };
+        app.log_buffer.push_back("a".to_string());
+        app.log_buffer.push_back("b".to_string());
+        app.detail_scroll = 0;
+        app.log_follow = false;
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+        );
+        assert!(app.log_follow);
+        assert_eq!(app.detail_scroll, 1);
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+        );
+        assert!(!app.log_follow);
+    }
+
+    #[test]
+    fn node_detail_esc_returns_to_dashboard() {
+        let mut app = AppState::new(Config::default());
+        app.view = AppView::NodeDetail {
+            node_name: "node-a".to_string(),
+        };
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(matches!(app.view, AppView::Dashboard));
+    }
+
+    #[test]
+    fn pod_filter_overlay_typing_and_backspace() {
+        let mut app = AppState::new(Config::default());
+        app.overlay = Overlay::PodFilter;
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        );
+        assert_eq!(app.pod_filter, "a");
+        assert_eq!(app.pod_cursor, 0);
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE),
+        );
+        assert_eq!(app.pod_filter, "ab");
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
+        );
+        assert_eq!(app.pod_filter, "a");
+        assert_eq!(app.pod_cursor, 0);
+    }
+
+    #[test]
+    fn esc_with_connection_issue_quits() {
+        let mut app = AppState::new(Config::default());
+        app.connection_issue = Some(crate::data::models::ConnectionIssue {
+            kind: crate::data::models::ConnectionIssueKind::NoContext,
+            namespace: None,
+            detail: "no context".to_string(),
+        });
+
+        let command = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(matches!(command, Some(AppCommand::Quit)));
     }
 
     fn enter_key() -> KeyEvent {

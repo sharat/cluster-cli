@@ -1563,12 +1563,15 @@ fn calculate_age(timestamp: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        attach_workload_events, build_node_metrics, deployment_rollout_status, derive_node_status,
-        derive_pod_status, effective_pod_cpu_resources, effective_pod_memory_resources,
-        ensure_readonly_kubectl_args, workload_health,
+        attach_workload_events, build_node_metrics, classify_connection_issue,
+        deployment_rollout_status, derive_node_status, derive_pod_status,
+        effective_pod_cpu_resources, effective_pod_memory_resources,
+        ensure_readonly_kubectl_args, parse_cpu, parse_memory_mb, requested_namespace,
+        workload_health,
     };
     use crate::data::models::{
-        ClusterEvent, ConditionStatus, EventType, HealthStatus, WorkloadKind, WorkloadSummary,
+        ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
+        WorkloadSummary,
     };
     use serde_json::json;
 
@@ -1730,5 +1733,56 @@ mod tests {
             HealthStatus::Healthy
         );
         assert_eq!(ConditionStatus::True.as_str(), "True");
+    }
+
+    #[test]
+    fn parse_cpu_variants() {
+        assert_eq!(parse_cpu("500m"), 500);
+        assert_eq!(parse_cpu("2"), 2000);
+        assert_eq!(parse_cpu("1.5"), 1500);
+        assert_eq!(parse_cpu(""), 0);
+        assert_eq!(parse_cpu("abc"), 0);
+    }
+
+    #[test]
+    fn parse_memory_mb_variants() {
+        assert_eq!(parse_memory_mb("512Mi"), 512);
+        assert_eq!(parse_memory_mb("2Gi"), 2048);
+        assert_eq!(parse_memory_mb("1024Ki"), 1);
+        assert_eq!(parse_memory_mb("512M"), 512);
+        assert_eq!(parse_memory_mb("2G"), 2048);
+        assert_eq!(parse_memory_mb(""), 0);
+        assert_eq!(parse_memory_mb("abc"), 0);
+    }
+
+    #[test]
+    fn classify_connection_issue_detects_context_and_namespace() {
+        let issue = classify_connection_issue(
+            &["get", "pods", "-n", "missing"],
+            "Error from server (NotFound): namespaces \"missing\" not found",
+        );
+        assert!(issue.is_some());
+        let issue = issue.unwrap();
+        assert_eq!(issue.kind, ConnectionIssueKind::NamespaceUnavailable);
+        assert_eq!(issue.namespace, Some("missing".to_string()));
+
+        let issue = classify_connection_issue(
+            &["config", "current-context"],
+            "error: current-context is not set",
+        );
+        assert_eq!(issue.unwrap().kind, ConnectionIssueKind::NoContext);
+    }
+
+    #[test]
+    fn requested_namespace_extracts_flag() {
+        assert_eq!(
+            requested_namespace(&["get", "pods", "-n", "default"]),
+            Some("default".to_string())
+        );
+        assert_eq!(
+            requested_namespace(&["get", "pods", "--namespace", "kube-system"]),
+            Some("kube-system".to_string())
+        );
+        assert_eq!(requested_namespace(&["get", "pods"]), None);
     }
 }

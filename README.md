@@ -1,4 +1,4 @@
-# cluster-rs
+# cluster-cli
 
 ![cluster-cli logo](images/logo.png)
 
@@ -67,8 +67,8 @@ curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh 
 ### Build from Source
 
 ```bash
-git clone https://github.com/sharat/cluster-rs.git
-cd cluster-rs
+git clone https://github.com/sharat/cluster-cli.git
+cd cluster-cli
 cargo build --release
 ```
 
@@ -133,8 +133,8 @@ Don't have a Kubernetes cluster with workloads yet? You can try `cluster-cli` wi
 
 The application looks for a config file at:
 
-- Linux/macOS: `~/.config/cluster/config.toml`
-- Windows: `%APPDATA%\cluster\config.toml`
+- Linux/macOS: `~/.config/cluster-cli/config.toml`
+- Windows: `%APPDATA%\cluster-cli\config.toml`
 
 Example `config.toml`:
 
@@ -233,7 +233,7 @@ Command-line arguments override config file settings.
 ## Project Structure
 
 ```
-cluster-rs/
+cluster-cli/
 ├── src/
 │   ├── main.rs              # Entry point, event loop
 │   ├── app.rs               # Application state management

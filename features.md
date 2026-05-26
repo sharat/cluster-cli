@@ -1,10 +1,10 @@
-# cluster-rs Feature Inventory
+# cluster-cli Feature Inventory
 
-This document is the single feature reference for `cluster-rs` as implemented in the current codebase.
+This document is the single feature reference for `cluster-cli` as implemented in the current codebase.
 
 ## Product Summary
 
-`cluster-rs` is a read-only terminal UI for monitoring Kubernetes cluster health using `kubectl`. It renders a live dashboard, supports drill-down views for pods and nodes, and surfaces health, resource, rollout, and incident signals without mutating cluster state.
+`cluster-cli` is a read-only terminal UI for monitoring Kubernetes cluster health using `kubectl`. It renders a live dashboard, supports drill-down views for pods and nodes, and surfaces health, resource, rollout, and incident signals without mutating cluster state.
 
 ## Core Dashboard
 

@@ -95,17 +95,12 @@ impl Updater {
     }
 
     fn install_method_file_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("cluster-rs")
-            .join(INSTALL_METHOD_FILE)
+        crate::config::Config::dir_path().join(INSTALL_METHOD_FILE)
     }
 
     /// Store the installation method for future reference
     pub fn store_install_method(method: InstallMethod) -> Result<()> {
-        let config_dir = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("cluster-rs");
+        let config_dir = crate::config::Config::dir_path();
         
         std::fs::create_dir_all(&config_dir)?;
         
@@ -248,11 +243,9 @@ impl Updater {
     pub fn show_info(&self) {
         println!("cluster-cli {}", self.current_version);
         println!("Installation method: {}", self.install_method.as_str());
-        println!("Config directory: {}", 
-            dirs::config_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join("cluster-rs")
-                .display()
+        println!(
+            "Config directory: {}",
+            crate::config::Config::dir_path().display()
         );
     }
 }

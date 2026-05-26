@@ -974,4 +974,49 @@ mod tests {
         assert!(message.contains("kubectl"));
         assert!(message.contains("Press `r`"));
     }
+
+    #[test]
+    fn namespace_resource_summary_aggregates_current_namespace_pods() {
+        let mut app = AppState::new(Config::default());
+        app.snapshot = Some(snapshot_with(
+            vec![
+                pod("api", "default", 20, 40),
+                pod("worker", "default", 10, 20),
+                pod("other", "kube-system", 5, 10),
+            ],
+            vec![],
+        ));
+
+        let summary = app.namespace_resource_summary();
+        assert_eq!(summary.pod_count, 2);
+    }
+
+    #[test]
+    fn current_pod_returns_matching_pod_in_detail_view() {
+        let mut app = AppState::new(Config::default());
+        let p = pod("api", "default", 20, 40);
+        app.snapshot = Some(snapshot_with(vec![p.clone()], vec![]));
+        app.enter_pod_detail("api".to_string());
+
+        assert!(app.current_pod().is_some());
+        assert_eq!(app.current_pod().unwrap().name, "api");
+    }
+
+    #[test]
+    fn is_connecting_true_when_loading_without_snapshot_or_issue() {
+        let mut app = AppState::new(Config::default());
+        assert!(app.is_connecting_to_cluster());
+
+        app.snapshot = Some(snapshot_with(vec![], vec![]));
+        assert!(!app.is_connecting_to_cluster());
+    }
+
+    #[test]
+    fn clear_incident_focus_resets_cursor() {
+        let mut app = AppState::new(Config::default());
+        app.pod_cursor = 5;
+        app.clear_incident_focus();
+        assert_eq!(app.pod_cursor, 0);
+        assert!(app.incident_focus.is_none());
+    }
 }
