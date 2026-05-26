@@ -20,7 +20,7 @@ fn test_config_clone() {
         refresh_interval_secs: 120,
         node_pool_filter: Some("pool1".to_string()),
     };
-    
+
     let cloned = config.clone();
     assert_eq!(cloned.namespace, "test");
     assert_eq!(cloned.resource_group, Some("rg".to_string()));

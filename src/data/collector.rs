@@ -1565,9 +1565,8 @@ mod tests {
     use super::{
         attach_workload_events, build_node_metrics, classify_connection_issue,
         deployment_rollout_status, derive_node_status, derive_pod_status,
-        effective_pod_cpu_resources, effective_pod_memory_resources,
-        ensure_readonly_kubectl_args, parse_cpu, parse_memory_mb, requested_namespace,
-        workload_health,
+        effective_pod_cpu_resources, effective_pod_memory_resources, ensure_readonly_kubectl_args,
+        parse_cpu, parse_memory_mb, requested_namespace, workload_health,
     };
     use crate::data::models::{
         ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
