@@ -977,7 +977,9 @@ mod tests {
 
     #[test]
     fn namespace_resource_summary_aggregates_current_namespace_pods() {
-        let mut app = AppState::new(Config::default());
+        let mut config = Config::default();
+        config.namespace = "default".to_string();
+        let mut app = AppState::new(config);
         app.snapshot = Some(snapshot_with(
             vec![
                 pod("api", "default", 20, 40),

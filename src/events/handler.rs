@@ -831,6 +831,7 @@ mod tests {
         app.view = AppView::PodDetail {
             pod_name: "api".to_string(),
         };
+        app.pod_detail_section = PodDetailSection::Logs;
         app.log_buffer.push_back("line1".to_string());
         app.log_buffer.push_back("line2".to_string());
         app.log_follow = true;
