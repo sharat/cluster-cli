@@ -98,7 +98,13 @@ jobs:
           # Get previous tag
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
           
-          if [ -z "$PREV_TAG" ]; then
+          TAG_NOTES=$(git tag -l --format='%(contents)' "$VERSION")
+
+          if [ -n "$TAG_NOTES" ]; then
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            echo "$TAG_NOTES" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          elif [ -z "$PREV_TAG" ]; then
             echo "changelog=Initial release $VERSION" >> $GITHUB_OUTPUT
           else
             CHANGELOG=$(git log --pretty=format:"- %s" $PREV_TAG..HEAD)
