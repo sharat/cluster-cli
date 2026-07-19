@@ -338,7 +338,7 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
         .enumerate()
         .map(|(i, ns)| {
             let (style, prefix) = if i == app.ns_list_cursor {
-                if ns == &app.config.namespace {
+                if ns.name == app.config.namespace {
                     (
                         Style::default()
                             .fg(Color::Cyan)
@@ -353,7 +353,7 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
                         "  ",
                     )
                 }
-            } else if ns == &app.config.namespace {
+            } else if ns.name == app.config.namespace {
                 (
                     Style::default()
                         .fg(Color::Magenta)
@@ -363,7 +363,7 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
             } else {
                 (Style::default().fg(Color::Gray), "  ")
             };
-            ListItem::new(format!("{prefix}{ns}")).style(style)
+            ListItem::new(format!("{prefix}{:<36} {:>5} pods", ns.name, ns.pod_count)).style(style)
         })
         .collect();
 

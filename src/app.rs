@@ -5,11 +5,9 @@ use std::time::Instant;
 
 use crate::config::Config;
 use crate::data::models::{
-    ClusterSnapshot, ConnectionIssue, HealthStatus, IncidentBucket, IncidentTarget, PodInfo,
-    ResourceUsageSummary,
+    ClusterSnapshot, ConnectionIssue, HealthStatus, IncidentBucket, IncidentTarget,
+    NamespaceSummary, PodInfo, ResourceUsageSummary, MAX_HISTORY_SAMPLES,
 };
-
-const MAX_HISTORY_SAMPLES: usize = 20;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppView {
@@ -108,7 +106,7 @@ pub struct AppState {
     pub pod_sort_mode: PodSortMode,
     pub overlay: Overlay,
     pub ns_input: String,
-    pub ns_list: Vec<String>,
+    pub ns_list: Vec<NamespaceSummary>,
     pub ns_list_cursor: usize,
     pub refresh_input: String,
     pub export_input: String,
@@ -590,9 +588,9 @@ mod tests {
         }
     }
 
-    fn pod_with_state(
-        name: &str,
-        namespace: &str,
+    struct PodStateSpec {
+        name: &'static str,
+        namespace: &'static str,
         status: HealthStatus,
         restarts: u32,
         cpu_pct: u8,
@@ -600,13 +598,15 @@ mod tests {
         ready: bool,
         ready_containers: u32,
         total_containers: u32,
-    ) -> PodInfo {
+    }
+
+    fn pod_with_state(spec: PodStateSpec) -> PodInfo {
         PodInfo {
-            uid: format!("{namespace}-{name}-uid"),
-            name: name.to_string(),
-            namespace: namespace.to_string(),
+            uid: format!("{}-{}-uid", spec.namespace, spec.name),
+            name: spec.name.to_string(),
+            namespace: spec.namespace.to_string(),
             phase: "Running".to_string(),
-            restarts,
+            restarts: spec.restarts,
             age: "1m".to_string(),
             cpu_millicores: 0,
             cpu_request_millicores: 0,
@@ -614,21 +614,21 @@ mod tests {
             memory_mb: 0,
             memory_request_mb: 0,
             memory_limit_mb: 0,
-            memory_request_pct: memory_pct,
-            memory_pct,
-            cpu_request_pct: cpu_pct,
-            cpu_pct,
-            status,
-            ready_containers,
-            total_containers,
-            is_ready: ready,
+            memory_request_pct: spec.memory_pct,
+            memory_pct: spec.memory_pct,
+            cpu_request_pct: spec.cpu_pct,
+            cpu_pct: spec.cpu_pct,
+            status: spec.status,
+            ready_containers: spec.ready_containers,
+            total_containers: spec.total_containers,
+            is_ready: spec.ready,
             crash_looping: false,
             oom_killed: false,
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
-                ready,
-                restart_count: restarts,
+                ready: spec.ready,
+                restart_count: spec.restarts,
                 state: "Running".to_string(),
                 last_termination_reason: None,
                 last_exit_code: None,
@@ -709,19 +709,39 @@ mod tests {
         let mut app = AppState::new(Config::default());
         app.snapshot = Some(snapshot_with(
             vec![
-                pod_with_state("worker", "ns", HealthStatus::Warning, 1, 90, 10, true, 1, 1),
-                pod_with_state("api", "ns", HealthStatus::Critical, 5, 20, 50, false, 0, 1),
-                pod_with_state(
-                    "batch",
-                    "ns",
-                    HealthStatus::Elevated,
-                    3,
-                    20,
-                    80,
-                    false,
-                    0,
-                    1,
-                ),
+                pod_with_state(PodStateSpec {
+                    name: "worker",
+                    namespace: "ns",
+                    status: HealthStatus::Warning,
+                    restarts: 1,
+                    cpu_pct: 90,
+                    memory_pct: 10,
+                    ready: true,
+                    ready_containers: 1,
+                    total_containers: 1,
+                }),
+                pod_with_state(PodStateSpec {
+                    name: "api",
+                    namespace: "ns",
+                    status: HealthStatus::Critical,
+                    restarts: 5,
+                    cpu_pct: 20,
+                    memory_pct: 50,
+                    ready: false,
+                    ready_containers: 0,
+                    total_containers: 1,
+                }),
+                pod_with_state(PodStateSpec {
+                    name: "batch",
+                    namespace: "ns",
+                    status: HealthStatus::Elevated,
+                    restarts: 3,
+                    cpu_pct: 20,
+                    memory_pct: 80,
+                    ready: false,
+                    ready_containers: 0,
+                    total_containers: 1,
+                }),
             ],
             vec![],
         ));
@@ -740,19 +760,39 @@ mod tests {
         let mut app = AppState::new(Config::default());
         app.snapshot = Some(snapshot_with(
             vec![
-                pod_with_state("api", "ns", HealthStatus::Critical, 1, 20, 50, false, 0, 1),
-                pod_with_state(
-                    "batch",
-                    "ns",
-                    HealthStatus::Elevated,
-                    3,
-                    20,
-                    80,
-                    false,
-                    0,
-                    1,
-                ),
-                pod_with_state("worker", "ns", HealthStatus::Warning, 1, 90, 10, true, 1, 1),
+                pod_with_state(PodStateSpec {
+                    name: "api",
+                    namespace: "ns",
+                    status: HealthStatus::Critical,
+                    restarts: 1,
+                    cpu_pct: 20,
+                    memory_pct: 50,
+                    ready: false,
+                    ready_containers: 0,
+                    total_containers: 1,
+                }),
+                pod_with_state(PodStateSpec {
+                    name: "batch",
+                    namespace: "ns",
+                    status: HealthStatus::Elevated,
+                    restarts: 3,
+                    cpu_pct: 20,
+                    memory_pct: 80,
+                    ready: false,
+                    ready_containers: 0,
+                    total_containers: 1,
+                }),
+                pod_with_state(PodStateSpec {
+                    name: "worker",
+                    namespace: "ns",
+                    status: HealthStatus::Warning,
+                    restarts: 1,
+                    cpu_pct: 90,
+                    memory_pct: 10,
+                    ready: true,
+                    ready_containers: 1,
+                    total_containers: 1,
+                }),
             ],
             vec![
                 ClusterEvent {
@@ -977,8 +1017,10 @@ mod tests {
 
     #[test]
     fn namespace_resource_summary_aggregates_current_namespace_pods() {
-        let mut config = Config::default();
-        config.namespace = "default".to_string();
+        let config = Config {
+            namespace: "default".to_string(),
+            ..Config::default()
+        };
         let mut app = AppState::new(config);
         app.snapshot = Some(snapshot_with(
             vec![

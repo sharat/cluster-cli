@@ -1,6 +1,6 @@
 pub mod handler;
 
-use crate::data::models::{ClusterSnapshot, ConnectionIssue};
+use crate::data::models::{ClusterSnapshot, ConnectionIssue, NamespaceSummary};
 
 #[derive(Debug)]
 pub enum AppEvent {
@@ -13,7 +13,7 @@ pub enum DataEvent {
     LogLine(String),
     Error(String),
     ConnectionState(Option<ConnectionIssue>),
-    Namespaces(Vec<String>),
+    Namespaces(Vec<NamespaceSummary>),
     ExportResult { message: String },
 }
 

@@ -12,6 +12,14 @@ use crate::data::models::*;
 
 const KUBECTL_TIMEOUT: Duration = Duration::from_secs(30);
 
+fn percent_of(value: u64, total: u64) -> u8 {
+    if total == 0 {
+        return 0;
+    }
+
+    ((u128::from(value) * 100 / u128::from(total)).min(100)) as u8
+}
+
 #[derive(Debug, Clone)]
 pub struct KubectlError {
     issue: Option<ConnectionIssue>,
@@ -220,12 +228,12 @@ fn build_node_metric(item: &Value, top_metrics: Option<TopNodeMetrics>) -> Optio
     let cpu_millicores = top_metrics.map(|m| m.cpu_millicores).unwrap_or(0);
     let memory_mb = top_metrics.map(|m| m.memory_mb).unwrap_or(0);
     let memory_pct = if memory_total_mb > 0 {
-        ((memory_mb * 100) / memory_total_mb).min(100) as u8
+        percent_of(memory_mb, memory_total_mb)
     } else {
         top_metrics.and_then(|m| m.memory_pct).unwrap_or(0)
     };
     let cpu_pct = if cpu_capacity > 0 {
-        ((cpu_millicores * 100) / cpu_capacity).min(100) as u8
+        percent_of(cpu_millicores, cpu_capacity)
     } else {
         top_metrics.and_then(|m| m.cpu_pct).unwrap_or(0)
     };
@@ -645,23 +653,23 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
             let (cpu_millicores, memory_mb) = top_map.get(&name).copied().unwrap_or((0, 0));
 
             let memory_pct = if memory_limit_mb > 0 {
-                ((memory_mb * 100) / memory_limit_mb).min(100) as u8
+                percent_of(memory_mb, memory_limit_mb)
             } else {
                 0
             };
             let memory_request_pct = if memory_request_mb > 0 {
-                ((memory_mb * 100) / memory_request_mb).min(100) as u8
+                percent_of(memory_mb, memory_request_mb)
             } else {
                 0
             };
 
             let cpu_pct = if cpu_limit_millicores > 0 {
-                ((cpu_millicores * 100) / cpu_limit_millicores).min(100) as u8
+                percent_of(cpu_millicores, cpu_limit_millicores)
             } else {
                 0
             };
             let cpu_request_pct = if cpu_request_millicores > 0 {
-                ((cpu_millicores * 100) / cpu_request_millicores).min(100) as u8
+                percent_of(cpu_millicores, cpu_request_millicores)
             } else {
                 0
             };
@@ -1152,7 +1160,7 @@ pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
     let mut events = Vec::new();
 
     if let Some(items) = json.get("items").and_then(|v| v.as_array()) {
-        for item in items.iter().rev().take(50) {
+        for item in items.iter().rev().take(MAX_EVENTS_PER_FETCH) {
             let kind = item
                 .pointer("/involvedObject/kind")
                 .and_then(|v| v.as_str())
@@ -1206,19 +1214,38 @@ pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
     Ok(events)
 }
 
-pub async fn fetch_namespaces() -> Result<Vec<String>> {
-    let output = run_cmd("kubectl", &["get", "namespaces", "--no-headers"]).await?;
+pub async fn fetch_namespaces() -> Result<Vec<NamespaceSummary>> {
+    let (namespace_output, pod_output) = tokio::try_join!(
+        run_cmd("kubectl", &["get", "namespaces", "--no-headers"]),
+        run_cmd(
+            "kubectl",
+            &["get", "pods", "--all-namespaces", "--no-headers"]
+        ),
+    )?;
 
-    let mut namespaces: Vec<String> = output
+    let pod_counts = namespace_pod_counts(&pod_output);
+    let mut namespaces: Vec<NamespaceSummary> = namespace_output
         .lines()
         .filter_map(|line| {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            parts.first().map(|s| s.to_string())
+            line.split_whitespace().next().map(|name| NamespaceSummary {
+                name: name.to_string(),
+                pod_count: pod_counts.get(name).copied().unwrap_or(0),
+            })
         })
         .collect();
 
-    namespaces.sort();
+    namespaces.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(namespaces)
+}
+
+fn namespace_pod_counts(output: &str) -> std::collections::HashMap<&str, usize> {
+    let mut counts = std::collections::HashMap::new();
+    for line in output.lines() {
+        if let Some(namespace) = line.split_whitespace().next() {
+            *counts.entry(namespace).or_insert(0) += 1;
+        }
+    }
+    counts
 }
 
 pub async fn fetch_current_context() -> Result<String> {
@@ -1566,7 +1593,7 @@ mod tests {
         attach_workload_events, build_node_metrics, classify_connection_issue,
         deployment_rollout_status, derive_node_status, derive_pod_status,
         effective_pod_cpu_resources, effective_pod_memory_resources, ensure_readonly_kubectl_args,
-        parse_cpu, parse_memory_mb, requested_namespace, workload_health,
+        namespace_pod_counts, parse_cpu, parse_memory_mb, requested_namespace, workload_health,
     };
     use crate::data::models::{
         ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
@@ -1783,5 +1810,15 @@ mod tests {
             Some("kube-system".to_string())
         );
         assert_eq!(requested_namespace(&["get", "pods"]), None);
+    }
+
+    #[test]
+    fn namespace_pod_counts_groups_pods_by_namespace() {
+        let output = "default api-7d9f9f6b4c-abcde 1/1 Running 0 1m\nkube-system coredns-abcde 1/1 Running 0 1m\ndefault worker-abcde 1/1 Running 0 1m";
+
+        let counts = namespace_pod_counts(output);
+
+        assert_eq!(counts.get("default"), Some(&2));
+        assert_eq!(counts.get("kube-system"), Some(&1));
     }
 }

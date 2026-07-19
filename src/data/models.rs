@@ -11,6 +11,31 @@ pub const GRADE_B_THRESHOLD: u8 = 75;
 pub const GRADE_C_THRESHOLD: u8 = 60;
 pub const GRADE_D_THRESHOLD: u8 = 45;
 
+// Retention limits. These bound in-memory buffers that would otherwise grow for
+// the lifetime of the process. Collected here so the ceilings are visible in one
+// place rather than scattered as literals across the data, event, and UI layers.
+
+/// Per-pod CPU/memory samples retained for sparkline history.
+pub const MAX_HISTORY_SAMPLES: usize = 20;
+
+/// Namespaces (keyed by context+namespace) whose events are cached to survive a
+/// failed refresh.
+pub const MAX_EVENT_CACHE_ENTRIES: usize = 20;
+
+/// Lines retained in the pod log buffer while streaming. The oldest are dropped
+/// once this is exceeded.
+pub const MAX_LOG_BUFFER_LINES: usize = 1000;
+
+/// Most recent cluster events parsed from a single `kubectl get events` result.
+pub const MAX_EVENTS_PER_FETCH: usize = 50;
+
+/// A namespace and the total number of pods currently present in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamespaceSummary {
+    pub name: String,
+    pub pod_count: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum HealthStatus {
     Critical,

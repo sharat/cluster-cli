@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::app::{AppState, AppView, Overlay, Panel, PodDetailSection};
+use crate::data::models::MAX_LOG_BUFFER_LINES;
 use crate::events::{DataEvent, FetchCommand};
 
 // Kubernetes namespace names are limited to 63 characters (RFC 1123)
@@ -56,8 +57,8 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                     app.clear_incident_focus();
                 }
                 KeyCode::Enter => {
-                    if let Some(ns) = app.ns_list.get(app.ns_list_cursor).cloned() {
-                        app.config.namespace = ns;
+                    if let Some(namespace) = app.ns_list.get(app.ns_list_cursor) {
+                        app.config.namespace = namespace.name.clone();
                         app.pod_cursor = 0;
                         app.node_cursor = 0;
                         app.workload_cursor = 0;
@@ -547,7 +548,7 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
         }
         DataEvent::LogLine(line) => {
             app.log_buffer.push_back(line);
-            while app.log_buffer.len() > 1000 {
+            while app.log_buffer.len() > MAX_LOG_BUFFER_LINES {
                 app.log_buffer.pop_front();
             }
             if app.log_follow {
@@ -564,7 +565,7 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
                 let current_idx = app
                     .ns_list
                     .iter()
-                    .position(|ns| ns == &app.config.namespace);
+                    .position(|namespace| namespace.name == app.config.namespace);
                 if let Some(idx) = current_idx {
                     app.ns_list_cursor = idx;
                 }
@@ -583,8 +584,8 @@ mod tests {
     use crate::config::Config;
     use crate::data::models::{
         ClusterEvent, ClusterSnapshot, ConditionStatus, ContainerInfo, EventType, HealthScore,
-        HealthStatus, IncidentBucket, IncidentSeverity, IncidentTarget, NodeConditions, NodeMetric,
-        PodInfo, WorkloadKind, WorkloadSummary,
+        HealthStatus, IncidentBucket, IncidentSeverity, IncidentTarget, NamespaceSummary,
+        NodeConditions, NodeMetric, PodInfo, WorkloadKind, WorkloadSummary,
     };
     use crate::events::{DataEvent, FetchCommand};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -595,7 +596,16 @@ mod tests {
         let mut app = AppState::new(Config::default());
         app.snapshot = Some(snapshot_with_events());
         app.overlay = Overlay::NamespaceList;
-        app.ns_list = vec!["default".to_string(), "payments".to_string()];
+        app.ns_list = vec![
+            NamespaceSummary {
+                name: "default".to_string(),
+                pod_count: 3,
+            },
+            NamespaceSummary {
+                name: "payments".to_string(),
+                pod_count: 2,
+            },
+        ];
         app.ns_list_cursor = 1;
 
         let command = handle_key(&mut app, enter_key());
