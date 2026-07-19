@@ -1,11 +1,13 @@
 use ratatui::{
     layout::Rect,
     style::{Color, Style},
+    text::Line,
     widgets::Paragraph,
     Frame,
 };
 
 use crate::app::{AppState, AppView};
+use crate::ui::components::loading_spinner;
 
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let dashboard_help =
@@ -19,21 +21,26 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         .as_ref()
         .filter(|(_, t)| t.elapsed().as_secs() < 5);
 
-    let (text, style) = if let Some((msg, _)) = fresh_error {
-        (format!(" ⚠  {msg} "), Style::default().fg(Color::Yellow))
-    } else if app.is_loading {
+    let (line, style) = if let Some((msg, _)) = fresh_error {
         (
-            " ⟳ Loading...".to_string(),
-            Style::default().fg(Color::DarkGray),
+            Line::from(format!(" ⚠  {msg} ")),
+            Style::default().fg(Color::Yellow),
         )
+    } else if app.is_loading {
+        let mut spans = loading_spinner::spans(app.loading_animation_frame);
+        spans.push(" Loading...".into());
+        (Line::from(spans), Style::default().fg(Color::DarkGray))
     } else {
         let help = match &app.view {
             AppView::Dashboard => dashboard_help,
             AppView::PodDetail { .. } => detail_help,
             AppView::NodeDetail { .. } => node_help,
         };
-        (format!(" {help} "), Style::default().fg(Color::DarkGray))
+        (
+            Line::from(format!(" {help} ")),
+            Style::default().fg(Color::DarkGray),
+        )
     };
 
-    f.render_widget(Paragraph::new(text).style(style), area);
+    f.render_widget(Paragraph::new(line).style(style), area);
 }

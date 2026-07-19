@@ -332,6 +332,16 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
         popup_area.height - 2,
     );
 
+    if app.is_loading_namespaces {
+        let mut spans = components::loading_spinner::spans(app.loading_animation_frame);
+        spans.push(" Loading namespaces...".into());
+        f.render_widget(
+            Paragraph::new(Line::from(spans)).style(Style::default().fg(Color::DarkGray)),
+            inner,
+        );
+        return;
+    }
+
     let items: Vec<ListItem> = app
         .ns_list
         .iter()

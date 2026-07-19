@@ -54,6 +54,7 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 KeyCode::Esc => {
                     app.overlay = Overlay::None;
                     app.ns_list.clear();
+                    app.is_loading_namespaces = false;
                     app.clear_incident_focus();
                 }
                 KeyCode::Enter => {
@@ -242,6 +243,8 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
         KeyCode::Char('n') => {
             app.overlay = Overlay::NamespaceList;
             app.ns_list_cursor = 0;
+            app.ns_list.clear();
+            app.is_loading_namespaces = true;
             return Some(AppCommand::Fetch(FetchCommand::FetchNamespaces));
         }
         KeyCode::Char('r') => {
@@ -558,9 +561,11 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
         DataEvent::Error(msg) => {
             app.status_message = Some((msg, std::time::Instant::now()));
             app.is_loading = false;
+            app.is_loading_namespaces = false;
         }
         DataEvent::Namespaces(namespaces) => {
             app.ns_list = namespaces;
+            app.is_loading_namespaces = false;
             if app.overlay == Overlay::NamespaceList {
                 let current_idx = app
                     .ns_list
@@ -618,6 +623,50 @@ mod tests {
         assert!(app.snapshot.is_some());
         assert!(app.is_loading);
         assert_eq!(app.config.namespace, "payments");
+    }
+
+    #[test]
+    fn namespace_picker_marks_namespace_request_as_loading() {
+        let mut app = AppState::new(Config::default());
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+
+        assert!(app.is_loading_namespaces);
+    }
+
+    #[test]
+    fn namespace_picker_clears_stale_namespaces_when_loading() {
+        let mut app = AppState::new(Config::default());
+        app.ns_list = vec![NamespaceSummary {
+            name: "stale".to_string(),
+            pod_count: 1,
+        }];
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+
+        assert!(app.ns_list.is_empty());
+    }
+
+    #[test]
+    fn namespace_data_event_clears_namespace_picker_loading_state() {
+        let mut app = AppState::new(Config::default());
+        app.is_loading_namespaces = true;
+
+        handle_data_event(
+            &mut app,
+            DataEvent::Namespaces(vec![NamespaceSummary {
+                name: "default".to_string(),
+                pod_count: 3,
+            }]),
+        );
+
+        assert!(!app.is_loading_namespaces);
     }
 
     #[test]

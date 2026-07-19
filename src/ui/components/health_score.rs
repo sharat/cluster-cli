@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::AppState;
-use crate::ui::{format, theme};
+use crate::ui::{components::loading_spinner, format, theme};
 
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     if let Some(snap) = &app.snapshot {
@@ -86,8 +86,9 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             area,
         );
     } else if app.is_loading {
-        let p =
-            Paragraph::new(" Connecting to cluster...").style(Style::default().fg(Color::DarkGray));
+        let mut spans = loading_spinner::spans(app.loading_animation_frame);
+        spans.push(" Connecting to cluster...".into());
+        let p = Paragraph::new(Line::from(spans)).style(Style::default().fg(Color::DarkGray));
         f.render_widget(p, area);
     }
 }

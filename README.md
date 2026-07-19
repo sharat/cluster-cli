@@ -222,7 +222,7 @@ Command-line arguments override config file settings.
 
 | Key | Action |
 |-----|--------|
-| `n` | Open namespace list selector, including each namespace's pod total |
+| `n` | Load and open the namespace selector; a Braille loading animation is shown while names and pod totals are fetched |
 | `N` | Open namespace input (manual entry) |
 | `Enter` | Apply new namespace (when selector/input active) |
 | `Esc` | Cancel namespace selection |

@@ -223,7 +223,10 @@ async fn run_app(
 
         tokio::select! {
             _ = tick.tick() => {
-                // Periodic render (updates elapsed time display)
+                // Periodic render updates elapsed time and the loading animation.
+                if app.is_loading || app.is_loading_namespaces {
+                    app.loading_animation_frame = app.loading_animation_frame.wrapping_add(1);
+                }
             }
 
             Some(Ok(event)) = crossterm_events.next() => {
