@@ -4,29 +4,30 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::error;
 
 use crate::config::Config;
-use crate::data::models::{ClusterEvent, ClusterSnapshot, ConnectionIssue, ConnectionIssueKind};
+use crate::data::models::{
+    ClusterEvent, ClusterSnapshot, ConnectionIssue, ConnectionIssueKind, MAX_EVENT_CACHE_ENTRIES,
+};
 use crate::data::{collector, health, incidents};
 use crate::events::{AppEvent, DataEvent, FetchCommand};
 
-const MAX_EVENT_CACHE_ENTRIES: usize = 20;
-
 pub struct Fetcher {
     config: Config,
-    tx: mpsc::UnboundedSender<AppEvent>,
+    tx: mpsc::Sender<AppEvent>,
 }
 
 impl Fetcher {
-    pub fn new(config: Config, tx: mpsc::UnboundedSender<AppEvent>) -> Self {
+    pub fn new(config: Config, tx: mpsc::Sender<AppEvent>) -> Self {
         Self { config, tx }
     }
 
-    pub async fn run(self, mut cmd_rx: mpsc::UnboundedReceiver<FetchCommand>) {
+    pub async fn run(self, mut cmd_rx: mpsc::Receiver<FetchCommand>) {
         let mut interval_secs = self.config.refresh_interval_secs;
         let mut interval = aligned_interval(interval_secs);
         let mut current_namespace = self.config.namespace.clone();
         let mut event_cache: HashMap<String, Vec<ClusterEvent>> = HashMap::new();
 
         let mut log_cancel: Option<oneshot::Sender<()>> = None;
+        let mut log_task: Option<tokio::task::JoinHandle<()>> = None;
 
         loop {
             tokio::select! {
@@ -42,7 +43,7 @@ impl Fetcher {
                             match self.resolve_namespace(namespace).await {
                                 Ok(resolved) => current_namespace = resolved,
                                 Err(issue) => {
-                                    let _ = self.tx.send(AppEvent::Data(DataEvent::ConnectionState(Some(issue))));
+                                    let _ = self.tx.send(AppEvent::Data(DataEvent::ConnectionState(Some(issue)))).await;
                                     continue;
                                 }
                             }
@@ -53,7 +54,7 @@ impl Fetcher {
                             match self.resolve_namespace(namespace).await {
                                 Ok(resolved) => current_namespace = resolved,
                                 Err(issue) => {
-                                    let _ = self.tx.send(AppEvent::Data(DataEvent::ConnectionState(Some(issue))));
+                                    let _ = self.tx.send(AppEvent::Data(DataEvent::ConnectionState(Some(issue)))).await;
                                     continue;
                                 }
                             }
@@ -62,18 +63,14 @@ impl Fetcher {
                             self.fetch_all(&current_namespace, &mut event_cache).await;
                         }
                         FetchCommand::StartLogStream { pod, namespace } => {
-                            if let Some(tx) = log_cancel.take() {
-                                let _ = tx.send(());
-                            }
+                            stop_log_stream(&mut log_cancel, &mut log_task).await;
                             let (tx, rx) = oneshot::channel::<()>();
                             log_cancel = Some(tx);
                             let event_tx = self.tx.clone();
-                            tokio::spawn(stream_logs(pod, namespace, event_tx, rx));
+                            log_task = Some(tokio::spawn(stream_logs(pod, namespace, event_tx, rx)));
                         }
                         FetchCommand::StopLogStream => {
-                            if let Some(tx) = log_cancel.take() {
-                                let _ = tx.send(());
-                            }
+                            stop_log_stream(&mut log_cancel, &mut log_task).await;
                         }
                         FetchCommand::FetchNamespaces => {
                             self.fetch_namespaces().await;
@@ -168,7 +165,8 @@ impl Fetcher {
         if connection_issue.is_some() && !has_usable_data {
             let _ = self
                 .tx
-                .send(AppEvent::Data(DataEvent::ConnectionState(connection_issue)));
+                .send(AppEvent::Data(DataEvent::ConnectionState(connection_issue)))
+                .await;
             return;
         }
 
@@ -184,7 +182,8 @@ impl Fetcher {
 
         let _ = self
             .tx
-            .send(AppEvent::Data(DataEvent::ConnectionState(connection_issue)));
+            .send(AppEvent::Data(DataEvent::ConnectionState(connection_issue)))
+            .await;
         let snapshot = ClusterSnapshot {
             nodes,
             workloads,
@@ -197,7 +196,10 @@ impl Fetcher {
             context_name: context_name.clone(),
         };
 
-        let _ = self.tx.send(AppEvent::Data(DataEvent::Refreshed(snapshot)));
+        let _ = self
+            .tx
+            .send(AppEvent::Data(DataEvent::Refreshed(snapshot)))
+            .await;
         event_cache.insert(cache_key, events);
         if event_cache.len() > MAX_EVENT_CACHE_ENTRIES {
             let current_key = event_cache_key(context_name.as_deref(), namespace);
@@ -210,17 +212,20 @@ impl Fetcher {
             Ok(namespaces) => {
                 let _ = self
                     .tx
-                    .send(AppEvent::Data(DataEvent::Namespaces(namespaces)));
+                    .send(AppEvent::Data(DataEvent::Namespaces(namespaces)))
+                    .await;
             }
             Err(e) => {
                 error!("Failed to fetch namespaces: {}", e);
                 let issue = collector::classify_kubectl_error(&e);
                 let _ = self
                     .tx
-                    .send(AppEvent::Data(DataEvent::ConnectionState(issue)));
+                    .send(AppEvent::Data(DataEvent::ConnectionState(issue)))
+                    .await;
                 let _ = self
                     .tx
-                    .send(AppEvent::Data(DataEvent::Error(format!("Namespaces: {e}"))));
+                    .send(AppEvent::Data(DataEvent::Error(format!("Namespaces: {e}"))))
+                    .await;
             }
         }
     }
@@ -290,7 +295,24 @@ impl Fetcher {
         };
         let _ = self
             .tx
-            .send(AppEvent::Data(DataEvent::ExportResult { message }));
+            .send(AppEvent::Data(DataEvent::ExportResult { message }))
+            .await;
+    }
+}
+
+async fn stop_log_stream(
+    log_cancel: &mut Option<oneshot::Sender<()>>,
+    log_task: &mut Option<tokio::task::JoinHandle<()>>,
+) {
+    if let Some(tx) = log_cancel.take() {
+        let _ = tx.send(());
+    }
+    if let Some(task) = log_task.take() {
+        // A task may be blocked waiting to send a log line through the bounded
+        // event channel. Abort guarantees it has stopped before a replacement
+        // stream begins, eliminating concurrent writers during rapid switching.
+        task.abort();
+        let _ = task.await;
     }
 }
 
@@ -342,9 +364,35 @@ fn secs_until_next_boundary(interval_secs: u64) -> u64 {
     }
 }
 
+fn export_path(path: &str) -> Result<&std::path::Path, String> {
+    use std::path::{Component, Path};
+
+    let candidate = Path::new(path);
+    let mut components = candidate.components();
+    let is_plain_filename =
+        matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
+    if !is_plain_filename || path.trim().is_empty() {
+        return Err(format!(
+            "Invalid export path `{path}`: use a plain filename (no directories, `..`, or absolute paths)"
+        ));
+    }
+
+    Ok(candidate)
+}
+
 fn write_pods_csv(snapshot: &ClusterSnapshot, path: &str) -> Result<usize, String> {
-    use std::fs::File;
+    use std::fs::OpenOptions;
     use std::io::Write;
+
+    let candidate = export_path(path)?;
+    // `create_new` refuses every existing entry, including a symlink. This
+    // prevents a filename inside the working directory from being redirected
+    // to an arbitrary target and avoids overwriting an existing export.
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(candidate)
+        .map_err(|e| format!("Failed to create export `{path}`: {e}"))?;
 
     fn format_cpu(millicores: u64) -> String {
         if millicores == 0 {
@@ -375,8 +423,6 @@ fn write_pods_csv(snapshot: &ClusterSnapshot, path: &str) -> Result<usize, Strin
             format!("{mb}Mi")
         }
     }
-
-    let mut file = File::create(path).map_err(|e| e.to_string())?;
 
     writeln!(
         file,
@@ -418,16 +464,18 @@ fn write_pods_csv(snapshot: &ClusterSnapshot, path: &str) -> Result<usize, Strin
 async fn stream_logs(
     pod: String,
     namespace: String,
-    tx: mpsc::UnboundedSender<AppEvent>,
+    tx: mpsc::Sender<AppEvent>,
     mut cancel_rx: oneshot::Receiver<()>,
 ) {
     use tokio::io::{AsyncBufReadExt, BufReader};
 
     let log_args = ["logs", "-n", &namespace, &pod, "--tail=100", "-f"];
     if let Err(e) = collector::ensure_readonly_kubectl_args("kubectl", &log_args) {
-        let _ = tx.send(AppEvent::Data(DataEvent::Error(format!(
-            "Rejected log stream command: {e}"
-        ))));
+        let _ = tx
+            .send(AppEvent::Data(DataEvent::Error(format!(
+                "Rejected log stream command: {e}"
+            ))))
+            .await;
         return;
     }
 
@@ -439,9 +487,11 @@ async fn stream_logs(
     {
         Ok(c) => c,
         Err(e) => {
-            let _ = tx.send(AppEvent::Data(DataEvent::Error(format!(
-                "Failed to stream logs: {e}"
-            ))));
+            let _ = tx
+                .send(AppEvent::Data(DataEvent::Error(format!(
+                    "Failed to stream logs: {e}"
+                ))))
+                .await;
             return;
         }
     };
@@ -450,14 +500,11 @@ async fn stream_logs(
         let mut lines = BufReader::new(stdout).lines();
         loop {
             tokio::select! {
-                _ = &mut cancel_rx => {
-                    let _ = child.kill().await;
-                    break;
-                }
+                _ = &mut cancel_rx => break,
                 result = lines.next_line() => {
                     match result {
                         Ok(Some(line)) => {
-                            let _ = tx.send(AppEvent::Data(DataEvent::LogLine(line)));
+                            let _ = tx.send(AppEvent::Data(DataEvent::LogLine(line))).await;
                         }
                         _ => break,
                     }
@@ -465,11 +512,37 @@ async fn stream_logs(
             }
         }
     }
+
+    // Kill on every exit path, not just cancellation: a missing stdout pipe or a
+    // read error would otherwise leave the `kubectl logs -f` child running until
+    // the whole process exits. `kill` also reaps, so no zombie is left behind.
+    let _ = child.kill().await;
 }
 
 #[cfg(test)]
 mod tests {
-    use super::event_cache_key;
+    use super::{event_cache_key, export_path, write_pods_csv};
+    use crate::data::models::{ClusterSnapshot, HealthScore};
+
+    fn empty_snapshot() -> ClusterSnapshot {
+        ClusterSnapshot {
+            nodes: vec![],
+            workloads: vec![],
+            pods: vec![],
+            events: vec![],
+            incident_buckets: vec![],
+            health: HealthScore {
+                score: 100,
+                grade: 'A',
+                critical_nodes: 0,
+                critical_pods: 0,
+                total_restarts: 0,
+            },
+            fetched_at: std::time::Instant::now(),
+            error: None,
+            context_name: None,
+        }
+    }
 
     #[test]
     fn event_cache_key_includes_context_and_namespace() {
@@ -481,5 +554,22 @@ mod tests {
             event_cache_key(Some("cluster-a"), "default"),
             event_cache_key(Some("cluster-a"), "payments")
         );
+    }
+
+    #[test]
+    fn write_pods_csv_rejects_path_traversal() {
+        let snapshot = empty_snapshot();
+        assert!(write_pods_csv(&snapshot, "../../etc/passwd").is_err());
+        assert!(write_pods_csv(&snapshot, "/etc/passwd").is_err());
+        assert!(write_pods_csv(&snapshot, "sub/dir/out.csv").is_err());
+        assert!(write_pods_csv(&snapshot, "  ").is_err());
+    }
+
+    #[test]
+    fn export_path_only_accepts_a_single_filename() {
+        assert!(export_path("pods.csv").is_ok());
+        assert!(export_path("./pods.csv").is_err());
+        assert!(export_path("exports/pods.csv").is_err());
+        assert!(export_path("../pods.csv").is_err());
     }
 }

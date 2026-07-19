@@ -14,6 +14,10 @@ cargo clippy -- -D warnings        # lint (warnings are errors in CI)
 cargo update                       # update dependencies to latest compatible versions
 ```
 
+## Shared agent skills
+
+Reusable repository skills live in `.agents/skills/`. When a task matches a skill's description, read and follow its `SKILL.md`. The `release-cluster-cli` skill governs release preparation, tagging, and release-status work.
+
 ## Architecture
 
 cluster-cli is a read-only Kubernetes TUI built on ratatui + crossterm with a tokio async runtime.

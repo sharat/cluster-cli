@@ -14,9 +14,6 @@ pub fn render(f: &mut Frame, app: &mut AppState) {
     match view {
         AppView::Dashboard => views::dashboard::render(f, area, app),
         AppView::PodDetail { .. } => views::pod_detail::render(f, area, app),
-        AppView::NodeDetail { .. } => {
-            views::dashboard::render(f, area, app);
-            views::node_detail::render(f, area, app);
-        }
+        AppView::NodeDetail { .. } => views::node_detail::render(f, area, app),
     }
 }

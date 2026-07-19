@@ -298,11 +298,9 @@ fn render_events(f: &mut Frame, area: Rect, app: &AppState, pod_name: &str) {
             pod_events
                 .iter()
                 .map(|e| {
-                    let ts = if e.timestamp.len() >= 19 {
-                        &e.timestamp[11..19]
-                    } else {
-                        e.timestamp.as_str()
-                    };
+                    let ts = chrono::DateTime::parse_from_rfc3339(&e.timestamp)
+                        .map(|timestamp| timestamp.format("%H:%M:%S").to_string())
+                        .unwrap_or_else(|_| e.timestamp.clone());
                     let style = if e.event_type == EventType::Warning {
                         Style::default().fg(Color::Yellow)
                     } else {
