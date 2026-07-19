@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cluster CLI Releases"
+  short_description: "Prepare and safely publish Cluster CLI releases"
+  default_prompt: "Use $release-cluster-cli to prepare the next Cluster CLI release."
