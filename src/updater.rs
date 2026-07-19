@@ -6,8 +6,6 @@ use std::time::Duration;
 use tokio::process::Command;
 
 const GITHUB_API_URL: &str = "https://api.github.com/repos/sharat/cluster-cli/releases/latest";
-const INSTALL_SCRIPT_URL: &str =
-    "https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh";
 const INSTALL_METHOD_FILE: &str = "install_method";
 
 /// Cap on how long any upgrade subprocess may run before it is killed. Generous
@@ -18,9 +16,7 @@ const UPGRADE_TIMEOUT: Duration = Duration::from_secs(900);
 /// Cap on the install-script download.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// A trusted SHA-256 (hex) for the install script. Upgrades fail closed unless
-/// the caller supplies this out-of-band value.
-const INSTALL_SHA256_ENV: &str = "CLUSTER_INSTALL_SHA256";
+const BUNDLED_INSTALL_SCRIPT: &[u8] = include_bytes!("../install.sh");
 
 /// Run a subprocess to completion under `UPGRADE_TIMEOUT`, surfacing stderr on
 /// failure. `kill_on_drop` means a timeout actually terminates the child rather
@@ -95,18 +91,6 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-fn parse_install_digest(digest: &str) -> Result<String> {
-    let digest = digest.trim().to_ascii_lowercase();
-
-    if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(anyhow!(
-            "{INSTALL_SHA256_ENV} must be a 64-character hexadecimal SHA-256 digest"
-        ));
-    }
-
-    Ok(digest)
-}
-
 /// Stage an install script in the user-owned config directory without ever
 /// following an existing path. `create_new` rejects a pre-existing symlink,
 /// preventing a local path redirection from clobbering an arbitrary file.
@@ -125,13 +109,8 @@ fn stage_install_script(path: &std::path::Path, bytes: &[u8]) -> std::io::Result
     file.flush()
 }
 
-fn expected_install_digest() -> Result<String> {
-    let digest = std::env::var(INSTALL_SHA256_ENV).with_context(|| {
-        format!(
-            "Refusing to run an unverified install script: set {INSTALL_SHA256_ENV} to a trusted SHA-256"
-        )
-    })?;
-    parse_install_digest(&digest)
+fn bundled_install_digest() -> String {
+    sha256_hex(BUNDLED_INSTALL_SCRIPT)
 }
 
 pub struct Updater {
@@ -188,6 +167,11 @@ impl Updater {
 
     fn install_method_file_path() -> PathBuf {
         crate::config::Config::dir_path().join(INSTALL_METHOD_FILE)
+    }
+
+    fn install_script_url(&self) -> String {
+        let version = self.current_version.trim_start_matches('v');
+        format!("https://raw.githubusercontent.com/sharat/cluster-cli/v{version}/install.sh")
     }
 
     /// Store the installation method for future reference
@@ -298,9 +282,9 @@ impl Updater {
     /// Deliberately *not* `curl … | bash`. Piping straight into a shell executes
     /// whatever bytes have arrived so far, so a connection that drops mid-transfer
     /// runs a truncated script. Instead the script is downloaded in full to a
-    /// temp file, checked, optionally verified against a pinned digest, and only
-    /// then executed. The expected digest is supplied out of band via
-    /// `CLUSTER_INSTALL_SHA256`; without it this operation fails closed.
+    /// temp file, checked against the installer bundled into this binary, and
+    /// only then executed. Fetching from this binary's immutable release tag
+    /// keeps the expected digest independent of the mutable `main` branch.
     async fn upgrade_via_curl(&self) -> Result<()> {
         println!("Upgrading cluster-cli via install script...");
 
@@ -311,7 +295,7 @@ impl Updater {
             .build()?;
 
         let script = client
-            .get(INSTALL_SCRIPT_URL)
+            .get(self.install_script_url())
             .send()
             .await
             .context("Failed to download install script")?
@@ -327,13 +311,13 @@ impl Updater {
 
         let digest = sha256_hex(script.as_bytes());
 
-        let expected = expected_install_digest()?;
+        let expected = bundled_install_digest();
         if expected != digest {
             return Err(anyhow!(
                 "Install script digest mismatch — refusing to execute.\n  expected: {expected}\n  actual:   {digest}"
             ));
         }
-        println!("Install script digest verified against {INSTALL_SHA256_ENV}.");
+        println!("Install script digest verified.");
 
         // The config directory is user-owned, unlike the system temp directory.
         // `create_new` rejects a pre-created file or symlink rather than opening
@@ -438,10 +422,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_install_digest_accepts_hex_and_rejects_invalid_values() {
-        let valid = "A".repeat(64);
-        assert_eq!(parse_install_digest(&valid).unwrap(), "a".repeat(64));
-        assert!(parse_install_digest("not-a-digest").is_err());
-        assert!(parse_install_digest(&"a".repeat(63)).is_err());
+    fn install_script_url_uses_current_immutable_release_tag() {
+        let updater = Updater {
+            current_version: "v0.2.2".to_string(),
+            install_method: InstallMethod::Curl,
+        };
+
+        assert_eq!(
+            updater.install_script_url(),
+            "https://raw.githubusercontent.com/sharat/cluster-cli/v0.2.2/install.sh"
+        );
     }
 }

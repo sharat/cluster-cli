@@ -308,7 +308,7 @@ Interactive list showing:
 
 ### Updating
 
-Use `cluster --check-update` to check the latest GitHub release, or `cluster --upgrade` to install it using the detected Homebrew, Cargo, or curl-based installation method. For a curl-based upgrade, set `CLUSTER_INSTALL_SHA256` to the trusted SHA-256 digest of `install.sh`; the updater will refuse to execute an unverified script.
+Use `cluster --check-update` to check the latest GitHub release, or `cluster --upgrade` to install it using the detected Homebrew, Cargo, or curl-based installation method. Curl-based upgrades fetch the installer from the currently running binary's immutable release tag and verify it against the copy bundled into that binary before execution.
 
 ## Architecture
 
