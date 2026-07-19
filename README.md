@@ -32,7 +32,8 @@ For the current detailed feature inventory, see [features.md](features.md).
 - **Pod Prioritization**: Cycle pod sort modes with `s` to surface restarts, CPU pressure, memory pressure, readiness, or latest incident activity first
 - **CSV Export**: Export the current pod list to CSV with `E`
 - **Health Scoring**: Aggregate cluster health score weighted by pod readiness and phase, failed scheduling, node conditions, crash loops, OOM kills, warning volume, and rollout failures
-- **Namespace Management**: Interactive namespace selector with color-coded current namespace
+- **Namespace Management**: Interactive namespace selector with color-coded current namespace and pod totals
+- **Built-in Updates**: Check for and install new releases with `--check-update` and `--upgrade`
 - **Cluster Identification**: Connected cluster name highlighted in header
 - **Read-Only by Design**: Only read-only `kubectl` commands are allowed; the app does not persist local state
 - **Filtering**: Search pods by name and switch namespaces interactively
@@ -98,6 +99,9 @@ Options:
   -r, --refresh <REFRESH>                  Refresh interval in seconds [default: 60] [aliases: --frequency]
       --node-pool-filter <NODE_POOL_FILTER>
                                             Node pool name filter (e.g. "nodepool1")
+      --check-update                          Check for a newer release without installing it
+      --upgrade                               Upgrade using the detected install method
+      --info                                  Show version, install method, and config directory
   -h, --help                               Print help
 ```
 
@@ -118,6 +122,12 @@ cluster --node-pool-filter nodepool1
 
 # Set cluster name for reference
 cluster -n my-namespace -c my-cluster --refresh 300
+
+# Check whether a newer release is available
+cluster --check-update
+
+# Show version and installation details
+cluster --info
 
 # Works with any Kubernetes cluster (AKS, EKS, GKE, minikube, etc.)
 # Just ensure kubectl is configured with the correct context
@@ -212,7 +222,7 @@ Command-line arguments override config file settings.
 
 | Key | Action |
 |-----|--------|
-| `n` | Open namespace list selector |
+| `n` | Open namespace list selector, including each namespace's pod total |
 | `N` | Open namespace input (manual entry) |
 | `Enter` | Apply new namespace (when selector/input active) |
 | `Esc` | Cancel namespace selection |
@@ -293,7 +303,12 @@ Interactive list showing:
 - Current namespace highlighted in **magenta** with `●` indicator
 - Selected item in **yellow** (bold)
 - Other namespaces in gray
+- Total pod count beside every namespace, including empty namespaces
 - Sorted alphabetically for easy navigation
+
+### Updating
+
+Use `cluster --check-update` to check the latest GitHub release, or `cluster --upgrade` to install it using the detected Homebrew, Cargo, or curl-based installation method. For a curl-based upgrade, set `CLUSTER_INSTALL_SHA256` to the trusted SHA-256 digest of `install.sh`; the updater will refuse to execute an unverified script.
 
 ## Architecture
 

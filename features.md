@@ -45,7 +45,7 @@ The app does not apply, patch, delete, or persist cluster changes.
 - Uses the configured namespace when provided
 - Falls back to the current kubectl context namespace when unset
 - Falls back to `default` if no namespace is available from context
-- Supports interactive namespace selection from a fetched namespace list
+- Supports interactive namespace selection from a fetched namespace list, including each namespace's total pod count
 - Supports direct manual namespace entry
 - Preserves the current snapshot on namespace switch until refreshed data arrives
 
@@ -338,7 +338,7 @@ The interface uses consistent color cues for:
 
 ### Namespace controls
 
-- `n` opens namespace selector
+- `n` opens namespace selector with pod totals
 - `N` opens manual namespace input
 - `Enter` applies the selected or entered namespace
 - `Esc` cancels namespace overlays
