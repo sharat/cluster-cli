@@ -2122,11 +2122,9 @@ mod tests {
         let command_error =
             parse_workload_resource_result("Jobs", Err(anyhow::anyhow!("forbidden")))
                 .expect_err("kubectl error should be reported");
-        let parse_error = parse_workload_resource_result(
-            "Jobs",
-            Ok::<String, anyhow::Error>("{".to_string()),
-        )
-        .expect_err("invalid JSON should be reported");
+        let parse_error =
+            parse_workload_resource_result("Jobs", Ok::<String, anyhow::Error>("{".to_string()))
+                .expect_err("invalid JSON should be reported");
 
         assert!(command_error.contains("Jobs: forbidden"));
         assert!(parse_error.contains("Jobs: invalid JSON"));
