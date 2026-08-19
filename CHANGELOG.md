@@ -11,9 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cloud Agent development environment configuration (`.cursor/environment.json` and `.cursor/install.sh`)
 - Select each regular container in a multi-container pod with `c`
 - Toggle between live current logs and the selected container's previous logs with `p`
-- Search, timestamp, wrap, follow, and export controls for buffered pod logs
-- Node-pool filtering across common AKS, EKS, GKE, Karpenter, Cluster API, and kOps labels
-- Jobs, CronJobs, HPAs, PDBs, Services, Ingresses, and PVCs in the workload popup
+- Add search, timestamp, wrap, follow, and export controls for buffered pod logs
+- Filter nodes across common AKS, EKS, GKE, Karpenter, Cluster API, and kOps pool labels
+- Show Jobs, CronJobs, HPAs, PDBs, Services, Ingresses, and PVCs in the workload popup
 
 ### Changed
 - Updated 82 transitive dependencies to their latest compatible versions
