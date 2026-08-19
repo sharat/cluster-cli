@@ -18,6 +18,10 @@ cargo update                       # update dependencies to latest compatible ve
 
 Reusable repository skills live in `.agents/skills/`. When a task matches a skill's description, read and follow its `SKILL.md`. The `release-cluster-cli` skill governs release preparation, tagging, and release-status work.
 
+## Changelog maintenance
+
+Update `CHANGELOG.md` (Unreleased section) for significant changes: new features, breaking changes, important fixes, security patches. Skip routine dependency updates, typos, internal refactoring, and CI changes. Use present tense and categorize under Added/Changed/Fixed/Security/Deprecated/Removed. Include the update in the same PR.
+
 ## Architecture
 
 cluster-cli is a read-only Kubernetes TUI built on ratatui + crossterm with a tokio async runtime.

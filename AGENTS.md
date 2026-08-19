@@ -28,6 +28,51 @@ cargo update                       # update to latest compatible versions
 
 Reusable repository skills live in `.agents/skills/`. Read the relevant `SKILL.md` before performing a matching task; `release-cluster-cli` governs release preparation, tagging, and release-status work.
 
+## Changelog Maintenance
+
+The repository maintains a `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format. Update the **Unreleased** section when making significant changes:
+
+### When to Update
+
+**Always update for:**
+- New features (`### Added`)
+- Breaking changes (`### Changed` with note)
+- Important bug fixes (`### Fixed`)
+- Security patches (`### Security`)
+- Deprecated features (`### Deprecated`)
+- Removed features (`### Removed`)
+
+**Skip for:**
+- Routine dependency updates (batch these in releases)
+- Minor typo fixes or formatting
+- Internal refactoring with no user impact
+- CI/build configuration changes
+- Documentation-only updates to non-user-facing docs
+
+### How to Update
+
+1. Edit the `## [Unreleased]` section in `CHANGELOG.md`
+2. Add your change under the appropriate category
+3. Use present tense ("Add feature" not "Added feature")
+4. Be concise but clear about the impact
+5. Include the change in the same PR/commit
+
+**Example:**
+```markdown
+## [Unreleased]
+
+### Added
+- Real-time log streaming for pod detail view
+- Keyboard shortcut (Ctrl+R) to refresh data manually
+
+### Fixed
+- Crash when namespace contains pods with missing metrics
+```
+
+### During Release
+
+When cutting a release, the unreleased entries are moved to a new version section with a date. The release skill (`release-cluster-cli`) handles this automatically.
+
 ## Project Overview
 
 cluster-cli is a read-only Kubernetes TUI built on ratatui + crossterm with a tokio async runtime. It communicates with kubectl via subprocesses (30s timeout, read-only whitelist enforced).
