@@ -1,0 +1,4 @@
+{
+  "name": "cluster-cli",
+  "install": "bash .cursor/install.sh"
+}
