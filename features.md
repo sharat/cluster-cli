@@ -98,7 +98,7 @@ The dashboard node panel shows:
 ### Node pool filtering
 
 - `--node-pool-filter <NAME>` limits collected nodes to the named provider pool
-- Recognized labels cover AKS agent pools, EKS node groups, GKE node pools, Karpenter node pools and provisioners, Cluster API machine deployments, and kOps instance groups
+- Recognized Node labels cover AKS agent pools, EKS node groups, GKE node pools, Karpenter node pools and provisioners, Cluster API's `cluster.x-k8s.io/deployment-name`, and kOps instance groups
 - Matching is case-insensitive and the active pool appears in the dashboard header
 - Nodes without a recognized matching pool label are excluded when the filter is active
 

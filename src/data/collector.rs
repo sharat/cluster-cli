@@ -195,7 +195,7 @@ const NODE_POOL_LABEL_KEYS: &[&str] = &[
     "cloud.google.com/gke-nodepool",
     "karpenter.sh/nodepool",
     "karpenter.sh/provisioner-name",
-    "cluster.x-k8s.io/machine-deployment",
+    "cluster.x-k8s.io/deployment-name",
     "kops.k8s.io/instancegroup",
     "nodepool",
 ];
@@ -2360,6 +2360,24 @@ mod tests {
                         "name": "eks-node",
                         "labels": { "eks.amazonaws.com/nodegroup": "workers" }
                     }
+                },
+                {
+                    "metadata": {
+                        "name": "karpenter-node",
+                        "labels": { "karpenter.sh/nodepool": "workers" }
+                    }
+                },
+                {
+                    "metadata": {
+                        "name": "capi-node",
+                        "labels": { "cluster.x-k8s.io/deployment-name": "workers" }
+                    }
+                },
+                {
+                    "metadata": {
+                        "name": "kops-node",
+                        "labels": { "kops.k8s.io/instancegroup": "workers" }
+                    }
                 }
             ]
         });
@@ -2371,7 +2389,13 @@ mod tests {
                 .iter()
                 .map(|node| node.name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["gke-node", "eks-node"]
+            vec![
+                "gke-node",
+                "eks-node",
+                "karpenter-node",
+                "capi-node",
+                "kops-node"
+            ]
         );
     }
 
