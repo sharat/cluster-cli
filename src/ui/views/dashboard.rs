@@ -480,6 +480,13 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
         Style::default().fg(Color::Cyan),
     ));
 
+    if let Some(node_pool) = app.config.node_pool_filter.as_deref() {
+        spans.push(Span::styled(
+            format!("  pool:{node_pool}"),
+            Style::default().fg(Color::Yellow),
+        ));
+    }
+
     spans.push(Span::styled(
         format!("  {time}{refresh_info}  "),
         Style::default().fg(Color::White),

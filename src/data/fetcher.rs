@@ -104,7 +104,7 @@ impl Fetcher {
         event_cache: &mut HashMap<String, Vec<ClusterEvent>>,
     ) {
         let (nodes_result, workloads_result, pods_result, events_result, context_result) = tokio::join!(
-            collector::fetch_node_metrics(),
+            collector::fetch_node_metrics(self.config.node_pool_filter.as_deref()),
             collector::fetch_workload_summaries(namespace),
             collector::fetch_pod_info(namespace),
             collector::fetch_events(namespace),

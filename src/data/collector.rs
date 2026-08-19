@@ -113,7 +113,7 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
     }
 }
 
-pub async fn fetch_node_metrics() -> Result<Vec<NodeMetric>> {
+pub async fn fetch_node_metrics(node_pool_filter: Option<&str>) -> Result<Vec<NodeMetric>> {
     let (top_result, info_result) = tokio::join!(
         run_cmd("kubectl", &["top", "nodes", "--no-headers"]),
         run_cmd("kubectl", &["get", "nodes", "-o", "json"]),
@@ -121,7 +121,11 @@ pub async fn fetch_node_metrics() -> Result<Vec<NodeMetric>> {
 
     let top_output = top_result.unwrap_or_default();
     let info_json: Value = serde_json::from_str(&info_result?)?;
-    Ok(build_node_metrics(&top_output, &info_json))
+    Ok(build_node_metrics(
+        &top_output,
+        &info_json,
+        node_pool_filter,
+    ))
 }
 
 #[derive(Clone, Copy)]
@@ -132,12 +136,19 @@ struct TopNodeMetrics {
     memory_pct: Option<u8>,
 }
 
-fn build_node_metrics(top_output: &str, info_json: &Value) -> Vec<NodeMetric> {
+fn build_node_metrics(
+    top_output: &str,
+    info_json: &Value,
+    node_pool_filter: Option<&str>,
+) -> Vec<NodeMetric> {
     let top_map = parse_top_node_metrics(top_output);
     let mut nodes = Vec::new();
 
     if let Some(items) = info_json.get("items").and_then(|v| v.as_array()) {
         for item in items {
+            if node_pool_filter.is_some_and(|filter| !node_matches_pool(item, filter)) {
+                continue;
+            }
             if let Some(node) =
                 build_node_metric(item, top_map.get(metadata_name(item).as_str()).copied())
             {
@@ -146,7 +157,7 @@ fn build_node_metrics(top_output: &str, info_json: &Value) -> Vec<NodeMetric> {
         }
     }
 
-    if nodes.is_empty() {
+    if nodes.is_empty() && node_pool_filter.is_none() {
         for (name, metrics) in top_map {
             nodes.push(NodeMetric {
                 name,
@@ -175,6 +186,36 @@ fn build_node_metrics(top_output: &str, info_json: &Value) -> Vec<NodeMetric> {
     }
 
     nodes
+}
+
+const NODE_POOL_LABEL_KEYS: &[&str] = &[
+    "kubernetes.azure.com/agentpool",
+    "agentpool",
+    "eks.amazonaws.com/nodegroup",
+    "cloud.google.com/gke-nodepool",
+    "karpenter.sh/nodepool",
+    "karpenter.sh/provisioner-name",
+    "cluster.x-k8s.io/machine-deployment",
+    "kops.k8s.io/instancegroup",
+    "nodepool",
+];
+
+fn node_matches_pool(item: &Value, filter: &str) -> bool {
+    let filter = filter.trim();
+    if filter.is_empty() {
+        return true;
+    }
+
+    let Some(labels) = item.pointer("/metadata/labels").and_then(Value::as_object) else {
+        return false;
+    };
+
+    NODE_POOL_LABEL_KEYS.iter().any(|key| {
+        labels
+            .get(*key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.eq_ignore_ascii_case(filter))
+    })
 }
 
 fn parse_top_node_metrics(output: &str) -> HashMap<String, TopNodeMetrics> {
@@ -1735,12 +1776,74 @@ mod tests {
             }]
         });
 
-        let nodes = build_node_metrics("", &info_json);
+        let nodes = build_node_metrics("", &info_json, None);
 
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].name, "node-a");
         assert!(!nodes[0].ready);
         assert_eq!(nodes[0].status, HealthStatus::Critical);
+    }
+
+    #[test]
+    fn node_pool_filter_matches_provider_labels() {
+        let info_json = json!({
+            "items": [
+                {
+                    "metadata": {
+                        "name": "aks-node",
+                        "labels": { "kubernetes.azure.com/agentpool": "system" }
+                    }
+                },
+                {
+                    "metadata": {
+                        "name": "gke-node",
+                        "labels": { "cloud.google.com/gke-nodepool": "workers" }
+                    }
+                },
+                {
+                    "metadata": {
+                        "name": "eks-node",
+                        "labels": { "eks.amazonaws.com/nodegroup": "workers" }
+                    }
+                }
+            ]
+        });
+
+        let nodes = build_node_metrics("", &info_json, Some("workers"));
+
+        assert_eq!(
+            nodes
+                .iter()
+                .map(|node| node.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["gke-node", "eks-node"]
+        );
+    }
+
+    #[test]
+    fn node_pool_filter_excludes_nodes_without_matching_label() {
+        let info_json = json!({
+            "items": [{
+                "metadata": {
+                    "name": "node-a",
+                    "labels": { "kubernetes.io/hostname": "node-a" }
+                }
+            }]
+        });
+
+        assert!(build_node_metrics("", &info_json, Some("workers")).is_empty());
+    }
+
+    #[test]
+    fn absent_node_pool_filter_preserves_all_nodes() {
+        let info_json = json!({
+            "items": [
+                { "metadata": { "name": "node-a" } },
+                { "metadata": { "name": "node-b" } }
+            ]
+        });
+
+        assert_eq!(build_node_metrics("", &info_json, None).len(), 2);
     }
 
     #[test]
