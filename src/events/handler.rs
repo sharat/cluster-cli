@@ -675,9 +675,7 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
             }
         }
         DataEvent::LogLine { .. } => {}
-        DataEvent::LogStreamError { stream_id, message }
-            if stream_id == app.log_stream_id =>
-        {
+        DataEvent::LogStreamError { stream_id, message } if stream_id == app.log_stream_id => {
             app.status_message = Some((message, std::time::Instant::now()));
         }
         DataEvent::LogStreamError { .. } => {}
@@ -830,7 +828,10 @@ mod tests {
         );
 
         assert_eq!(
-            app.log_buffer.iter().map(String::as_str).collect::<Vec<_>>(),
+            app.log_buffer
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
             vec!["active container"]
         );
     }

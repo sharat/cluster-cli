@@ -10,14 +10,8 @@ pub enum AppEvent {
 #[derive(Debug)]
 pub enum DataEvent {
     Refreshed(ClusterSnapshot),
-    LogLine {
-        stream_id: u64,
-        line: String,
-    },
-    LogStreamError {
-        stream_id: u64,
-        message: String,
-    },
+    LogLine { stream_id: u64, line: String },
+    LogStreamError { stream_id: u64, message: String },
     Error(String),
     ConnectionState(Option<ConnectionIssue>),
     Namespaces(Vec<NamespaceSummary>),
