@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Prevent stale log lines from a previous container or source appearing after a stream switch
+- Surface workload kinds that could not be collected instead of silently showing incomplete data
+- Recognize the standard Cluster API deployment label when it is propagated to Nodes
+
 ## [0.3.0] - 2026-08-19
 
 ### Added
@@ -22,11 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Log streams request Kubernetes timestamps and surface `kubectl logs` stderr failures
 - Workload details adapt to each resource's rollout, schedule, scaling, network, or storage state
 - Documented changelog and visual evidence requirements for pull requests
-
-### Fixed
-- Prevent stale log lines from a previous container or source appearing after a stream switch
-- Surface workload kinds that could not be collected instead of silently showing incomplete data
-- Recognize the standard Cluster API deployment label when it is propagated to Nodes
 
 ## [0.2.5] - 2026-08-19
 
