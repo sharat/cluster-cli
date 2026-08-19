@@ -1025,7 +1025,7 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
     Ok(workloads)
 }
 
-fn parse_optional_resource_result(result: Result<String>) -> Value {
+fn parse_optional_resource_result<E>(result: std::result::Result<String, E>) -> Value {
     result
         .ok()
         .and_then(|output| serde_json::from_str(&output).ok())
