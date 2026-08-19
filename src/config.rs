@@ -1,11 +1,10 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::Args;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Parser, Debug)]
-#[command(name = "cluster-cli", about = "Kubernetes Cluster Health TUI")]
-struct Args {
+#[derive(Args, Debug, Default)]
+pub struct ConfigOverrides {
     /// Kubernetes namespace to monitor
     #[arg(short, long)]
     namespace: Option<String>,
@@ -25,18 +24,6 @@ struct Args {
     /// Node pool name filter (e.g. "nodepool1")
     #[arg(long)]
     node_pool_filter: Option<String>,
-
-    /// Upgrade to the latest version
-    #[arg(long)]
-    upgrade: bool,
-
-    /// Check for updates and exit
-    #[arg(long)]
-    check_update: bool,
-
-    /// Show version and installation info
-    #[arg(long)]
-    version: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -67,12 +54,11 @@ impl Config {
             .join("cluster-cli")
     }
 
-    pub fn load() -> Result<Self> {
-        let args = Args::parse();
-        Self::load_from_args(args)
+    pub fn load(overrides: ConfigOverrides) -> Result<Self> {
+        Self::load_from_overrides(overrides)
     }
 
-    fn load_from_args(args: Args) -> Result<Self> {
+    fn load_from_overrides(overrides: ConfigOverrides) -> Result<Self> {
         let config_path = Self::dir_path().join("config.toml");
         let mut config = if config_path.exists() {
             let content = std::fs::read_to_string(&config_path)?;
@@ -81,19 +67,19 @@ impl Config {
             Config::default()
         };
 
-        if let Some(ns) = args.namespace {
+        if let Some(ns) = overrides.namespace {
             config.namespace = ns;
         }
-        if let Some(rg) = args.resource_group {
+        if let Some(rg) = overrides.resource_group {
             config.resource_group = Some(rg);
         }
-        if let Some(cluster) = args.cluster {
+        if let Some(cluster) = overrides.cluster {
             config.cluster_name = Some(cluster);
         }
-        if let Some(refresh) = args.refresh {
+        if let Some(refresh) = overrides.refresh {
             config.refresh_interval_secs = refresh;
         }
-        if let Some(filter) = args.node_pool_filter {
+        if let Some(filter) = overrides.node_pool_filter {
             config.node_pool_filter = Some(filter);
         }
 
@@ -103,22 +89,36 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{Args, Config};
+    use super::{Config, ConfigOverrides};
     use clap::Parser;
+
+    #[derive(Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        config: ConfigOverrides,
+    }
 
     #[test]
     fn cli_refresh_does_not_override_config_when_flag_is_absent() {
-        let args = Args::parse_from(["cluster-cli"]);
-        let config = Config::load_from_args(args).expect("config should load");
+        let args = TestCli::parse_from(["cluster-cli"]);
+        let config = Config::load_from_overrides(args.config).expect("config should load");
 
         assert_eq!(config.refresh_interval_secs, 60);
     }
 
     #[test]
     fn cli_refresh_overrides_when_explicitly_provided() {
-        let args = Args::parse_from(["cluster-cli", "--refresh", "15"]);
-        let config = Config::load_from_args(args).expect("config should load");
+        let args = TestCli::parse_from(["cluster-cli", "--refresh", "15"]);
+        let config = Config::load_from_overrides(args.config).expect("config should load");
 
         assert_eq!(config.refresh_interval_secs, 15);
+    }
+
+    #[test]
+    fn cli_node_pool_filter_is_applied() {
+        let args = TestCli::parse_from(["cluster-cli", "--node-pool-filter", "workers"]);
+        let config = Config::load_from_overrides(args.config).expect("config should load");
+
+        assert_eq!(config.node_pool_filter.as_deref(), Some("workers"));
     }
 }

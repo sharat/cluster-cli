@@ -19,7 +19,7 @@ mod ui;
 mod updater;
 
 use app::AppState;
-use config::Config;
+use config::{Config, ConfigOverrides};
 use data::fetcher::Fetcher;
 use data::models::{ConnectionIssue, ConnectionIssueKind};
 use events::{AppEvent, FetchCommand};
@@ -39,6 +39,9 @@ const FETCH_CHANNEL_CAPACITY: usize = 64;
 #[command(about = "A fast, interactive terminal UI for monitoring Kubernetes cluster health")]
 #[command(version = VERSION)]
 struct Cli {
+    #[command(flatten)]
+    config: ConfigOverrides,
+
     /// Upgrade cluster-cli in place using the method it was installed with
     #[arg(long)]
     upgrade: bool,
@@ -92,7 +95,7 @@ async fn main() -> Result<()> {
         return run_updater_flags(&cli).await;
     }
 
-    let mut config = Config::load()?;
+    let mut config = Config::load(cli.config)?;
 
     tracing_subscriber::fmt().with_writer(io::stderr).init();
 
