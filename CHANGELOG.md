@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated 82 transitive dependencies to their latest compatible versions
+- Documented changelog and visual evidence requirements for pull requests
 
 ## [0.2.5] - 2026-08-19
 
