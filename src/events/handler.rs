@@ -1038,6 +1038,7 @@ mod tests {
         app.log_buffer.push_back("b".to_string());
         app.detail_scroll = 0;
         app.log_follow = false;
+        app.pod_detail_section = PodDetailSection::Logs;
 
         let _ = handle_key(
             &mut app,
