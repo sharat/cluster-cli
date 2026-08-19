@@ -1042,9 +1042,9 @@ pub async fn fetch_workload_summaries(namespace: &str) -> WorkloadCollection {
     }
 }
 
-fn parse_workload_resource_result(
+fn parse_workload_resource_result<E: std::fmt::Display>(
     kind: &str,
-    result: Result<String>,
+    result: std::result::Result<String, E>,
 ) -> std::result::Result<Value, String> {
     let output = result.map_err(|error| format!("{kind}: {error}"))?;
     serde_json::from_str(&output).map_err(|error| format!("{kind}: invalid JSON: {error}"))
