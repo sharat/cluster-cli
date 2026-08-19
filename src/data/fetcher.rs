@@ -140,18 +140,13 @@ impl Fetcher {
             }
         };
 
-        let mut workloads = match workloads_result {
-            Ok(workloads) => workloads,
-            Err(e) => {
-                error!("Failed to fetch workloads: {}", e);
-                errors.push(format!("Workloads: {e}"));
-                connection_issue = prioritize_connection_issue(
-                    connection_issue,
-                    collector::classify_kubectl_error(&e),
-                );
-                vec![]
-            }
-        };
+        errors.extend(
+            workloads_result
+                .warnings
+                .iter()
+                .map(|warning| format!("Workloads/{warning}")),
+        );
+        let mut workloads = workloads_result.summaries;
 
         let pods = match pods_result {
             Ok(pods) => pods,

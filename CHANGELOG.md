@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Prevent stale log lines from a previous container or source appearing after a stream switch
+- Surface workload kinds that could not be collected instead of silently showing incomplete data
 
 ## [0.2.5] - 2026-08-19
 
