@@ -62,12 +62,19 @@ impl Fetcher {
                             interval = aligned_interval(interval_secs);
                             self.fetch_all(&current_namespace, &mut event_cache).await;
                         }
-                        FetchCommand::StartLogStream { pod, namespace } => {
+                        FetchCommand::StartLogStream { pod, namespace, container, previous } => {
                             stop_log_stream(&mut log_cancel, &mut log_task).await;
                             let (tx, rx) = oneshot::channel::<()>();
                             log_cancel = Some(tx);
                             let event_tx = self.tx.clone();
-                            log_task = Some(tokio::spawn(stream_logs(pod, namespace, event_tx, rx)));
+                            log_task = Some(tokio::spawn(stream_logs(
+                                pod,
+                                namespace,
+                                container,
+                                previous,
+                                event_tx,
+                                rx,
+                            )));
                         }
                         FetchCommand::StopLogStream => {
                             stop_log_stream(&mut log_cancel, &mut log_task).await;
@@ -77,6 +84,13 @@ impl Fetcher {
                         }
                         FetchCommand::ExportPods { cluster_name, namespace, path } => {
                             self.export_pods(cluster_name, namespace, path).await;
+                        }
+                        FetchCommand::ExportLogs { path, lines } => {
+                            let message = match write_log_file(&lines, &path) {
+                                Ok(count) => format!("Exported {count} log lines to {path}"),
+                                Err(e) => format!("Log export failed: {e}"),
+                            };
+                            let _ = self.tx.send(AppEvent::Data(DataEvent::ExportResult { message })).await;
                         }
                     }
                 }
@@ -461,16 +475,57 @@ fn write_pods_csv(snapshot: &ClusterSnapshot, path: &str) -> Result<usize, Strin
     Ok(snapshot.pods.len())
 }
 
+fn write_log_file(lines: &[String], path: &str) -> Result<usize, String> {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    let candidate = export_path(path)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(candidate)
+        .map_err(|e| format!("Failed to create export `{path}`: {e}"))?;
+
+    for line in lines {
+        writeln!(file, "{line}").map_err(|e| e.to_string())?;
+    }
+
+    Ok(lines.len())
+}
+
+fn log_args(pod: &str, namespace: &str, container: Option<&str>, previous: bool) -> Vec<String> {
+    let mut args = vec![
+        "logs".to_string(),
+        "-n".to_string(),
+        namespace.to_string(),
+        pod.to_string(),
+    ];
+    if let Some(container) = container {
+        args.push("-c".to_string());
+        args.push(container.to_string());
+    }
+    args.extend(["--tail=100".to_string(), "--timestamps=true".to_string()]);
+    if previous {
+        args.push("--previous".to_string());
+    } else {
+        args.push("-f".to_string());
+    }
+    args
+}
+
 async fn stream_logs(
     pod: String,
     namespace: String,
+    container: Option<String>,
+    previous: bool,
     tx: mpsc::Sender<AppEvent>,
     mut cancel_rx: oneshot::Receiver<()>,
 ) {
-    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
-    let log_args = ["logs", "-n", &namespace, &pod, "--tail=100", "-f"];
-    if let Err(e) = collector::ensure_readonly_kubectl_args("kubectl", &log_args) {
+    let log_args = log_args(&pod, &namespace, container.as_deref(), previous);
+    let log_arg_refs: Vec<&str> = log_args.iter().map(String::as_str).collect();
+    if let Err(e) = collector::ensure_readonly_kubectl_args("kubectl", &log_arg_refs) {
         let _ = tx
             .send(AppEvent::Data(DataEvent::Error(format!(
                 "Rejected log stream command: {e}"
@@ -480,9 +535,9 @@ async fn stream_logs(
     }
 
     let mut child = match tokio::process::Command::new("kubectl")
-        .args(log_args)
+        .args(&log_args)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()
     {
         Ok(c) => c,
@@ -496,11 +551,22 @@ async fn stream_logs(
         }
     };
 
+    let stderr_task = child.stderr.take().map(|mut stderr| {
+        tokio::spawn(async move {
+            let mut output = String::new();
+            let _ = stderr.read_to_string(&mut output).await;
+            output
+        })
+    });
+    let mut cancelled = false;
     if let Some(stdout) = child.stdout.take() {
         let mut lines = BufReader::new(stdout).lines();
         loop {
             tokio::select! {
-                _ = &mut cancel_rx => break,
+                _ = &mut cancel_rx => {
+                    cancelled = true;
+                    break;
+                },
                 result = lines.next_line() => {
                     match result {
                         Ok(Some(line)) => {
@@ -513,15 +579,30 @@ async fn stream_logs(
         }
     }
 
-    // Kill on every exit path, not just cancellation: a missing stdout pipe or a
-    // read error would otherwise leave the `kubectl logs -f` child running until
-    // the whole process exits. `kill` also reaps, so no zombie is left behind.
-    let _ = child.kill().await;
+    let status = if cancelled {
+        let _ = child.kill().await;
+        None
+    } else {
+        child.wait().await.ok()
+    };
+    let stderr = match stderr_task {
+        Some(task) => task.await.unwrap_or_default(),
+        None => String::new(),
+    };
+    if status.is_some_and(|status| !status.success()) {
+        let detail = stderr.trim();
+        let message = if detail.is_empty() {
+            "kubectl logs exited with an error".to_string()
+        } else {
+            format!("kubectl logs: {detail}")
+        };
+        let _ = tx.send(AppEvent::Data(DataEvent::Error(message))).await;
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{event_cache_key, export_path, write_pods_csv};
+    use super::{event_cache_key, export_path, log_args, write_log_file, write_pods_csv};
     use crate::data::models::{ClusterSnapshot, HealthScore};
 
     fn empty_snapshot() -> ClusterSnapshot {
@@ -571,5 +652,44 @@ mod tests {
         assert!(export_path("./pods.csv").is_err());
         assert!(export_path("exports/pods.csv").is_err());
         assert!(export_path("../pods.csv").is_err());
+    }
+
+    #[test]
+    fn current_log_args_select_container_and_follow_with_timestamps() {
+        assert_eq!(
+            log_args("api-0", "payments", Some("sidecar"), false),
+            vec![
+                "logs",
+                "-n",
+                "payments",
+                "api-0",
+                "-c",
+                "sidecar",
+                "--tail=100",
+                "--timestamps=true",
+                "-f",
+            ]
+        );
+    }
+
+    #[test]
+    fn previous_log_args_request_snapshot_without_following() {
+        assert_eq!(
+            log_args("api-0", "payments", None, true),
+            vec![
+                "logs",
+                "-n",
+                "payments",
+                "api-0",
+                "--tail=100",
+                "--timestamps=true",
+                "--previous",
+            ]
+        );
+    }
+
+    #[test]
+    fn write_log_file_rejects_path_traversal() {
+        assert!(write_log_file(&[], "../logs.txt").is_err());
     }
 }

@@ -98,6 +98,29 @@ impl PodDetailSection {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogSource {
+    Current,
+    Previous,
+}
+
+impl LogSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Current => "live",
+            Self::Previous => "previous",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogInputMode {
+    #[default]
+    None,
+    Search,
+    Export,
+}
+
 pub struct AppState {
     pub config: Config,
     pub view: AppView,
@@ -118,6 +141,13 @@ pub struct AppState {
     pub pod_detail_section: PodDetailSection,
     pub log_buffer: VecDeque<String>,
     pub log_follow: bool,
+    pub log_container: Option<String>,
+    pub log_source: LogSource,
+    pub log_search: String,
+    pub log_input_mode: LogInputMode,
+    pub log_input: String,
+    pub log_wrap: bool,
+    pub log_timestamps: bool,
     pub detail_scroll: usize,
     pub status_message: Option<(String, Instant)>,
     pub is_loading: bool,
@@ -172,6 +202,13 @@ impl AppState {
             pod_detail_section: PodDetailSection::Overview,
             log_buffer: VecDeque::new(),
             log_follow: true,
+            log_container: None,
+            log_source: LogSource::Current,
+            log_search: String::new(),
+            log_input_mode: LogInputMode::None,
+            log_input: String::new(),
+            log_wrap: false,
+            log_timestamps: true,
             detail_scroll: 0,
             status_message: None,
             is_loading: true,
@@ -273,11 +310,66 @@ impl AppState {
     }
 
     pub fn enter_pod_detail(&mut self, pod_name: String) {
+        self.log_container = self
+            .snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.pods.iter().find(|pod| pod.name == pod_name))
+            .and_then(|pod| pod.containers.first())
+            .map(|container| container.name.clone());
         self.view = AppView::PodDetail { pod_name };
         self.log_buffer.clear();
         self.detail_scroll = 0;
         self.log_follow = true;
+        self.log_source = LogSource::Current;
+        self.log_search.clear();
+        self.log_input_mode = LogInputMode::None;
+        self.log_input.clear();
         self.pod_detail_section = PodDetailSection::Overview;
+    }
+
+    pub fn cycle_log_container(&mut self) -> bool {
+        let Some(pod) = self.current_pod() else {
+            return false;
+        };
+        if pod.containers.len() < 2 {
+            return false;
+        }
+
+        let current_index = self
+            .log_container
+            .as_deref()
+            .and_then(|selected| {
+                pod.containers
+                    .iter()
+                    .position(|container| container.name == selected)
+            })
+            .unwrap_or(0);
+        let next_index = (current_index + 1) % pod.containers.len();
+        self.log_container = Some(pod.containers[next_index].name.clone());
+        self.reset_log_stream_view();
+        true
+    }
+
+    pub fn toggle_log_source(&mut self) {
+        self.log_source = match self.log_source {
+            LogSource::Current => LogSource::Previous,
+            LogSource::Previous => LogSource::Current,
+        };
+        self.reset_log_stream_view();
+    }
+
+    pub fn reset_log_stream_view(&mut self) {
+        self.log_buffer.clear();
+        self.detail_scroll = 0;
+        self.log_follow = self.log_source == LogSource::Current;
+    }
+
+    pub fn filtered_log_lines(&self) -> Vec<&str> {
+        self.log_buffer
+            .iter()
+            .filter(|line| contains_case_insensitive(line, &self.log_search))
+            .map(String::as_str)
+            .collect()
     }
 
     pub fn current_pod(&self) -> Option<&PodInfo> {
@@ -547,7 +639,7 @@ fn status_rank(status: &HealthStatus) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppState, PodSortMode};
+    use super::{AppState, LogSource, PodSortMode};
     use crate::config::Config;
     use crate::data::models::{
         ClusterEvent, ClusterSnapshot, ConnectionIssue, ConnectionIssueKind, ContainerInfo,
@@ -1066,5 +1158,60 @@ mod tests {
         app.clear_incident_focus();
         assert_eq!(app.pod_cursor, 0);
         assert!(app.incident_focus.is_none());
+    }
+
+    #[test]
+    fn enter_pod_detail_selects_first_container_for_logs() {
+        let mut app = AppState::new(Config::default());
+        app.snapshot = Some(snapshot_with(vec![pod("api", "default", 10, 10)], vec![]));
+
+        app.enter_pod_detail("api".to_string());
+
+        assert_eq!(app.log_container.as_deref(), Some("app"));
+    }
+
+    #[test]
+    fn cycle_log_container_selects_next_container_and_clears_logs() {
+        let mut app = AppState::new(Config::default());
+        let mut multi_container_pod = pod("api", "default", 10, 10);
+        multi_container_pod.containers.push(ContainerInfo {
+            name: "sidecar".to_string(),
+            ready: true,
+            restart_count: 0,
+            state: "Running".to_string(),
+            last_termination_reason: None,
+            last_exit_code: None,
+        });
+        app.snapshot = Some(snapshot_with(vec![multi_container_pod], vec![]));
+        app.enter_pod_detail("api".to_string());
+        app.log_buffer.push_back("old line".to_string());
+
+        let changed = app.cycle_log_container();
+
+        assert!(changed);
+        assert_eq!(app.log_container.as_deref(), Some("sidecar"));
+        assert!(app.log_buffer.is_empty());
+    }
+
+    #[test]
+    fn filtered_log_lines_matches_case_insensitively() {
+        let mut app = AppState::new(Config::default());
+        app.log_buffer.push_back("INFO ready".to_string());
+        app.log_buffer.push_back("ERROR failed".to_string());
+        app.log_search = "error".to_string();
+
+        assert_eq!(app.filtered_log_lines(), vec!["ERROR failed"]);
+    }
+
+    #[test]
+    fn previous_log_source_disables_follow_and_clears_buffer() {
+        let mut app = AppState::new(Config::default());
+        app.log_buffer.push_back("current".to_string());
+
+        app.toggle_log_source();
+
+        assert_eq!(app.log_source, LogSource::Previous);
+        assert!(!app.log_follow);
+        assert!(app.log_buffer.is_empty());
     }
 }

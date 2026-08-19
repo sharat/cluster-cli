@@ -29,6 +29,8 @@ pub enum FetchCommand {
     StartLogStream {
         pod: String,
         namespace: String,
+        container: Option<String>,
+        previous: bool,
     },
     StopLogStream,
     FetchNamespaces,
@@ -36,5 +38,9 @@ pub enum FetchCommand {
         cluster_name: Option<String>,
         namespace: String,
         path: String,
+    },
+    ExportLogs {
+        path: String,
+        lines: Vec<String>,
     },
 }
