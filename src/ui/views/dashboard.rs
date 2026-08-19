@@ -179,10 +179,7 @@ fn workload_list_item(workload: &WorkloadSummary) -> ListItem<'static> {
             Span::styled(workload.name.clone(), status_style),
         ]),
         Line::from(vec![Span::styled(
-            format!(
-                "ready {}/{}  avail {}",
-                workload.ready_replicas, workload.desired_replicas, workload.available_replicas
-            ),
+            workload.summary.clone(),
             Style::default().fg(Color::Gray),
         )]),
     ])
@@ -207,39 +204,14 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
             Style::default().fg(Color::DarkGray),
         )]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("Replicas  ", Style::default().fg(Color::White)),
-            Span::raw(format!(
-                "ready {}/{}   available {}   unavailable {}",
-                workload.ready_replicas,
-                workload.desired_replicas,
-                workload.available_replicas,
-                workload.unavailable_pods
-            )),
-        ]),
     ];
 
-    if let Some(updated) = workload.updated_replicas {
+    for (label, value) in &workload.details {
         lines.push(Line::from(vec![
-            Span::styled("Updated   ", Style::default().fg(Color::White)),
-            Span::raw(updated.to_string()),
+            Span::styled(format!("{label:<18}"), Style::default().fg(Color::White)),
+            Span::raw(value.clone()),
         ]));
     }
-    if let Some(current) = workload.current_replicas {
-        lines.push(Line::from(vec![
-            Span::styled("Current   ", Style::default().fg(Color::White)),
-            Span::raw(current.to_string()),
-        ]));
-    }
-
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("Rollout   ", Style::default().fg(Color::White)),
-        Span::styled(
-            workload.rollout_status.clone(),
-            Style::default().fg(Color::Gray),
-        ),
-    ]));
 
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
@@ -479,6 +451,13 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
         format!("ns:{ns}"),
         Style::default().fg(Color::Cyan),
     ));
+
+    if let Some(node_pool) = app.config.node_pool_filter.as_deref() {
+        spans.push(Span::styled(
+            format!("  pool:{node_pool}"),
+            Style::default().fg(Color::Yellow),
+        ));
+    }
 
     spans.push(Span::styled(
         format!("  {time}{refresh_info}  "),

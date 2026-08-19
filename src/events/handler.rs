@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::app::{AppState, AppView, Overlay, Panel, PodDetailSection};
+use crate::app::{AppState, AppView, LogInputMode, LogSource, Overlay, Panel, PodDetailSection};
 use crate::data::models::MAX_LOG_BUFFER_LINES;
 use crate::events::{DataEvent, FetchCommand};
 
@@ -342,6 +342,8 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                     return Some(AppCommand::Fetch(FetchCommand::StartLogStream {
                         pod: pod_name,
                         namespace: ns,
+                        container: app.log_container.clone(),
+                        previous: false,
                     }));
                 }
             } else if app.focused_panel == Panel::Nodes {
@@ -389,6 +391,8 @@ fn handle_incident_enter(app: &mut AppState) -> Option<AppCommand> {
             return Some(AppCommand::Fetch(FetchCommand::StartLogStream {
                 pod: pod_name,
                 namespace,
+                container: app.log_container.clone(),
+                previous: false,
             }));
         }
     }
@@ -450,6 +454,62 @@ fn resolve_workload_index(app: &AppState, kind: &str, name: &str) -> Option<usiz
 }
 
 fn handle_pod_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
+    match app.log_input_mode {
+        LogInputMode::Search => {
+            match key.code {
+                KeyCode::Esc => {
+                    app.log_search.clear();
+                    app.log_input.clear();
+                    app.log_input_mode = LogInputMode::None;
+                    app.detail_scroll = 0;
+                }
+                KeyCode::Enter => {
+                    app.log_input.clear();
+                    app.log_input_mode = LogInputMode::None;
+                    app.detail_scroll = 0;
+                }
+                KeyCode::Char(c) => {
+                    app.log_search.push(c);
+                    app.log_input = app.log_search.clone();
+                    app.detail_scroll = 0;
+                }
+                KeyCode::Backspace => {
+                    app.log_search.pop();
+                    app.log_input = app.log_search.clone();
+                    app.detail_scroll = 0;
+                }
+                _ => {}
+            }
+            return None;
+        }
+        LogInputMode::Export => {
+            match key.code {
+                KeyCode::Esc => {
+                    app.log_input.clear();
+                    app.log_input_mode = LogInputMode::None;
+                }
+                KeyCode::Enter => {
+                    let path = app.log_input.trim().to_string();
+                    app.log_input.clear();
+                    app.log_input_mode = LogInputMode::None;
+                    if !path.is_empty() {
+                        return Some(AppCommand::Fetch(FetchCommand::ExportLogs {
+                            path,
+                            lines: app.log_buffer.iter().cloned().collect(),
+                        }));
+                    }
+                }
+                KeyCode::Char(c) => app.log_input.push(c),
+                KeyCode::Backspace => {
+                    app.log_input.pop();
+                }
+                _ => {}
+            }
+            return None;
+        }
+        LogInputMode::None => {}
+    }
+
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => {
             app.view = AppView::Dashboard;
@@ -472,14 +532,62 @@ fn handle_pod_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand
             }
         }
         KeyCode::Char('f') => {
-            app.log_follow = !app.log_follow;
-            if app.log_follow {
-                app.detail_scroll = app.log_buffer.len().saturating_sub(1);
+            if app.pod_detail_section == PodDetailSection::Logs
+                && app.log_source == LogSource::Current
+            {
+                app.log_follow = !app.log_follow;
+                if app.log_follow {
+                    app.detail_scroll = app.log_buffer.len().saturating_sub(1);
+                }
             }
+        }
+        KeyCode::Char('c') if app.pod_detail_section == PodDetailSection::Logs => {
+            if app.cycle_log_container() {
+                return start_log_stream_command(app);
+            }
+        }
+        KeyCode::Char('p') if app.pod_detail_section == PodDetailSection::Logs => {
+            app.toggle_log_source();
+            return start_log_stream_command(app);
+        }
+        KeyCode::Char('/') if app.pod_detail_section == PodDetailSection::Logs => {
+            app.log_input = app.log_search.clone();
+            app.log_input_mode = LogInputMode::Search;
+            app.log_follow = false;
+        }
+        KeyCode::Char('w') if app.pod_detail_section == PodDetailSection::Logs => {
+            app.log_wrap = !app.log_wrap;
+            app.detail_scroll = 0;
+        }
+        KeyCode::Char('t') if app.pod_detail_section == PodDetailSection::Logs => {
+            app.log_timestamps = !app.log_timestamps;
+        }
+        KeyCode::Char('E') if app.pod_detail_section == PodDetailSection::Logs => {
+            let pod_name = app
+                .current_pod()
+                .map(|pod| pod.name.clone())
+                .unwrap_or_else(|| "pod".to_string());
+            let container = app
+                .log_container
+                .clone()
+                .unwrap_or_else(|| "all".to_string());
+            let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+            app.log_input = format!("{pod_name}-{container}-{timestamp}.log");
+            app.log_input_mode = LogInputMode::Export;
         }
         _ => {}
     }
     None
+}
+
+fn start_log_stream_command(app: &AppState) -> Option<AppCommand> {
+    let pod = app.current_pod()?;
+    Some(AppCommand::Fetch(FetchCommand::StartLogStream {
+        pod: pod.name.clone(),
+        namespace: pod.namespace.clone(),
+        container: app.log_container.clone(),
+        previous: app.log_source == LogSource::Previous,
+    }))
 }
 
 fn handle_node_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
@@ -585,7 +693,9 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
 #[cfg(test)]
 mod tests {
     use super::{handle_data_event, handle_key, AppCommand};
-    use crate::app::{AppState, AppView, Overlay, Panel, PodDetailSection, PodSortMode};
+    use crate::app::{
+        AppState, AppView, LogInputMode, LogSource, Overlay, Panel, PodDetailSection, PodSortMode,
+    };
     use crate::config::Config;
     use crate::data::models::{
         ClusterEvent, ClusterSnapshot, ConditionStatus, ContainerInfo, EventType, HealthScore,
@@ -792,8 +902,16 @@ mod tests {
         assert!(matches!(app.view, AppView::PodDetail { ref pod_name } if pod_name == "api-0"));
         assert!(matches!(
             command,
-            Some(AppCommand::Fetch(FetchCommand::StartLogStream { pod, namespace }))
-            if pod == "api-0" && namespace == "default"
+            Some(AppCommand::Fetch(FetchCommand::StartLogStream {
+                pod,
+                namespace,
+                container,
+                previous,
+            }))
+            if pod == "api-0"
+                && namespace == "default"
+                && container.as_deref() == Some("app")
+                && !previous
         ));
     }
 
@@ -920,6 +1038,7 @@ mod tests {
         app.log_buffer.push_back("b".to_string());
         app.detail_scroll = 0;
         app.log_follow = false;
+        app.pod_detail_section = PodDetailSection::Logs;
 
         let _ = handle_key(
             &mut app,
@@ -933,6 +1052,82 @@ mod tests {
             KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
         );
         assert!(!app.log_follow);
+    }
+
+    #[test]
+    fn pod_detail_p_requests_previous_logs_for_selected_container() {
+        let mut app = AppState::new(Config::default());
+        app.snapshot = Some(snapshot_with_incident_targets(
+            vec![],
+            vec![pod("api", "default")],
+            vec![],
+            vec![],
+            vec![],
+        ));
+        app.enter_pod_detail("api".to_string());
+        app.pod_detail_section = PodDetailSection::Logs;
+
+        let command = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(app.log_source, LogSource::Previous);
+        assert!(matches!(
+            command,
+            Some(AppCommand::Fetch(FetchCommand::StartLogStream {
+                pod,
+                container,
+                previous: true,
+                ..
+            })) if pod == "api" && container.as_deref() == Some("app")
+        ));
+    }
+
+    #[test]
+    fn pod_detail_search_filters_live_as_query_is_typed() {
+        let mut app = AppState::new(Config::default());
+        app.view = AppView::PodDetail {
+            pod_name: "api".to_string(),
+        };
+        app.pod_detail_section = PodDetailSection::Logs;
+        app.log_buffer.push_back("INFO ready".to_string());
+        app.log_buffer.push_back("ERROR failed".to_string());
+
+        let _ = handle_key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+        );
+        for character in "error".chars() {
+            let _ = handle_key(
+                &mut app,
+                KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE),
+            );
+        }
+
+        assert_eq!(app.log_input_mode, LogInputMode::Search);
+        assert_eq!(app.filtered_log_lines(), vec!["ERROR failed"]);
+    }
+
+    #[test]
+    fn pod_detail_log_export_emits_buffer_snapshot() {
+        let mut app = AppState::new(Config::default());
+        app.view = AppView::PodDetail {
+            pod_name: "api".to_string(),
+        };
+        app.pod_detail_section = PodDetailSection::Logs;
+        app.log_buffer.push_back("first".to_string());
+        app.log_buffer.push_back("second".to_string());
+        app.log_input_mode = LogInputMode::Export;
+        app.log_input = "api.log".to_string();
+
+        let command = handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(matches!(
+            command,
+            Some(AppCommand::Fetch(FetchCommand::ExportLogs { path, lines }))
+                if path == "api.log" && lines == vec!["first", "second"]
+        ));
     }
 
     #[test]
@@ -1117,13 +1312,8 @@ mod tests {
             kind,
             name: name.to_string(),
             namespace: "default".to_string(),
-            desired_replicas: 1,
-            ready_replicas: 1,
-            available_replicas: 1,
-            updated_replicas: Some(1),
-            current_replicas: None,
-            unavailable_pods: 0,
-            rollout_status: "steady".to_string(),
+            summary: "ready 1/1  avail 1".to_string(),
+            details: vec![("Rollout".to_string(), "steady".to_string())],
             status: HealthStatus::Healthy,
             recent_events: vec![],
             related_event_targets,

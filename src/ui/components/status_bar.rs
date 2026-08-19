@@ -6,13 +6,14 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{AppState, AppView};
+use crate::app::{AppState, AppView, LogInputMode};
 use crate::ui::components::loading_spinner;
 
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let dashboard_help =
         "[1] Nodes  [2] Incidents  [3] Pods  [Tab] Panel  [j/k] Nav  [Enter] Drill  [w] Workload Popup  [/] Filter  [s] Sort  [E] Export  [n/N] Namespace  [r] Refresh  [R] Rate  [q] Quit";
-    let detail_help = "[Tab] Section  [j/k] Scroll  [f] Follow  [Esc/q] Back";
+    let detail_help =
+        "[Tab] Section  [j/k] Scroll  [c] Container  [p] Previous  [/] Search  [w] Wrap  [t] Time  [E] Export  [f] Follow  [Esc/q] Back";
     let node_help = "[j/k] Scroll  [Esc/q] Back";
 
     // Check if status message is still fresh (< 5s)
@@ -21,25 +22,37 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         .as_ref()
         .filter(|(_, t)| t.elapsed().as_secs() < 5);
 
-    let (line, style) = if let Some((msg, _)) = fresh_error {
-        (
-            Line::from(format!(" ⚠  {msg} ")),
-            Style::default().fg(Color::Yellow),
-        )
-    } else if app.is_loading {
-        let mut spans = loading_spinner::spans(app.loading_animation_frame);
-        spans.push(" Loading...".into());
-        (Line::from(spans), Style::default().fg(Color::DarkGray))
-    } else {
-        let help = match &app.view {
-            AppView::Dashboard => dashboard_help,
-            AppView::PodDetail { .. } => detail_help,
-            AppView::NodeDetail { .. } => node_help,
-        };
-        (
-            Line::from(format!(" {help} ")),
-            Style::default().fg(Color::DarkGray),
-        )
+    let (line, style) = match app.log_input_mode {
+        LogInputMode::Search => (
+            Line::from(format!(" / Search logs: {}█ ", app.log_search)),
+            Style::default().fg(Color::Cyan),
+        ),
+        LogInputMode::Export => (
+            Line::from(format!(" Export logs: {}█ ", app.log_input)),
+            Style::default().fg(Color::Cyan),
+        ),
+        LogInputMode::None => {
+            if let Some((msg, _)) = fresh_error {
+                (
+                    Line::from(format!(" ⚠  {msg} ")),
+                    Style::default().fg(Color::Yellow),
+                )
+            } else if app.is_loading {
+                let mut spans = loading_spinner::spans(app.loading_animation_frame);
+                spans.push(" Loading...".into());
+                (Line::from(spans), Style::default().fg(Color::DarkGray))
+            } else {
+                let help = match &app.view {
+                    AppView::Dashboard => dashboard_help,
+                    AppView::PodDetail { .. } => detail_help,
+                    AppView::NodeDetail { .. } => node_help,
+                };
+                (
+                    Line::from(format!(" {help} ")),
+                    Style::default().fg(Color::DarkGray),
+                )
+            }
+        }
     };
 
     f.render_widget(Paragraph::new(line).style(style), area);
