@@ -534,12 +534,16 @@ async fn stream_logs(
         return;
     }
 
-    let mut child = match tokio::process::Command::new("kubectl")
+    let mut command = tokio::process::Command::new("kubectl");
+    command
         .args(&log_args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
+        // `stop_log_stream` may abort this task while it is blocked sending an
+        // event. Ensure dropping the child cannot leave `kubectl logs -f`
+        // running in the background.
+        .kill_on_drop(true);
+    let mut child = match command.spawn() {
         Ok(c) => c,
         Err(e) => {
             let _ = tx
