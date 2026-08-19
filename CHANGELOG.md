@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workload details adapt to each resource's rollout, schedule, scaling, network, or storage state
 - Documented changelog and visual evidence requirements for pull requests
 
+### Fixed
+- Prevent stale log lines from a previous container or source appearing after a stream switch
+
 ## [0.2.5] - 2026-08-19
 
 ### Changed

@@ -62,12 +62,19 @@ impl Fetcher {
                             interval = aligned_interval(interval_secs);
                             self.fetch_all(&current_namespace, &mut event_cache).await;
                         }
-                        FetchCommand::StartLogStream { pod, namespace, container, previous } => {
+                        FetchCommand::StartLogStream {
+                            stream_id,
+                            pod,
+                            namespace,
+                            container,
+                            previous,
+                        } => {
                             stop_log_stream(&mut log_cancel, &mut log_task).await;
                             let (tx, rx) = oneshot::channel::<()>();
                             log_cancel = Some(tx);
                             let event_tx = self.tx.clone();
                             log_task = Some(tokio::spawn(stream_logs(
+                                stream_id,
                                 pod,
                                 namespace,
                                 container,
@@ -514,6 +521,7 @@ fn log_args(pod: &str, namespace: &str, container: Option<&str>, previous: bool)
 }
 
 async fn stream_logs(
+    stream_id: u64,
     pod: String,
     namespace: String,
     container: Option<String>,
@@ -527,9 +535,10 @@ async fn stream_logs(
     let log_arg_refs: Vec<&str> = log_args.iter().map(String::as_str).collect();
     if let Err(e) = collector::ensure_readonly_kubectl_args("kubectl", &log_arg_refs) {
         let _ = tx
-            .send(AppEvent::Data(DataEvent::Error(format!(
-                "Rejected log stream command: {e}"
-            ))))
+            .send(AppEvent::Data(DataEvent::LogStreamError {
+                stream_id,
+                message: format!("Rejected log stream command: {e}"),
+            }))
             .await;
         return;
     }
@@ -547,9 +556,10 @@ async fn stream_logs(
         Ok(c) => c,
         Err(e) => {
             let _ = tx
-                .send(AppEvent::Data(DataEvent::Error(format!(
-                    "Failed to stream logs: {e}"
-                ))))
+                .send(AppEvent::Data(DataEvent::LogStreamError {
+                    stream_id,
+                    message: format!("Failed to stream logs: {e}"),
+                }))
                 .await;
             return;
         }
@@ -574,7 +584,9 @@ async fn stream_logs(
                 result = lines.next_line() => {
                     match result {
                         Ok(Some(line)) => {
-                            let _ = tx.send(AppEvent::Data(DataEvent::LogLine(line))).await;
+                            let _ = tx
+                                .send(AppEvent::Data(DataEvent::LogLine { stream_id, line }))
+                                .await;
                         }
                         _ => break,
                     }
@@ -600,7 +612,12 @@ async fn stream_logs(
         } else {
             format!("kubectl logs: {detail}")
         };
-        let _ = tx.send(AppEvent::Data(DataEvent::Error(message))).await;
+        let _ = tx
+            .send(AppEvent::Data(DataEvent::LogStreamError {
+                stream_id,
+                message,
+            }))
+            .await;
     }
 }
 

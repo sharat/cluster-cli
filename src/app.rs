@@ -140,6 +140,7 @@ pub struct AppState {
     pub event_cursor: usize,
     pub pod_detail_section: PodDetailSection,
     pub log_buffer: VecDeque<String>,
+    pub log_stream_id: u64,
     pub log_follow: bool,
     pub log_container: Option<String>,
     pub log_source: LogSource,
@@ -201,6 +202,7 @@ impl AppState {
             event_cursor: 0,
             pod_detail_section: PodDetailSection::Overview,
             log_buffer: VecDeque::new(),
+            log_stream_id: 0,
             log_follow: true,
             log_container: None,
             log_source: LogSource::Current,
@@ -362,6 +364,11 @@ impl AppState {
         self.log_buffer.clear();
         self.detail_scroll = 0;
         self.log_follow = self.log_source == LogSource::Current;
+    }
+
+    pub fn begin_log_stream(&mut self) -> u64 {
+        self.log_stream_id = self.log_stream_id.wrapping_add(1);
+        self.log_stream_id
     }
 
     pub fn filtered_log_lines(&self) -> Vec<&str> {
