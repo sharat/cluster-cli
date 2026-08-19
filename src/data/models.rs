@@ -164,6 +164,13 @@ pub enum WorkloadKind {
     Deployment,
     StatefulSet,
     DaemonSet,
+    Job,
+    CronJob,
+    HorizontalPodAutoscaler,
+    PodDisruptionBudget,
+    Service,
+    Ingress,
+    PersistentVolumeClaim,
 }
 
 impl WorkloadKind {
@@ -172,6 +179,13 @@ impl WorkloadKind {
             Self::Deployment => "Deployment",
             Self::StatefulSet => "StatefulSet",
             Self::DaemonSet => "DaemonSet",
+            Self::Job => "Job",
+            Self::CronJob => "CronJob",
+            Self::HorizontalPodAutoscaler => "HorizontalPodAutoscaler",
+            Self::PodDisruptionBudget => "PodDisruptionBudget",
+            Self::Service => "Service",
+            Self::Ingress => "Ingress",
+            Self::PersistentVolumeClaim => "PersistentVolumeClaim",
         }
     }
 
@@ -180,6 +194,13 @@ impl WorkloadKind {
             Self::Deployment => "Deploy",
             Self::StatefulSet => "Sts",
             Self::DaemonSet => "Ds",
+            Self::Job => "Job",
+            Self::CronJob => "Cron",
+            Self::HorizontalPodAutoscaler => "HPA",
+            Self::PodDisruptionBudget => "PDB",
+            Self::Service => "Svc",
+            Self::Ingress => "Ing",
+            Self::PersistentVolumeClaim => "PVC",
         }
     }
 }
@@ -189,13 +210,8 @@ pub struct WorkloadSummary {
     pub kind: WorkloadKind,
     pub name: String,
     pub namespace: String,
-    pub desired_replicas: u32,
-    pub ready_replicas: u32,
-    pub available_replicas: u32,
-    pub updated_replicas: Option<u32>,
-    pub current_replicas: Option<u32>,
-    pub unavailable_pods: u32,
-    pub rollout_status: String,
+    pub summary: String,
+    pub details: Vec<(String, String)>,
     pub status: HealthStatus,
     pub recent_events: Vec<ClusterEvent>,
     pub related_event_targets: Vec<(String, String)>,

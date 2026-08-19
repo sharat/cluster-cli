@@ -787,12 +787,52 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
     let statefulset_args = ["get", "statefulsets", "-n", namespace, "-o", "json"];
     let daemonset_args = ["get", "daemonsets", "-n", namespace, "-o", "json"];
     let replicaset_args = ["get", "replicasets", "-n", namespace, "-o", "json"];
+    let job_args = ["get", "jobs", "-n", namespace, "-o", "json"];
+    let cronjob_args = ["get", "cronjobs", "-n", namespace, "-o", "json"];
+    let hpa_args = [
+        "get",
+        "horizontalpodautoscalers",
+        "-n",
+        namespace,
+        "-o",
+        "json",
+    ];
+    let pdb_args = ["get", "poddisruptionbudgets", "-n", namespace, "-o", "json"];
+    let service_args = ["get", "services", "-n", namespace, "-o", "json"];
+    let ingress_args = ["get", "ingresses", "-n", namespace, "-o", "json"];
+    let pvc_args = [
+        "get",
+        "persistentvolumeclaims",
+        "-n",
+        namespace,
+        "-o",
+        "json",
+    ];
 
-    let (deployments_result, statefulsets_result, daemonsets_result, replicasets_result) = tokio::join!(
+    let (
+        deployments_result,
+        statefulsets_result,
+        daemonsets_result,
+        replicasets_result,
+        jobs_result,
+        cronjobs_result,
+        hpas_result,
+        pdbs_result,
+        services_result,
+        ingresses_result,
+        pvcs_result,
+    ) = tokio::join!(
         run_cmd("kubectl", &deployment_args),
         run_cmd("kubectl", &statefulset_args),
         run_cmd("kubectl", &daemonset_args),
         run_cmd("kubectl", &replicaset_args),
+        run_cmd("kubectl", &job_args),
+        run_cmd("kubectl", &cronjob_args),
+        run_cmd("kubectl", &hpa_args),
+        run_cmd("kubectl", &pdb_args),
+        run_cmd("kubectl", &service_args),
+        run_cmd("kubectl", &ingress_args),
+        run_cmd("kubectl", &pvc_args),
     );
 
     let deployment_json: Value =
@@ -807,6 +847,13 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
     let replicasets_json: Value =
         serde_json::from_str(&replicasets_result.unwrap_or_else(|_| "{}".to_string()))
             .unwrap_or(Value::Null);
+    let jobs_json = parse_optional_resource_result(jobs_result);
+    let cronjobs_json = parse_optional_resource_result(cronjobs_result);
+    let hpas_json = parse_optional_resource_result(hpas_result);
+    let pdbs_json = parse_optional_resource_result(pdbs_result);
+    let services_json = parse_optional_resource_result(services_result);
+    let ingresses_json = parse_optional_resource_result(ingresses_result);
+    let pvcs_json = parse_optional_resource_result(pvcs_result);
 
     let deployment_rs_map = build_deployment_replicaset_map(&replicasets_json);
     let mut workloads = Vec::new();
@@ -848,13 +895,17 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
                 kind: WorkloadKind::Deployment,
                 name,
                 namespace: namespace.to_string(),
-                desired_replicas: desired,
-                ready_replicas: ready,
-                available_replicas: available,
-                updated_replicas: Some(updated),
-                current_replicas: None,
-                unavailable_pods: unavailable,
-                rollout_status,
+                summary: format!("ready {ready}/{desired}  avail {available}"),
+                details: vec![
+                    (
+                        "Replicas".to_string(),
+                        format!(
+                            "ready {ready}/{desired}   available {available}   unavailable {unavailable}"
+                        ),
+                    ),
+                    ("Updated".to_string(), updated.to_string()),
+                    ("Rollout".to_string(), rollout_status),
+                ],
                 status,
                 recent_events: Vec::new(),
                 related_event_targets,
@@ -898,13 +949,18 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
                 kind: WorkloadKind::StatefulSet,
                 name: name.clone(),
                 namespace: namespace.to_string(),
-                desired_replicas: desired,
-                ready_replicas: ready,
-                available_replicas: available,
-                updated_replicas: Some(updated),
-                current_replicas: Some(current),
-                unavailable_pods: unavailable,
-                rollout_status,
+                summary: format!("ready {ready}/{desired}  current {current}"),
+                details: vec![
+                    (
+                        "Replicas".to_string(),
+                        format!(
+                            "ready {ready}/{desired}   available {available}   unavailable {unavailable}"
+                        ),
+                    ),
+                    ("Updated".to_string(), updated.to_string()),
+                    ("Current".to_string(), current.to_string()),
+                    ("Rollout".to_string(), rollout_status),
+                ],
                 status,
                 recent_events: Vec::new(),
                 related_event_targets: vec![(WorkloadKind::StatefulSet.as_str().to_string(), name)],
@@ -933,13 +989,17 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
                 kind: WorkloadKind::DaemonSet,
                 name: name.clone(),
                 namespace: namespace.to_string(),
-                desired_replicas: desired,
-                ready_replicas: ready,
-                available_replicas: available,
-                updated_replicas: Some(updated),
-                current_replicas: None,
-                unavailable_pods: unavailable,
-                rollout_status,
+                summary: format!("ready {ready}/{desired}  avail {available}"),
+                details: vec![
+                    (
+                        "Pods".to_string(),
+                        format!(
+                            "ready {ready}/{desired}   available {available}   unavailable {unavailable}"
+                        ),
+                    ),
+                    ("Updated".to_string(), updated.to_string()),
+                    ("Rollout".to_string(), rollout_status),
+                ],
                 status,
                 recent_events: Vec::new(),
                 related_event_targets: vec![(WorkloadKind::DaemonSet.as_str().to_string(), name)],
@@ -947,14 +1007,393 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
         }
     }
 
+    collect_jobs(&jobs_json, namespace, &mut workloads);
+    collect_cronjobs(&cronjobs_json, namespace, &mut workloads);
+    collect_hpas(&hpas_json, namespace, &mut workloads);
+    collect_pdbs(&pdbs_json, namespace, &mut workloads);
+    collect_services(&services_json, namespace, &mut workloads);
+    collect_ingresses(&ingresses_json, namespace, &mut workloads);
+    collect_pvcs(&pvcs_json, namespace, &mut workloads);
+
     workloads.sort_by(|a, b| {
-        b.unavailable_pods
-            .cmp(&a.unavailable_pods)
+        workload_status_rank(&b.status)
+            .cmp(&workload_status_rank(&a.status))
             .then_with(|| a.kind.as_str().cmp(b.kind.as_str()))
             .then_with(|| a.name.cmp(&b.name))
     });
 
     Ok(workloads)
+}
+
+fn parse_optional_resource_result(result: Result<String>) -> Value {
+    result
+        .ok()
+        .and_then(|output| serde_json::from_str(&output).ok())
+        .unwrap_or(Value::Null)
+}
+
+fn workload_items(resource: &Value) -> &[Value] {
+    resource
+        .get("items")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+fn push_workload(
+    workloads: &mut Vec<WorkloadSummary>,
+    kind: WorkloadKind,
+    item: &Value,
+    namespace: &str,
+    summary: String,
+    details: Vec<(String, String)>,
+    status: HealthStatus,
+) {
+    let name = metadata_name(item);
+    if name.is_empty() {
+        return;
+    }
+    workloads.push(WorkloadSummary {
+        kind,
+        name: name.clone(),
+        namespace: namespace.to_string(),
+        summary,
+        details,
+        status,
+        recent_events: Vec::new(),
+        related_event_targets: vec![(kind.as_str().to_string(), name)],
+    });
+}
+
+fn collect_jobs(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadSummary>) {
+    for item in workload_items(resource) {
+        let desired = status_u32(item, "/spec/completions").max(1);
+        let succeeded = status_u32(item, "/status/succeeded");
+        let failed = status_u32(item, "/status/failed");
+        let active = status_u32(item, "/status/active");
+        let complete = condition_is(item, "Complete", ConditionStatus::True);
+        let failed_condition = condition_is(item, "Failed", ConditionStatus::True);
+        let (state, status) = if failed_condition {
+            ("failed", HealthStatus::Critical)
+        } else if complete || succeeded >= desired {
+            ("complete", HealthStatus::Healthy)
+        } else if failed > 0 {
+            ("retrying", HealthStatus::Warning)
+        } else if active > 0 {
+            ("running", HealthStatus::Healthy)
+        } else {
+            ("waiting", HealthStatus::Elevated)
+        };
+        push_workload(
+            workloads,
+            WorkloadKind::Job,
+            item,
+            namespace,
+            format!("{state}  complete {succeeded}/{desired}"),
+            vec![
+                ("State".to_string(), state.to_string()),
+                ("Completions".to_string(), format!("{succeeded}/{desired}")),
+                ("Active".to_string(), active.to_string()),
+                ("Failed".to_string(), failed.to_string()),
+            ],
+            status,
+        );
+    }
+}
+
+fn collect_cronjobs(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadSummary>) {
+    for item in workload_items(resource) {
+        let schedule = string_at(item, "/spec/schedule", "-");
+        let suspended = item
+            .pointer("/spec/suspend")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let active = item
+            .pointer("/status/active")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0);
+        let last_schedule = string_at(item, "/status/lastScheduleTime", "never");
+        let state = if suspended { "suspended" } else { "scheduled" };
+        push_workload(
+            workloads,
+            WorkloadKind::CronJob,
+            item,
+            namespace,
+            format!("{state}  {schedule}  active {active}"),
+            vec![
+                ("State".to_string(), state.to_string()),
+                ("Schedule".to_string(), schedule.to_string()),
+                ("Active jobs".to_string(), active.to_string()),
+                ("Last schedule".to_string(), last_schedule.to_string()),
+            ],
+            HealthStatus::Healthy,
+        );
+    }
+}
+
+fn collect_hpas(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadSummary>) {
+    for item in workload_items(resource) {
+        let minimum = status_u32(item, "/spec/minReplicas").max(1);
+        let maximum = status_u32(item, "/spec/maxReplicas");
+        let current = status_u32(item, "/status/currentReplicas");
+        let desired = status_u32(item, "/status/desiredReplicas");
+        let target_kind = string_at(item, "/spec/scaleTargetRef/kind", "-");
+        let target_name = string_at(item, "/spec/scaleTargetRef/name", "-");
+        let cannot_scale = condition_is(item, "AbleToScale", ConditionStatus::False)
+            || condition_is(item, "ScalingActive", ConditionStatus::False);
+        let scaling_limited = condition_is(item, "ScalingLimited", ConditionStatus::True);
+        let status = if cannot_scale {
+            HealthStatus::Warning
+        } else if scaling_limited {
+            HealthStatus::Elevated
+        } else {
+            HealthStatus::Healthy
+        };
+        push_workload(
+            workloads,
+            WorkloadKind::HorizontalPodAutoscaler,
+            item,
+            namespace,
+            format!("replicas {current}→{desired}  range {minimum}-{maximum}"),
+            vec![
+                ("Target".to_string(), format!("{target_kind}/{target_name}")),
+                (
+                    "Replicas".to_string(),
+                    format!("current {current} desired {desired}"),
+                ),
+                ("Range".to_string(), format!("{minimum}-{maximum}")),
+                (
+                    "Scaling".to_string(),
+                    if cannot_scale {
+                        "unable to scale"
+                    } else if scaling_limited {
+                        "limited"
+                    } else {
+                        "active"
+                    }
+                    .to_string(),
+                ),
+            ],
+            status,
+        );
+    }
+}
+
+fn collect_pdbs(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadSummary>) {
+    for item in workload_items(resource) {
+        let healthy = status_u32(item, "/status/currentHealthy");
+        let desired = status_u32(item, "/status/desiredHealthy");
+        let expected = status_u32(item, "/status/expectedPods");
+        let disruptions = status_u32(item, "/status/disruptionsAllowed");
+        let status = if healthy < desired {
+            HealthStatus::Warning
+        } else {
+            HealthStatus::Healthy
+        };
+        push_workload(
+            workloads,
+            WorkloadKind::PodDisruptionBudget,
+            item,
+            namespace,
+            format!("healthy {healthy}/{desired}  disruptions {disruptions}"),
+            vec![
+                ("Healthy".to_string(), format!("{healthy}/{desired}")),
+                ("Expected pods".to_string(), expected.to_string()),
+                ("Disruptions allowed".to_string(), disruptions.to_string()),
+            ],
+            status,
+        );
+    }
+}
+
+fn collect_services(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadSummary>) {
+    for item in workload_items(resource) {
+        let service_type = string_at(item, "/spec/type", "ClusterIP");
+        let cluster_ip = string_at(item, "/spec/clusterIP", "-");
+        let ports = item
+            .pointer("/spec/ports")
+            .and_then(Value::as_array)
+            .map(|ports| {
+                ports
+                    .iter()
+                    .map(|port| {
+                        let exposed = value_at(port, "/port", "-");
+                        let target = value_at(port, "/targetPort", "-");
+                        format!("{exposed}→{target}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .filter(|ports| !ports.is_empty())
+            .unwrap_or_else(|| "none".to_string());
+        let addresses = load_balancer_addresses(item);
+        let status = if service_type == "LoadBalancer" && addresses.is_empty() {
+            HealthStatus::Elevated
+        } else {
+            HealthStatus::Healthy
+        };
+        push_workload(
+            workloads,
+            WorkloadKind::Service,
+            item,
+            namespace,
+            format!("{service_type}  {cluster_ip}  ports {ports}"),
+            vec![
+                ("Type".to_string(), service_type.to_string()),
+                ("Cluster IP".to_string(), cluster_ip.to_string()),
+                ("Ports".to_string(), ports),
+                (
+                    "External".to_string(),
+                    if addresses.is_empty() {
+                        "pending/none".to_string()
+                    } else {
+                        addresses.join(", ")
+                    },
+                ),
+            ],
+            status,
+        );
+    }
+}
+
+fn collect_ingresses(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadSummary>) {
+    for item in workload_items(resource) {
+        let class = string_at(item, "/spec/ingressClassName", "default");
+        let hosts = item
+            .pointer("/spec/rules")
+            .and_then(Value::as_array)
+            .map(|rules| {
+                rules
+                    .iter()
+                    .filter_map(|rule| rule.get("host").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let addresses = load_balancer_addresses(item);
+        let status = if addresses.is_empty() {
+            HealthStatus::Elevated
+        } else {
+            HealthStatus::Healthy
+        };
+        push_workload(
+            workloads,
+            WorkloadKind::Ingress,
+            item,
+            namespace,
+            format!("hosts {}  addresses {}", hosts.len(), addresses.len()),
+            vec![
+                ("Class".to_string(), class.to_string()),
+                (
+                    "Hosts".to_string(),
+                    if hosts.is_empty() {
+                        "*".to_string()
+                    } else {
+                        hosts.join(", ")
+                    },
+                ),
+                (
+                    "Addresses".to_string(),
+                    if addresses.is_empty() {
+                        "pending".to_string()
+                    } else {
+                        addresses.join(", ")
+                    },
+                ),
+            ],
+            status,
+        );
+    }
+}
+
+fn collect_pvcs(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadSummary>) {
+    for item in workload_items(resource) {
+        let phase = string_at(item, "/status/phase", "Pending");
+        let storage_class = string_at(item, "/spec/storageClassName", "default");
+        let requested = string_at(item, "/spec/resources/requests/storage", "-");
+        let capacity = string_at(item, "/status/capacity/storage", "-");
+        let volume = string_at(item, "/spec/volumeName", "unbound");
+        let access_modes = item
+            .pointer("/spec/accessModes")
+            .and_then(Value::as_array)
+            .map(|modes| {
+                modes
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .filter(|modes| !modes.is_empty())
+            .unwrap_or_else(|| "-".to_string());
+        let status = match phase {
+            "Bound" => HealthStatus::Healthy,
+            "Lost" => HealthStatus::Critical,
+            _ => HealthStatus::Warning,
+        };
+        push_workload(
+            workloads,
+            WorkloadKind::PersistentVolumeClaim,
+            item,
+            namespace,
+            format!("{phase}  requested {requested}  capacity {capacity}"),
+            vec![
+                ("Phase".to_string(), phase.to_string()),
+                ("Storage class".to_string(), storage_class.to_string()),
+                ("Requested".to_string(), requested.to_string()),
+                ("Capacity".to_string(), capacity.to_string()),
+                ("Access modes".to_string(), access_modes),
+                ("Volume".to_string(), volume.to_string()),
+            ],
+            status,
+        );
+    }
+}
+
+fn condition_is(item: &Value, condition_type: &str, expected: ConditionStatus) -> bool {
+    find_condition_status(item, condition_type) == Some(expected)
+}
+
+fn string_at<'a>(item: &'a Value, pointer: &str, fallback: &'a str) -> &'a str {
+    item.pointer(pointer)
+        .and_then(Value::as_str)
+        .unwrap_or(fallback)
+}
+
+fn value_at(item: &Value, pointer: &str, fallback: &str) -> String {
+    item.pointer(pointer)
+        .map(|value| match value {
+            Value::String(value) => value.clone(),
+            Value::Number(value) => value.to_string(),
+            _ => fallback.to_string(),
+        })
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn load_balancer_addresses(item: &Value) -> Vec<String> {
+    item.pointer("/status/loadBalancer/ingress")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| {
+                    entry
+                        .get("ip")
+                        .and_then(Value::as_str)
+                        .or_else(|| entry.get("hostname").and_then(Value::as_str))
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn workload_status_rank(status: &HealthStatus) -> u8 {
+    match status {
+        HealthStatus::Critical => 4,
+        HealthStatus::Warning => 3,
+        HealthStatus::Elevated => 2,
+        HealthStatus::Healthy => 1,
+    }
 }
 
 pub fn attach_workload_events(workloads: &mut [WorkloadSummary], events: &[ClusterEvent]) {
@@ -1631,8 +2070,9 @@ fn calculate_age(timestamp: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        attach_workload_events, build_node_metrics, classify_connection_issue,
-        deployment_rollout_status, derive_node_status, derive_pod_status,
+        attach_workload_events, build_node_metrics, classify_connection_issue, collect_cronjobs,
+        collect_hpas, collect_ingresses, collect_jobs, collect_pdbs, collect_pvcs,
+        collect_services, deployment_rollout_status, derive_node_status, derive_pod_status,
         effective_pod_cpu_resources, effective_pod_memory_resources, ensure_readonly_kubectl_args,
         namespace_pod_counts, parse_cpu, parse_memory_mb, requested_namespace, workload_health,
     };
@@ -1676,13 +2116,8 @@ mod tests {
             kind: WorkloadKind::Deployment,
             name: "api".to_string(),
             namespace: "default".to_string(),
-            desired_replicas: 3,
-            ready_replicas: 2,
-            available_replicas: 2,
-            updated_replicas: Some(3),
-            current_replicas: None,
-            unavailable_pods: 1,
-            rollout_status: "rollout in progress".to_string(),
+            summary: "ready 2/3  avail 2".to_string(),
+            details: vec![("Rollout".to_string(), "rollout in progress".to_string())],
             status: HealthStatus::Warning,
             recent_events: vec![],
             related_event_targets: vec![
@@ -1724,6 +2159,94 @@ mod tests {
         assert_eq!(
             workload_health(0, Some("ProgressDeadlineExceeded"), None),
             HealthStatus::Critical
+        );
+    }
+
+    #[test]
+    fn collectors_add_each_non_controller_workload_kind() {
+        let mut workloads = Vec::new();
+        collect_jobs(
+            &json!({"items":[{"metadata":{"name":"backup"},"spec":{"completions":1},"status":{"succeeded":1}}]}),
+            "default",
+            &mut workloads,
+        );
+        collect_cronjobs(
+            &json!({"items":[{"metadata":{"name":"nightly"},"spec":{"schedule":"0 0 * * *"}}]}),
+            "default",
+            &mut workloads,
+        );
+        collect_hpas(
+            &json!({"items":[{"metadata":{"name":"api"},"spec":{"minReplicas":2,"maxReplicas":10,"scaleTargetRef":{"kind":"Deployment","name":"api"}},"status":{"currentReplicas":3,"desiredReplicas":4}}]}),
+            "default",
+            &mut workloads,
+        );
+        collect_pdbs(
+            &json!({"items":[{"metadata":{"name":"api"},"status":{"currentHealthy":3,"desiredHealthy":2,"expectedPods":3,"disruptionsAllowed":1}}]}),
+            "default",
+            &mut workloads,
+        );
+        collect_services(
+            &json!({"items":[{"metadata":{"name":"api"},"spec":{"type":"ClusterIP","clusterIP":"10.0.0.1","ports":[{"port":80,"targetPort":8080}]}}]}),
+            "default",
+            &mut workloads,
+        );
+        collect_ingresses(
+            &json!({"items":[{"metadata":{"name":"api"},"spec":{"rules":[{"host":"api.example.com"}]},"status":{"loadBalancer":{"ingress":[{"ip":"203.0.113.1"}]}}}]}),
+            "default",
+            &mut workloads,
+        );
+        collect_pvcs(
+            &json!({"items":[{"metadata":{"name":"data"},"spec":{"storageClassName":"standard","resources":{"requests":{"storage":"10Gi"}}},"status":{"phase":"Bound","capacity":{"storage":"10Gi"}}}]}),
+            "default",
+            &mut workloads,
+        );
+
+        assert_eq!(
+            workloads
+                .iter()
+                .map(|workload| workload.kind)
+                .collect::<Vec<_>>(),
+            vec![
+                WorkloadKind::Job,
+                WorkloadKind::CronJob,
+                WorkloadKind::HorizontalPodAutoscaler,
+                WorkloadKind::PodDisruptionBudget,
+                WorkloadKind::Service,
+                WorkloadKind::Ingress,
+                WorkloadKind::PersistentVolumeClaim,
+            ]
+        );
+    }
+
+    #[test]
+    fn non_controller_collectors_derive_unhealthy_statuses() {
+        let mut workloads = Vec::new();
+        collect_jobs(
+            &json!({"items":[{"metadata":{"name":"failed"},"status":{"conditions":[{"type":"Failed","status":"True"}]}}]}),
+            "default",
+            &mut workloads,
+        );
+        collect_pdbs(
+            &json!({"items":[{"metadata":{"name":"blocked"},"status":{"currentHealthy":1,"desiredHealthy":2}}]}),
+            "default",
+            &mut workloads,
+        );
+        collect_pvcs(
+            &json!({"items":[{"metadata":{"name":"lost"},"status":{"phase":"Lost"}}]}),
+            "default",
+            &mut workloads,
+        );
+
+        assert_eq!(
+            workloads
+                .iter()
+                .map(|workload| workload.status.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                HealthStatus::Critical,
+                HealthStatus::Warning,
+                HealthStatus::Critical,
+            ]
         );
     }
 

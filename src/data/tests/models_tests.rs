@@ -26,6 +26,22 @@ fn test_workload_kind_as_str() {
     assert_eq!(WorkloadKind::Deployment.as_str(), "Deployment");
     assert_eq!(WorkloadKind::StatefulSet.as_str(), "StatefulSet");
     assert_eq!(WorkloadKind::DaemonSet.as_str(), "DaemonSet");
+    assert_eq!(WorkloadKind::Job.as_str(), "Job");
+    assert_eq!(WorkloadKind::CronJob.as_str(), "CronJob");
+    assert_eq!(
+        WorkloadKind::HorizontalPodAutoscaler.as_str(),
+        "HorizontalPodAutoscaler"
+    );
+    assert_eq!(
+        WorkloadKind::PodDisruptionBudget.as_str(),
+        "PodDisruptionBudget"
+    );
+    assert_eq!(WorkloadKind::Service.as_str(), "Service");
+    assert_eq!(WorkloadKind::Ingress.as_str(), "Ingress");
+    assert_eq!(
+        WorkloadKind::PersistentVolumeClaim.as_str(),
+        "PersistentVolumeClaim"
+    );
 }
 
 #[test]
@@ -33,6 +49,13 @@ fn test_workload_kind_short_label() {
     assert_eq!(WorkloadKind::Deployment.short_label(), "Deploy");
     assert_eq!(WorkloadKind::StatefulSet.short_label(), "Sts");
     assert_eq!(WorkloadKind::DaemonSet.short_label(), "Ds");
+    assert_eq!(WorkloadKind::Job.short_label(), "Job");
+    assert_eq!(WorkloadKind::CronJob.short_label(), "Cron");
+    assert_eq!(WorkloadKind::HorizontalPodAutoscaler.short_label(), "HPA");
+    assert_eq!(WorkloadKind::PodDisruptionBudget.short_label(), "PDB");
+    assert_eq!(WorkloadKind::Service.short_label(), "Svc");
+    assert_eq!(WorkloadKind::Ingress.short_label(), "Ing");
+    assert_eq!(WorkloadKind::PersistentVolumeClaim.short_label(), "PVC");
 }
 
 #[test]
