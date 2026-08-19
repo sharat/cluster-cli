@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-19
+
 ### Added
 - Cloud Agent development environment configuration (`.cursor/environment.json` and `.cursor/install.sh`)
 - Select each regular container in a multi-container pod with `c`
@@ -141,7 +143,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-update checking
 - Multi-platform support (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/sharat/cluster-cli/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/sharat/cluster-cli/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/sharat/cluster-cli/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/sharat/cluster-cli/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/sharat/cluster-cli/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/sharat/cluster-cli/compare/v0.2.2...v0.2.3
