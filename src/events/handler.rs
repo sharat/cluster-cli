@@ -339,7 +339,9 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 };
                 if let Some((pod_name, ns)) = pod_info {
                     app.enter_pod_detail(pod_name.clone());
+                    let stream_id = app.begin_log_stream();
                     return Some(AppCommand::Fetch(FetchCommand::StartLogStream {
+                        stream_id,
                         pod: pod_name,
                         namespace: ns,
                         container: app.log_container.clone(),
@@ -388,7 +390,9 @@ fn handle_incident_enter(app: &mut AppState) -> Option<AppCommand> {
             let namespace = pod_namespace(app, &pod_name);
             app.enter_pod_detail(pod_name.clone());
             app.focused_panel = Panel::Pods;
+            let stream_id = app.begin_log_stream();
             return Some(AppCommand::Fetch(FetchCommand::StartLogStream {
+                stream_id,
                 pod: pod_name,
                 namespace,
                 container: app.log_container.clone(),
@@ -580,11 +584,15 @@ fn handle_pod_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand
     None
 }
 
-fn start_log_stream_command(app: &AppState) -> Option<AppCommand> {
+fn start_log_stream_command(app: &mut AppState) -> Option<AppCommand> {
     let pod = app.current_pod()?;
+    let pod_name = pod.name.clone();
+    let namespace = pod.namespace.clone();
+    let stream_id = app.begin_log_stream();
     Some(AppCommand::Fetch(FetchCommand::StartLogStream {
-        pod: pod.name.clone(),
-        namespace: pod.namespace.clone(),
+        stream_id,
+        pod: pod_name,
+        namespace,
         container: app.log_container.clone(),
         previous: app.log_source == LogSource::Previous,
     }))
@@ -657,7 +665,7 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
                 app.is_loading = false;
             }
         }
-        DataEvent::LogLine(line) => {
+        DataEvent::LogLine { stream_id, line } if stream_id == app.log_stream_id => {
             app.log_buffer.push_back(line);
             while app.log_buffer.len() > MAX_LOG_BUFFER_LINES {
                 app.log_buffer.pop_front();
@@ -666,6 +674,11 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
                 app.detail_scroll = app.log_buffer.len().saturating_sub(1);
             }
         }
+        DataEvent::LogLine { .. } => {}
+        DataEvent::LogStreamError { stream_id, message } if stream_id == app.log_stream_id => {
+            app.status_message = Some((message, std::time::Instant::now()));
+        }
+        DataEvent::LogStreamError { .. } => {}
         DataEvent::Error(msg) => {
             app.status_message = Some((msg, std::time::Instant::now()));
             app.is_loading = false;
@@ -794,6 +807,36 @@ mod tests {
     }
 
     #[test]
+    fn stale_log_events_are_ignored_after_stream_switch() {
+        let mut app = AppState::new(Config::default());
+        let stale_stream_id = app.begin_log_stream();
+        let active_stream_id = app.begin_log_stream();
+
+        handle_data_event(
+            &mut app,
+            DataEvent::LogLine {
+                stream_id: stale_stream_id,
+                line: "old container".to_string(),
+            },
+        );
+        handle_data_event(
+            &mut app,
+            DataEvent::LogLine {
+                stream_id: active_stream_id,
+                line: "active container".to_string(),
+            },
+        );
+
+        assert_eq!(
+            app.log_buffer
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["active container"]
+        );
+    }
+
+    #[test]
     fn w_toggles_workload_popup_on_dashboard() {
         let mut app = AppState::new(Config::default());
 
@@ -903,12 +946,14 @@ mod tests {
         assert!(matches!(
             command,
             Some(AppCommand::Fetch(FetchCommand::StartLogStream {
+                stream_id,
                 pod,
                 namespace,
                 container,
                 previous,
             }))
-            if pod == "api-0"
+            if stream_id == app.log_stream_id
+                && pod == "api-0"
                 && namespace == "default"
                 && container.as_deref() == Some("app")
                 && !previous

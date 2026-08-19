@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Record curl-based installations explicitly so upgrades keep using the correct method from custom install directories
+- Prevent stale log lines from a previous container or source appearing after a stream switch
+- Surface workload kinds that could not be collected instead of silently showing incomplete data
+- Recognize the standard Cluster API deployment label when it is propagated to Nodes
 
 ## [0.3.0] - 2026-08-19
 

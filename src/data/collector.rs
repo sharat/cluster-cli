@@ -195,7 +195,7 @@ const NODE_POOL_LABEL_KEYS: &[&str] = &[
     "cloud.google.com/gke-nodepool",
     "karpenter.sh/nodepool",
     "karpenter.sh/provisioner-name",
-    "cluster.x-k8s.io/machine-deployment",
+    "cluster.x-k8s.io/deployment-name",
     "kops.k8s.io/instancegroup",
     "nodepool",
 ];
@@ -782,7 +782,12 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
     Ok(pods)
 }
 
-pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSummary>> {
+pub struct WorkloadCollection {
+    pub summaries: Vec<WorkloadSummary>,
+    pub warnings: Vec<String>,
+}
+
+pub async fn fetch_workload_summaries(namespace: &str) -> WorkloadCollection {
     let deployment_args = ["get", "deployments", "-n", namespace, "-o", "json"];
     let statefulset_args = ["get", "statefulsets", "-n", namespace, "-o", "json"];
     let daemonset_args = ["get", "daemonsets", "-n", namespace, "-o", "json"];
@@ -835,25 +840,34 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
         run_cmd("kubectl", &pvc_args),
     );
 
-    let deployment_json: Value =
-        serde_json::from_str(&deployments_result.unwrap_or_else(|_| "{}".to_string()))
-            .unwrap_or(Value::Null);
-    let statefulset_json: Value =
-        serde_json::from_str(&statefulsets_result.unwrap_or_else(|_| "{}".to_string()))
-            .unwrap_or(Value::Null);
-    let daemonset_json: Value =
-        serde_json::from_str(&daemonsets_result.unwrap_or_else(|_| "{}".to_string()))
-            .unwrap_or(Value::Null);
-    let replicasets_json: Value =
-        serde_json::from_str(&replicasets_result.unwrap_or_else(|_| "{}".to_string()))
-            .unwrap_or(Value::Null);
-    let jobs_json = parse_optional_resource_result(jobs_result);
-    let cronjobs_json = parse_optional_resource_result(cronjobs_result);
-    let hpas_json = parse_optional_resource_result(hpas_result);
-    let pdbs_json = parse_optional_resource_result(pdbs_result);
-    let services_json = parse_optional_resource_result(services_result);
-    let ingresses_json = parse_optional_resource_result(ingresses_result);
-    let pvcs_json = parse_optional_resource_result(pvcs_result);
+    let resources = [
+        ("Deployments", deployments_result),
+        ("StatefulSets", statefulsets_result),
+        ("DaemonSets", daemonsets_result),
+        ("ReplicaSets", replicasets_result),
+        ("Jobs", jobs_result),
+        ("CronJobs", cronjobs_result),
+        ("HPAs", hpas_result),
+        ("PDBs", pdbs_result),
+        ("Services", services_result),
+        ("Ingresses", ingresses_result),
+        ("PVCs", pvcs_result),
+    ];
+    let mut parsed_resources = Vec::with_capacity(resources.len());
+    let mut warnings = Vec::new();
+    for (kind, result) in resources {
+        match parse_workload_resource_result(kind, result) {
+            Ok(value) => parsed_resources.push(value),
+            Err(warning) => {
+                warnings.push(warning);
+                parsed_resources.push(Value::Null);
+            }
+        }
+    }
+    let [deployment_json, statefulset_json, daemonset_json, replicasets_json, jobs_json, cronjobs_json, hpas_json, pdbs_json, services_json, ingresses_json, pvcs_json] =
+        parsed_resources
+            .try_into()
+            .expect("resource result count matches workload query count");
 
     let deployment_rs_map = build_deployment_replicaset_map(&replicasets_json);
     let mut workloads = Vec::new();
@@ -1022,14 +1036,18 @@ pub async fn fetch_workload_summaries(namespace: &str) -> Result<Vec<WorkloadSum
             .then_with(|| a.name.cmp(&b.name))
     });
 
-    Ok(workloads)
+    WorkloadCollection {
+        summaries: workloads,
+        warnings,
+    }
 }
 
-fn parse_optional_resource_result<E>(result: std::result::Result<String, E>) -> Value {
-    result
-        .ok()
-        .and_then(|output| serde_json::from_str(&output).ok())
-        .unwrap_or(Value::Null)
+fn parse_workload_resource_result<E: std::fmt::Display>(
+    kind: &str,
+    result: std::result::Result<String, E>,
+) -> std::result::Result<Value, String> {
+    let output = result.map_err(|error| format!("{kind}: {error}"))?;
+    serde_json::from_str(&output).map_err(|error| format!("{kind}: invalid JSON: {error}"))
 }
 
 fn workload_items(resource: &Value) -> &[Value] {
@@ -2074,7 +2092,8 @@ mod tests {
         collect_hpas, collect_ingresses, collect_jobs, collect_pdbs, collect_pvcs,
         collect_services, deployment_rollout_status, derive_node_status, derive_pod_status,
         effective_pod_cpu_resources, effective_pod_memory_resources, ensure_readonly_kubectl_args,
-        namespace_pod_counts, parse_cpu, parse_memory_mb, requested_namespace, workload_health,
+        namespace_pod_counts, parse_cpu, parse_memory_mb, parse_workload_resource_result,
+        requested_namespace, workload_health,
     };
     use crate::data::models::{
         ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
@@ -2096,6 +2115,19 @@ mod tests {
         assert!(ensure_readonly_kubectl_args("kubectl", &["apply", "-f", "x.yaml"]).is_err());
         assert!(ensure_readonly_kubectl_args("kubectl", &["config", "set-context", "x"]).is_err());
         assert!(ensure_readonly_kubectl_args("bash", &["-lc", "kubectl get pods"]).is_err());
+    }
+
+    #[test]
+    fn workload_resource_failures_are_reported_with_kind() {
+        let command_error =
+            parse_workload_resource_result("Jobs", Err(anyhow::anyhow!("forbidden")))
+                .expect_err("kubectl error should be reported");
+        let parse_error =
+            parse_workload_resource_result("Jobs", Ok::<String, anyhow::Error>("{".to_string()))
+                .expect_err("invalid JSON should be reported");
+
+        assert!(command_error.contains("Jobs: forbidden"));
+        assert!(parse_error.contains("Jobs: invalid JSON"));
     }
 
     #[test]
@@ -2328,6 +2360,24 @@ mod tests {
                         "name": "eks-node",
                         "labels": { "eks.amazonaws.com/nodegroup": "workers" }
                     }
+                },
+                {
+                    "metadata": {
+                        "name": "karpenter-node",
+                        "labels": { "karpenter.sh/nodepool": "workers" }
+                    }
+                },
+                {
+                    "metadata": {
+                        "name": "capi-node",
+                        "labels": { "cluster.x-k8s.io/deployment-name": "workers" }
+                    }
+                },
+                {
+                    "metadata": {
+                        "name": "kops-node",
+                        "labels": { "kops.k8s.io/instancegroup": "workers" }
+                    }
                 }
             ]
         });
@@ -2339,7 +2389,13 @@ mod tests {
                 .iter()
                 .map(|node| node.name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["gke-node", "eks-node"]
+            vec![
+                "gke-node",
+                "eks-node",
+                "karpenter-node",
+                "capi-node",
+                "kops-node"
+            ]
         );
     }
 

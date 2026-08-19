@@ -13,7 +13,7 @@ For the current detailed feature inventory, see [features.md](features.md).
 
 - **Real-time Dashboard**: Monitor nodes, incidents, and pods in a unified TUI interface
 - **Node Monitoring**: View CPU/memory usage, conditions, and health status for all nodes
-- **Node Pool Filtering**: Limit node monitoring to AKS, EKS, GKE, Karpenter, Cluster API, or kOps pools with `--node-pool-filter`
+- **Node Pool Filtering**: Limit node monitoring to AKS, EKS, GKE, Karpenter, Cluster API, or kOps pool labels present on Nodes with `--node-pool-filter`
 - **Node Details**: Deep-dive into node specifications including:
   - Hardware specs (CPU capacity, memory capacity)
   - System information (kernel version, OS image, container runtime, kubelet version)
