@@ -13,6 +13,7 @@ For the current detailed feature inventory, see [features.md](features.md).
 
 - **Real-time Dashboard**: Monitor nodes, incidents, and pods in a unified TUI interface
 - **Node Monitoring**: View CPU/memory usage, conditions, and health status for all nodes
+- **Node Pool Filtering**: Limit node monitoring to AKS, EKS, GKE, Karpenter, Cluster API, or kOps pools with `--node-pool-filter`
 - **Node Details**: Deep-dive into node specifications including:
   - Hardware specs (CPU capacity, memory capacity)
   - System information (kernel version, OS image, container runtime, kubelet version)
@@ -28,7 +29,7 @@ For the current detailed feature inventory, see [features.md](features.md).
   - Per-container status, restarts, last termination reason, and exit code
   - Readiness/liveness probe failure counts when they can be inferred from pod events
   - Event timeline
-  - Live log streaming
+  - Multi-container live and previous log viewing with search, timestamps, wrapping, and export
 - **Pod Prioritization**: Cycle pod sort modes with `s` to surface restarts, CPU pressure, memory pressure, readiness, or latest incident activity first
 - **CSV Export**: Export the current pod list to CSV with `E`
 - **Health Scoring**: Aggregate cluster health score weighted by pod readiness and phase, failed scheduling, node conditions, crash loops, OOM kills, warning volume, and rollout failures
@@ -180,6 +181,12 @@ Command-line arguments override config file settings.
 |-----|--------|
 | `Tab` | Cycle sections (Overview → Events → Logs) |
 | `f` | Toggle log follow mode |
+| `c` | Cycle containers when Logs is focused |
+| `p` | Toggle current and previous container logs |
+| `/` | Search buffered logs |
+| `w` | Toggle long-line wrapping |
+| `t` | Show or hide Kubernetes timestamps |
+| `E` | Export the buffered logs to a new file |
 | `Esc` / `q` | Return to dashboard |
 
 ### Node Detail View

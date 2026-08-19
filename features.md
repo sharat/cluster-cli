@@ -95,6 +95,13 @@ The dashboard node panel shows:
 - A compact memory usage bar
 - A health icon derived from node severity
 
+### Node pool filtering
+
+- `--node-pool-filter <NAME>` limits collected nodes to the named provider pool
+- Recognized labels cover AKS agent pools, EKS node groups, GKE node pools, Karpenter node pools and provisioners, Cluster API machine deployments, and kOps instance groups
+- Matching is case-insensitive and the active pool appears in the dashboard header
+- Nodes without a recognized matching pool label are excluded when the filter is active
+
 ### Node detail popup
 
 Pressing `Enter` on a selected node opens a popup with:
@@ -261,11 +268,17 @@ The events section shows pod-related events with:
 
 ### Live log streaming
 
-When a pod detail view is opened, the app starts a live `kubectl logs -f` stream for that pod.
+When a pod detail view is opened, the app starts a timestamped live `kubectl logs -f` stream for the first regular container. Multi-container pods can be inspected one container at a time without leaving the detail view.
 
 The log viewer supports:
 
-- Follow mode
+- Cycling regular containers
+- Toggling between the current live stream and the selected container's previous logs
+- Case-insensitive search across the in-memory buffer
+- Showing or hiding Kubernetes-provided timestamps
+- Optional long-line wrapping
+- Exporting the buffered log lines to a new plain-text file
+- Follow mode for current logs
 - Manual scroll
 - Log-level-aware coloring
 - A rolling in-memory buffer capped at 1000 lines
@@ -359,6 +372,12 @@ The interface uses consistent color cues for:
 - `Tab` cycles Overview, Events, and Logs
 - `j` / `k` scroll within the detail screen
 - `f` toggles log follow mode
+- `c` cycles containers while Logs is focused
+- `p` toggles current and previous logs for the selected container
+- `/` opens live log search
+- `w` toggles long-line wrapping
+- `t` shows or hides log timestamps
+- `E` exports the buffered logs
 - `Esc` or `q` returns to the dashboard
 
 ### Node detail controls
@@ -404,8 +423,3 @@ It also derives additional signals from pod and node payloads, such as:
 - Application logs go to stderr when enabled with `RUST_LOG`
 - No runtime log files are created by the app
 
-## Current Scope Notes
-
-The items below exist in configuration or state but should not be treated as fully surfaced user features yet:
-
-- `node_pool_filter` is accepted in config and CLI, but is not currently reflected in the visible dashboard behavior in this code path
