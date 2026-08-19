@@ -210,25 +210,6 @@ async fn main() -> Result<()> {
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use super::Cli;
-    use clap::Parser;
-
-    #[test]
-    fn hidden_record_install_method_accepts_supported_source() {
-        let cli = Cli::try_parse_from(["cluster", "--record-install-method", "curl"])
-            .expect("curl should be accepted");
-
-        assert_eq!(cli.record_install_method.as_deref(), Some("curl"));
-    }
-
-    #[test]
-    fn hidden_record_install_method_rejects_unknown_source() {
-        assert!(Cli::try_parse_from(["cluster", "--record-install-method", "apt"]).is_err());
-    }
-}
-
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     mut event_rx: mpsc::Receiver<AppEvent>,
@@ -298,5 +279,24 @@ async fn run_app(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn hidden_record_install_method_accepts_supported_source() {
+        let cli = Cli::try_parse_from(["cluster", "--record-install-method", "curl"])
+            .expect("curl should be accepted");
+
+        assert_eq!(cli.record_install_method.as_deref(), Some("curl"));
+    }
+
+    #[test]
+    fn hidden_record_install_method_rejects_unknown_source() {
+        assert!(Cli::try_parse_from(["cluster", "--record-install-method", "apt"]).is_err());
     }
 }
