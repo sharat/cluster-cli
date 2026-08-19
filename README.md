@@ -60,6 +60,9 @@ Install the latest release directly using curl (installs to `~/.local/bin`, no s
 curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash
 ```
 
+The installer records `curl` as the installation method, including for custom
+install directories, so `cluster --upgrade` can use the same method later.
+
 Or install to a custom directory:
 
 ```bash

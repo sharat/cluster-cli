@@ -433,4 +433,12 @@ mod tests {
             "https://raw.githubusercontent.com/sharat/cluster-cli/v0.2.2/install.sh"
         );
     }
+
+    #[test]
+    fn bundled_installer_records_curl_source_with_installed_binary() {
+        let script =
+            std::str::from_utf8(BUNDLED_INSTALL_SCRIPT).expect("install script should be UTF-8");
+
+        assert!(script.contains("\"$INSTALL_DIR/$BINARY_NAME\" --record-install-method curl"));
+    }
 }

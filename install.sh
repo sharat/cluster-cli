@@ -166,6 +166,15 @@ main() {
     if [ "$OS" != "windows" ]; then
         $SUDO chmod +x "$INSTALL_DIR/$BINARY_NAME"
     fi
+
+    # Record the source explicitly so upgrades remain correct even when the
+    # binary is installed to a custom directory that cannot be identified by
+    # path-based detection.
+    if "$INSTALL_DIR/$BINARY_NAME" --record-install-method curl >/dev/null 2>&1; then
+        success "✓ Installation method recorded: curl"
+    else
+        info "⚠️  Could not record installation method; updates will use path detection"
+    fi
     
     # Verify installation
     if command -v "$BINARY_NAME" &> /dev/null; then

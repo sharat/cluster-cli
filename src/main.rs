@@ -53,11 +53,28 @@ struct Cli {
     /// Show version, detected install method, and config directory
     #[arg(long)]
     info: bool,
+
+    /// Record the installer used by this binary
+    #[arg(
+        long,
+        hide = true,
+        value_name = "METHOD",
+        value_parser = ["curl", "homebrew", "cargo"]
+    )]
+    record_install_method: Option<String>,
 }
 
-/// Handle `--info`, `--check-update` and `--upgrade`. Each runs to completion
-/// and the process exits; none of them start the TUI.
+/// Handle installer metadata, `--info`, `--check-update` and `--upgrade`.
+/// Each runs to completion and exits without starting the TUI.
 async fn run_updater_flags(cli: &Cli) -> Result<()> {
+    if let Some(source) = cli.record_install_method.as_deref() {
+        let method = updater::InstallMethod::from_str(source)
+            .filter(|method| *method != updater::InstallMethod::Unknown)
+            .ok_or_else(|| anyhow::anyhow!("Unsupported installation method: {source}"))?;
+        updater::Updater::store_install_method(method)?;
+        println!("Installation method recorded: {}", method.as_str());
+    }
+
     let up = updater::Updater::new(VERSION);
 
     if cli.info {
@@ -91,7 +108,7 @@ async fn main() -> Result<()> {
 
     // These subcommand-ish flags are terminal operations: handle them and exit
     // before any TUI/raw-mode setup, so their output goes to a normal terminal.
-    if cli.upgrade || cli.check_update || cli.info {
+    if cli.upgrade || cli.check_update || cli.info || cli.record_install_method.is_some() {
         return run_updater_flags(&cli).await;
     }
 
@@ -262,5 +279,24 @@ async fn run_app(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn hidden_record_install_method_accepts_supported_source() {
+        let cli = Cli::try_parse_from(["cluster", "--record-install-method", "curl"])
+            .expect("curl should be accepted");
+
+        assert_eq!(cli.record_install_method.as_deref(), Some("curl"));
+    }
+
+    #[test]
+    fn hidden_record_install_method_rejects_unknown_source() {
+        assert!(Cli::try_parse_from(["cluster", "--record-install-method", "apt"]).is_err());
     }
 }
