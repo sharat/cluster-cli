@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Record curl-based installations explicitly so upgrades keep using the correct method from custom install directories
+
 ## [0.3.0] - 2026-08-19
 
 ### Added
