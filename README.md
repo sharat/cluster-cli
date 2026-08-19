@@ -19,7 +19,7 @@ For the current detailed feature inventory, see [features.md](features.md).
   - System information (kernel version, OS image, container runtime, kubelet version)
   - Real-time resource usage with visual indicators
 - **Pod Insights**: Track pod status, resource consumption, restarts, and age
-- **Workload Popup**: Inspect deployment, statefulset, and daemonset rollout health with `w`
+- **Workload Popup**: Inspect controllers, batch workloads, autoscaling, disruption budgets, networking, and storage with `w`
 - **Pod History**: Visual CPU and memory sparklines in pod detail view
 - **Memory Usage Bars**: Horizontal bar graphs with percentage and absolute values
 - **Incident Queue**: Monitor ranked warning and failure signals built from nodes, pods, and events
@@ -299,9 +299,10 @@ Single-line health bar showing:
 ### Workload Popup
 
 Popup workload view includes:
-- Deployments, StatefulSets, and DaemonSets
-- Desired versus ready replica counts
-- Availability and rollout status
+- Deployments, StatefulSets, DaemonSets, Jobs, and CronJobs
+- HorizontalPodAutoscalers and PodDisruptionBudgets
+- Services, Ingresses, and PersistentVolumeClaims
+- Resource-specific readiness, rollout, schedule, scaling, network, and storage status
 - Recent workload-related events
 
 ### Namespace Selection

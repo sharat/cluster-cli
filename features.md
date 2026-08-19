@@ -292,8 +292,15 @@ The data layer fetches workload summaries for:
 - Deployments
 - StatefulSets
 - DaemonSets
+- Jobs
+- CronJobs
+- HorizontalPodAutoscalers
+- PodDisruptionBudgets
+- Services
+- Ingresses
+- PersistentVolumeClaims
 
-These summaries include rollout and availability data and are attached to the in-memory snapshot.
+These summaries include resource-specific rollout, completion, scheduling, scaling, disruption, network, and storage state and are attached to the in-memory snapshot.
 
 ### Workload popup
 
@@ -302,9 +309,11 @@ Workloads are accessed from the dashboard through a popup opened with `w`, rathe
 The popup includes:
 
 - A navigable workload list
-- Desired versus ready replica counts
-- Available replica and unavailable pod tracking
+- Resource-specific compact summaries instead of replica counts for resources that do not own replicas
+- Desired versus ready replicas and unavailable pod tracking for controllers
 - Rollout status summaries for steady state, in-progress rollouts, scale-to-zero, and rollout deadline failures
+- Job completion and failure state, CronJob schedules, HPA replica targets, and PDB disruption allowances
+- Service ports and addresses, Ingress hosts and addresses, and PVC binding/capacity state
 - Recent rollout-related events attached to each workload summary
 
 Deployment event correlation includes ReplicaSet-owned rollout events when they are the most recent signal.
