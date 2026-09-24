@@ -5,7 +5,8 @@ use tracing::error;
 
 use crate::config::Config;
 use crate::data::models::{
-    ClusterEvent, ClusterSnapshot, ConnectionIssue, ConnectionIssueKind, MAX_EVENT_CACHE_ENTRIES,
+    ClusterEvent, ClusterSnapshot, ConnectionIssue, ConnectionIssueKind, DataCoverage,
+    MAX_EVENT_CACHE_ENTRIES,
 };
 use crate::data::{collector, health, incidents};
 use crate::events::{AppEvent, DataEvent, FetchCommand};
@@ -128,6 +129,7 @@ impl Fetcher {
         };
         let cache_key = event_cache_key(context_name.as_deref(), namespace);
 
+        let nodes_visible = nodes_result.is_ok();
         let nodes = match nodes_result {
             Ok(n) => n,
             Err(e) => {
@@ -188,6 +190,17 @@ impl Fetcher {
 
         collector::attach_workload_events(&mut workloads, &events);
 
+        // Without metrics-server every usage figure is zero; a cluster with any
+        // workload never reads exactly zero across the board.
+        let metrics_available = (nodes.is_empty() && pods.is_empty())
+            || nodes
+                .iter()
+                .any(|n| n.cpu_millicores > 0 || n.memory_mb > 0)
+            || pods.iter().any(|p| p.cpu_millicores > 0 || p.memory_mb > 0);
+        let coverage = DataCoverage {
+            metrics_available,
+            nodes_visible,
+        };
         let health_score = health::calculate_health(&nodes, &pods, &events);
         let incident_buckets = incidents::build_incident_buckets(&nodes, &pods, &events);
         let error_msg = if errors.is_empty() {
@@ -210,6 +223,7 @@ impl Fetcher {
             fetched_at: std::time::Instant::now(),
             error: error_msg,
             context_name: context_name.clone(),
+            coverage,
         };
 
         let _ = self
@@ -299,6 +313,7 @@ impl Fetcher {
                     fetched_at: std::time::Instant::now(),
                     error: None,
                     context_name: Some(cluster_label.clone()),
+                    coverage: Default::default(),
                 };
                 match write_pods_csv(&snapshot, &path) {
                     Ok(count) => {
@@ -641,6 +656,7 @@ mod tests {
             fetched_at: std::time::Instant::now(),
             error: None,
             context_name: None,
+            coverage: Default::default(),
         }
     }
 

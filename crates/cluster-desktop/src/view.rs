@@ -1,19 +1,21 @@
 //! The desktop window: fleet overview, cluster detail, pod detail, and the
 //! cluster and namespace pickers from the design canvas.
 
-use std::collections::VecDeque;
-use std::time::Duration;
+use std::collections::{HashMap, VecDeque};
+use std::ops::Range;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use cluster_core::data::models::{
     ClusterSnapshot, ConnectionIssue, EventType, IncidentBucket, IncidentSeverity,
-    NamespaceSummary, PodInfo, GRADE_A_THRESHOLD, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD,
-    GRADE_D_THRESHOLD,
+    NamespaceSummary, NodeMetric, PodInfo, ALL_NAMESPACES, GRADE_A_THRESHOLD, GRADE_B_THRESHOLD,
+    GRADE_C_THRESHOLD, GRADE_D_THRESHOLD,
 };
 use cluster_core::events::{DataEvent, FetchCommand};
 use gpui::{
-    canvas, div, point, prelude::*, px, AnyElement, ClickEvent, Context, Div, FocusHandle,
-    FontWeight, KeyDownEvent, MouseButton, PathBuilder, Pixels, Rgba, ScrollHandle, SharedString,
-    Stateful, Window,
+    canvas, div, point, prelude::*, px, uniform_list, AnyElement, ClickEvent, Context, Div,
+    FocusHandle, FontWeight, KeyDownEvent, MouseButton, PathBuilder, Pixels, Rgba, ScrollHandle,
+    SharedString, Stateful, Window,
 };
 use tokio::sync::mpsc;
 
@@ -25,6 +27,14 @@ const MAX_HISTORY: usize = 240;
 const FLEET_INCIDENT_ROWS: usize = 8;
 /// Log lines kept for the open pod (kubectl starts with `--tail=100`).
 const MAX_LOG_LINES: usize = 1000;
+/// Rows shown before the pods/nodes tables scroll (they are virtualized, so
+/// only visible rows are built, however large the cluster).
+const MAX_VISIBLE_ROWS: usize = 12;
+const ROW_HEIGHT: f32 = 44.;
+/// Minimum gap between notifications for one cluster, unless it gets worse.
+const ALERT_COOLDOWN: Duration = Duration::from_secs(10 * 60);
+/// Consecutive refreshes with no data before a cluster counts as unreachable.
+const UNREACHABLE_AFTER: u32 = 2;
 
 pub struct ClusterState {
     context: String,
@@ -36,6 +46,39 @@ pub struct ClusterState {
     /// `None` = the context's default namespace.
     namespace: Option<String>,
     namespaces: Option<Vec<NamespaceSummary>>,
+    /// Refreshes in a row that produced no snapshot.
+    failed_refreshes: u32,
+    last_alert: Option<AlertMark>,
+}
+
+/// A notification ready to send, with what it says about severity so the
+/// rate limiter can let escalations through.
+struct Alert {
+    summary: String,
+    body: String,
+    grade: char,
+    critical: bool,
+}
+
+struct AlertMark {
+    at: Instant,
+    grade: char,
+    critical: bool,
+}
+
+impl Alert {
+    /// One per cluster per cooldown, unless the grade is worse than the last
+    /// alert's or the first critical incident appears.
+    fn should_send(&self, last: Option<&AlertMark>) -> bool {
+        match last {
+            None => true,
+            Some(mark) => {
+                mark.at.elapsed() >= ALERT_COOLDOWN
+                    || (self.grade.is_ascii_alphabetic() && self.grade > mark.grade)
+                    || (self.critical && !mark.critical)
+            }
+        }
+    }
 }
 
 impl ClusterState {
@@ -55,6 +98,9 @@ impl ClusterState {
     }
 
     fn namespace_label(&self) -> String {
+        if self.namespace.as_deref() == Some(ALL_NAMESPACES) {
+            return "all namespaces".to_string();
+        }
         self.namespace
             .clone()
             .or_else(|| {
@@ -150,6 +196,8 @@ impl DesktopApp {
                         history: VecDeque::new(),
                         namespace: None,
                         namespaces: None,
+                        failed_refreshes: 0,
+                        last_alert: None,
                     })
                     .collect(),
                 None,
@@ -218,23 +266,38 @@ impl DesktopApp {
         let Some(cluster) = self.clusters.get_mut(index) else {
             return;
         };
+        // A connection issue also precedes partial snapshots (e.g. nodes
+        // forbidden), so only repeated refreshes without data mean unreachable.
         let alert = match &event {
-            DataEvent::Refreshed(snapshot) => cluster
-                .snapshot
-                .as_ref()
-                .and_then(|previous| snapshot_alert(&cluster.context, previous, snapshot)),
-            DataEvent::ConnectionState(Some(issue))
-                if cluster.issue.is_none() && cluster.snapshot.is_some() =>
-            {
-                Some((
-                    format!("{} is unreachable", cluster.context),
-                    issue.detail.clone(),
-                ))
+            DataEvent::Refreshed(snapshot) => {
+                cluster.failed_refreshes = 0;
+                cluster
+                    .snapshot
+                    .as_ref()
+                    .and_then(|previous| snapshot_alert(&cluster.context, previous, snapshot))
+            }
+            DataEvent::ConnectionState(Some(issue)) => {
+                cluster.failed_refreshes += 1;
+                (cluster.failed_refreshes == UNREACHABLE_AFTER && cluster.snapshot.is_some()).then(
+                    || Alert {
+                        summary: format!("{} is unreachable", cluster.context),
+                        body: issue.detail.clone(),
+                        grade: '?',
+                        critical: true,
+                    },
+                )
             }
             _ => None,
         };
-        if let Some((summary, body)) = alert.filter(|_| self.alerts_enabled) {
-            self.backend.notify(summary, body);
+        if let Some(alert) = alert {
+            if self.alerts_enabled && alert.should_send(cluster.last_alert.as_ref()) {
+                cluster.last_alert = Some(AlertMark {
+                    at: Instant::now(),
+                    grade: alert.grade,
+                    critical: alert.critical,
+                });
+                self.backend.notify(alert.summary, alert.body);
+            }
         }
 
         match event {
@@ -527,12 +590,18 @@ impl DesktopApp {
                         })),
                 ),
             )
+            .child(section_label("Contexts").px(px(10.)).mb(px(-18.)))
+            // The context list takes the free height and scrolls, keeping the
+            // alerts toggle and read-only badge pinned to the bottom.
             .child(
                 div()
+                    .id("contexts")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
                     .flex()
                     .flex_col()
                     .gap(px(4.))
-                    .child(section_label("Contexts").px(px(10.)).pb(px(2.)))
                     .children(self.clusters.iter().enumerate().map(|(index, cluster)| {
                         let (fg, _) = theme::grade_colors(cluster.grade());
                         let selected = matches!(
@@ -571,8 +640,6 @@ impl DesktopApp {
                             }))
                     })),
             )
-            // Spacer keeps the alerts toggle and read-only badge at the bottom.
-            .child(div().flex_1())
             .child(
                 div()
                     .id("alerts-toggle")
@@ -790,7 +857,20 @@ impl DesktopApp {
                                 div()
                                     .text_size(px(12.))
                                     .text_color(theme::faint())
-                                    .child(format!("ns: {}", cluster.namespace_label())),
+                                    .child(format!("ns: {}", cluster.namespace_label()))
+                                    .when(
+                                        cluster
+                                            .snapshot
+                                            .as_ref()
+                                            .is_some_and(|s| !s.coverage.is_complete()),
+                                        |d| {
+                                            d.child(
+                                                div()
+                                                    .text_color(theme::warning())
+                                                    .child("partial data"),
+                                            )
+                                        },
+                                    ),
                             ),
                     )
                     .child(
@@ -1136,52 +1216,11 @@ impl DesktopApp {
                     }),
             );
 
-        let nodes_panel = panel()
-            .child(panel_header("Nodes", "pressure line at 85%"))
-            .child(table_header(&[
-                ("Node", None),
-                ("Status", Some(130.)),
-                ("CPU", Some(240.)),
-                ("Memory", Some(240.)),
-                ("Pods", Some(56.)),
-            ]))
-            .children(snapshot.nodes.iter().map(|node| {
-                let pods = snapshot
-                    .pods
-                    .iter()
-                    .filter(|p| p.node_name.as_deref() == Some(node.name.as_str()))
-                    .count();
-                let (status, status_color) = node_status(node);
-                table_row()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .font_family(MONO)
-                            .text_size(px(12.))
-                            .text_color(theme::text_secondary())
-                            .child(node.name.clone()),
-                    )
-                    .child(fixed(
-                        130.,
-                        div()
-                            .text_size(px(12.))
-                            .text_color(status_color)
-                            .child(status),
-                    ))
-                    .child(fixed(240., usage_bar(node.cpu_pct)))
-                    .child(fixed(240., usage_bar(node.memory_pct)))
-                    .child(fixed(
-                        56.,
-                        mono(pods.to_string()).text_color(theme::muted()),
-                    ))
-            }));
-
         div()
             .flex()
             .flex_col()
             .gap(px(20.))
+            .when_some(coverage_notice(snapshot), |d, text| d.child(notice(text)))
             .child(
                 div()
                     .flex()
@@ -1189,8 +1228,68 @@ impl DesktopApp {
                     .child(health_panel)
                     .child(incidents_panel),
             )
-            .child(nodes_panel)
+            .child(self.render_nodes_panel(index, snapshot, cx))
             .child(self.render_pods_panel(index, snapshot, cx))
+    }
+
+    fn render_nodes_panel(
+        &self,
+        index: usize,
+        snapshot: &ClusterSnapshot,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let metrics = snapshot.coverage.metrics_available;
+        let mut pods_per_node: HashMap<String, usize> = HashMap::new();
+        for pod in &snapshot.pods {
+            if let Some(node) = &pod.node_name {
+                *pods_per_node.entry(node.clone()).or_default() += 1;
+            }
+        }
+        let pods_per_node = Rc::new(pods_per_node);
+        let count = snapshot.nodes.len();
+
+        panel()
+            .child(panel_header(
+                "Nodes",
+                &format!("{count} · pressure line at 85%"),
+            ))
+            .child(table_header(&[
+                ("Node", None),
+                ("Status", Some(130.)),
+                ("CPU", Some(240.)),
+                ("Memory", Some(240.)),
+                ("Pods", Some(56.)),
+            ]))
+            .when(!snapshot.coverage.nodes_visible, |d| {
+                d.child(empty_row(
+                    "Listing nodes isn't permitted for this context (RBAC), so node health isn't part of the score.",
+                ))
+            })
+            .when(snapshot.coverage.nodes_visible && count == 0, |d| {
+                d.child(empty_row("No nodes match the current node pool filter."))
+            })
+            .when(count > 0, |d| {
+                d.child(
+                    uniform_list(
+                        ("nodes", index),
+                        count,
+                        cx.processor(move |app, range: Range<usize>, _, _| {
+                            let Some(snapshot) = app.clusters[index].snapshot.as_ref() else {
+                                return Vec::new();
+                            };
+                            snapshot.nodes[range.start.min(snapshot.nodes.len())
+                                ..range.end.min(snapshot.nodes.len())]
+                                .iter()
+                                .map(|node| {
+                                    let pods = pods_per_node.get(&node.name).copied().unwrap_or(0);
+                                    node_row(node, pods, metrics)
+                                })
+                                .collect()
+                        }),
+                    )
+                    .h(px(visible_rows_height(count))),
+                )
+            })
     }
 
     fn render_pods_panel(
@@ -1199,89 +1298,70 @@ impl DesktopApp {
         snapshot: &ClusterSnapshot,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let mut pods: Vec<&PodInfo> = snapshot.pods.iter().collect();
-        pods.sort_by(|a, b| {
+        let pods = &snapshot.pods;
+        let mut order: Vec<usize> = (0..pods.len()).collect();
+        order.sort_by(|&a, &b| {
+            let (a, b) = (&pods[a], &pods[b]);
             pod_status(b)
                 .2
                 .cmp(&pod_status(a).2)
                 .then(b.restarts.cmp(&a.restarts))
+                .then(a.namespace.cmp(&b.namespace))
                 .then(a.name.cmp(&b.name))
         });
+        let order = Rc::new(order);
+        let count = order.len();
+        let all_namespaces = self.clusters[index].namespace.as_deref() == Some(ALL_NAMESPACES);
+        let metrics = snapshot.coverage.metrics_available;
+
+        let mut columns: Vec<(&'static str, Option<f32>)> = vec![("Pod", None)];
+        if all_namespaces {
+            columns.push(("Namespace", Some(150.)));
+        }
+        columns.extend([
+            ("Status", Some(150.)),
+            ("Ready", Some(60.)),
+            ("Restarts", Some(70.)),
+            ("CPU", Some(150.)),
+            ("Memory", Some(150.)),
+            ("Node", Some(160.)),
+            ("Age", Some(56.)),
+        ]);
 
         panel()
             .child(panel_header(
                 "Pods",
-                "click a pod for details · worst first",
+                &format!("{count} · worst first · click one for details"),
             ))
-            .child(table_header(&[
-                ("Pod", None),
-                ("Status", Some(150.)),
-                ("Ready", Some(60.)),
-                ("Restarts", Some(70.)),
-                ("CPU", Some(170.)),
-                ("Memory", Some(170.)),
-                ("Node", Some(160.)),
-                ("Age", Some(56.)),
-            ]))
-            .children(pods.into_iter().enumerate().map(|(i, pod)| {
-                let (status, color, _) = pod_status(pod);
-                let pod = pod.clone();
-                let ready = pod.containers.iter().filter(|c| c.ready).count();
-                table_row()
-                    .id(("pod", i))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::selected()))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .font_family(MONO)
-                            .text_size(px(12.))
-                            .child(pod.name.clone()),
-                    )
-                    .child(fixed(
-                        150.,
-                        div().text_size(px(12.)).text_color(color).child(status),
-                    ))
-                    .child(fixed(
-                        60.,
-                        mono(format!("{ready}/{}", pod.containers.len()))
-                            .text_size(px(12.))
-                            .text_color(theme::muted()),
-                    ))
-                    .child(fixed(
-                        70.,
-                        mono(pod.restarts.to_string())
-                            .text_size(px(12.))
-                            .text_color(if pod.restarts > 0 {
-                                theme::warning()
-                            } else {
-                                theme::muted()
-                            }),
-                    ))
-                    .child(fixed(170., usage_bar(pod.cpu_pct)))
-                    .child(fixed(170., usage_bar(pod.memory_pct)))
-                    .child(fixed(
-                        160.,
-                        mono(pod.node_name.clone().unwrap_or_else(|| "—".into()))
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .truncate(),
-                    ))
-                    .child(fixed(
-                        56.,
-                        div()
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .child(pod.age.clone()),
-                    ))
-                    .on_click(
-                        cx.listener(move |app, _: &ClickEvent, _, cx| {
-                            app.open_pod(index, &pod, cx)
+            .child(table_header(&columns))
+            .when(count == 0, |d| {
+                d.child(empty_row("No pods in this namespace."))
+            })
+            .when(count > 0, |d| {
+                d.child(
+                    uniform_list(
+                        ("pods", index),
+                        count,
+                        cx.processor(move |app, range: Range<usize>, _, cx| {
+                            let Some(snapshot) = app.clusters[index].snapshot.as_ref() else {
+                                return Vec::new();
+                            };
+                            let rows: Vec<(usize, PodInfo)> = range
+                                .filter_map(|row| {
+                                    let pod = order.get(row).and_then(|&i| snapshot.pods.get(i))?;
+                                    Some((row, pod.clone()))
+                                })
+                                .collect();
+                            rows.into_iter()
+                                .map(|(row, pod)| {
+                                    pod_row(index, row, pod, all_namespaces, metrics, cx)
+                                })
+                                .collect()
                         }),
                     )
-            }))
+                    .h(px(visible_rows_height(count))),
+                )
+            })
     }
 }
 
@@ -1351,6 +1431,7 @@ impl DesktopApp {
                 ));
         };
         let snapshot = snapshot.expect("pod came from the snapshot");
+        let metrics = snapshot.coverage.metrics_available;
         let ready = pod.containers.iter().filter(|c| c.ready).count();
 
         let overview = panel()
@@ -1397,6 +1478,7 @@ impl DesktopApp {
                     .px(px(20.))
                     .pb(px(18.))
                     .child(resource_block(
+                        metrics,
                         "CPU",
                         pod.cpu_pct,
                         format!("{}m used", pod.cpu_millicores),
@@ -1407,6 +1489,7 @@ impl DesktopApp {
                         ),
                     ))
                     .child(resource_block(
+                        metrics,
                         "Memory",
                         pod.memory_pct,
                         format!("{} MiB used", pod.memory_mb),
@@ -1806,6 +1889,18 @@ impl DesktopApp {
                 .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| {
                     app.select_namespace(index, None, cx)
                 })),
+            )
+            .child(
+                namespace_row(
+                    ("ns-all", 0),
+                    "All namespaces".to_string(),
+                    None,
+                    selected.as_deref() == Some(ALL_NAMESPACES),
+                    false,
+                )
+                .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| {
+                    app.select_namespace(index, Some(ALL_NAMESPACES.to_string()), cx)
+                })),
             );
 
         list = match &cluster.namespaces {
@@ -2143,7 +2238,7 @@ fn snapshot_alert(
     context: &str,
     previous: &ClusterSnapshot,
     current: &ClusterSnapshot,
-) -> Option<(String, String)> {
+) -> Option<Alert> {
     let key = |b: &IncidentBucket| (b.reason.clone(), target_label(b));
     let known: std::collections::HashSet<_> = previous.incident_buckets.iter().map(key).collect();
     let fresh: Vec<&IncidentBucket> = current
@@ -2181,12 +2276,161 @@ fn snapshot_alert(
             previous.health.score, current.health.score
         ));
     }
-    Some((summary, lines.join("\n")))
+    Some(Alert {
+        summary,
+        body: lines.join("\n"),
+        grade: current.health.grade,
+        critical: fresh
+            .iter()
+            .any(|b| b.severity == IncidentSeverity::Critical),
+    })
+}
+
+fn visible_rows_height(count: usize) -> f32 {
+    count.min(MAX_VISIBLE_ROWS) as f32 * ROW_HEIGHT
+}
+
+fn empty_row(text: &'static str) -> Div {
+    div()
+        .px(px(20.))
+        .py(px(14.))
+        .border_t_1()
+        .border_color(theme::divider())
+        .text_color(theme::faint())
+        .child(text)
+}
+
+/// What the snapshot could not see, in one sentence, or `None` if complete.
+fn coverage_notice(snapshot: &ClusterSnapshot) -> Option<String> {
+    let coverage = snapshot.coverage;
+    let mut gaps = Vec::new();
+    if !coverage.metrics_available {
+        gaps.push("CPU/memory usage is unavailable (no metrics-server)");
+    }
+    if !coverage.nodes_visible {
+        gaps.push("nodes can't be listed with your permissions, so node health isn't scored");
+    }
+    (!gaps.is_empty()).then(|| format!("Partial data: {}.", gaps.join("; ")))
+}
+
+fn node_row(node: &NodeMetric, pods: usize, metrics: bool) -> Div {
+    let (status, status_color) = node_status(node);
+    table_row()
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .font_family(MONO)
+                .text_size(px(12.))
+                .text_color(theme::text_secondary())
+                .child(node.name.clone()),
+        )
+        .child(fixed(
+            130.,
+            div()
+                .text_size(px(12.))
+                .text_color(status_color)
+                .child(status),
+        ))
+        .child(fixed(240., usage_cell(node.cpu_pct, metrics)))
+        .child(fixed(240., usage_cell(node.memory_pct, metrics)))
+        .child(fixed(
+            56.,
+            mono(pods.to_string()).text_color(theme::muted()),
+        ))
+}
+
+fn pod_row(
+    index: usize,
+    row: usize,
+    pod: PodInfo,
+    all_namespaces: bool,
+    metrics: bool,
+    cx: &mut Context<DesktopApp>,
+) -> Stateful<Div> {
+    let (status, color, _) = pod_status(&pod);
+    let ready = pod.containers.iter().filter(|c| c.ready).count();
+    table_row()
+        .id(("pod", row))
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::selected()))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .font_family(MONO)
+                .text_size(px(12.))
+                .child(pod.name.clone()),
+        )
+        .when(all_namespaces, |d| {
+            d.child(fixed(
+                150.,
+                mono(pod.namespace.clone())
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .truncate(),
+            ))
+        })
+        .child(fixed(
+            150.,
+            div().text_size(px(12.)).text_color(color).child(status),
+        ))
+        .child(fixed(
+            60.,
+            mono(format!("{ready}/{}", pod.containers.len()))
+                .text_size(px(12.))
+                .text_color(theme::muted()),
+        ))
+        .child(fixed(
+            70.,
+            mono(pod.restarts.to_string())
+                .text_size(px(12.))
+                .text_color(if pod.restarts > 0 {
+                    theme::warning()
+                } else {
+                    theme::muted()
+                }),
+        ))
+        .child(fixed(150., usage_cell(pod.cpu_pct, metrics)))
+        .child(fixed(150., usage_cell(pod.memory_pct, metrics)))
+        .child(fixed(
+            160.,
+            mono(pod.node_name.clone().unwrap_or_else(|| "—".into()))
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .truncate(),
+        ))
+        .child(fixed(
+            56.,
+            div()
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(pod.age.clone()),
+        ))
+        .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| app.open_pod(index, &pod, cx)))
+}
+
+/// Usage bar, or "n/a" when the cluster has no metrics-server.
+fn usage_cell(pct: u8, metrics: bool) -> Div {
+    if metrics {
+        usage_bar(pct)
+    } else {
+        div()
+            .text_size(px(12.))
+            .text_color(theme::faint())
+            .child("n/a")
+    }
 }
 
 /// Status label, colour and a rank for sorting (higher = worse).
 fn pod_status(pod: &PodInfo) -> (String, Rgba, u8) {
-    if pod.crash_looping {
+    if pod.is_completed() {
+        ("Completed".into(), theme::faint(), 0)
+    } else if pod.is_evicted() {
+        ("Evicted".into(), theme::faint(), 0)
+    } else if pod.crash_looping {
         ("CrashLoopBackOff".into(), theme::critical(), 4)
     } else if pod.oom_killed {
         ("OOMKilled".into(), theme::critical(), 4)
@@ -2242,7 +2486,18 @@ fn mebibytes(value: u64) -> String {
     }
 }
 
-fn resource_block(label: &'static str, pct: u8, used: String, bounds: String) -> Div {
+fn resource_block(
+    metrics: bool,
+    label: &'static str,
+    pct: u8,
+    used: String,
+    bounds: String,
+) -> Div {
+    let used = if metrics {
+        used
+    } else {
+        "usage n/a".to_string()
+    };
     div()
         .flex()
         .flex_col()
@@ -2253,7 +2508,7 @@ fn resource_block(label: &'static str, pct: u8, used: String, bounds: String) ->
                 .child(div().font_weight(FontWeight::MEDIUM).child(label))
                 .child(mono(used).ml_auto().text_color(theme::text_secondary())),
         )
-        .child(usage_bar(pct))
+        .child(usage_cell(pct, metrics))
         .child(
             div()
                 .text_size(px(12.))

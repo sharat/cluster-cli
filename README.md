@@ -281,8 +281,16 @@ just desktop        # or: cargo run -p cluster-desktop --release
 just desktop-dev    # debug build, faster to rebuild
 ```
 
-Keys: `1`–`9` open a cluster, `n` the namespace picker, Ctrl/⌘-K the cluster
-switcher, `r` refreshes, Esc goes back.
+Keys: `1`–`9` open a cluster, `n` the namespace picker (including "All
+namespaces"), Ctrl/⌘-K the cluster switcher, `r` refreshes, `m` mutes
+notifications, `p` toggles a pod's previous logs, Esc goes back.
+
+Built for fleets of any size: pods and nodes tables are virtualized, at most
+48 kubectl processes run at once across all clusters, notifications are
+limited to one per cluster every 10 minutes unless things get worse, and
+partial data (no metrics-server, or RBAC that forbids listing nodes) is
+labelled rather than shown as zeros. Launched from Finder/Dock, it picks up
+your login shell's PATH so `kubectl` and cloud auth plugins resolve.
 
 It is not part of the default build or the release binaries. Build
 requirements:
@@ -314,6 +322,8 @@ Single-line health bar showing:
 - Number of critical nodes and pods
 - Total restarts count
 - Weighted by readiness, scheduling failures, node conditions, crash loops, OOM kills, warning volume, and rollout failures
+- Scaled to cluster size: penalties depend on the *share* of pods and nodes affected, so a few failures in a 3,000-pod cluster don't grade it F, while a single failure still costs points
+- Completed Job/CronJob pods and evicted pods are ignored
 - Color-coded based on severity
 
 ### Workload Popup

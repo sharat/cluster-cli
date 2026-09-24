@@ -65,6 +65,7 @@ fn create_test_pod(
         oom_killed,
         node_name: Some("test-node".to_string()),
         containers: vec![],
+        status_reason: None,
     }
 }
 
@@ -237,4 +238,83 @@ fn test_empty_cluster_perfect_score() {
     assert_eq!(health.critical_nodes, 0);
     assert_eq!(health.critical_pods, 0);
     assert_eq!(health.total_restarts, 0);
+}
+
+fn healthy_pods(count: usize) -> Vec<PodInfo> {
+    (0..count)
+        .map(|_| create_test_pod(40, "Running", true, 0, false, false))
+        .collect()
+}
+
+#[test]
+fn test_completed_job_pods_do_not_count() {
+    let mut pods = healthy_pods(5);
+    pods.extend((0..20).map(|_| create_test_pod(0, "Succeeded", false, 0, false, false)));
+    let health = calculate_health(&[], &pods, &[]);
+
+    assert_eq!(
+        health.score, 100,
+        "Succeeded pods are finished Jobs, not failures"
+    );
+    assert_eq!(health.critical_pods, 0);
+}
+
+#[test]
+fn test_evicted_pods_do_not_count() {
+    let mut pods = healthy_pods(5);
+    let mut evicted = create_test_pod(0, "Failed", false, 0, false, false);
+    evicted.status_reason = Some("Evicted".to_string());
+    pods.extend(std::iter::repeat_n(evicted, 10));
+    let health = calculate_health(&[], &pods, &[]);
+
+    assert_eq!(
+        health.score, 100,
+        "Evicted pods are leftovers, not current failures"
+    );
+}
+
+#[test]
+fn test_score_scales_with_cluster_size() {
+    let crash = || create_test_pod(40, "Running", false, 2, true, false);
+
+    let mut small = healthy_pods(27);
+    small.extend((0..3).map(|_| crash()));
+    let mut large = healthy_pods(2997);
+    large.extend((0..3).map(|_| crash()));
+
+    let small_health = calculate_health(&[], &small, &[]);
+    let large_health = calculate_health(&[], &large, &[]);
+
+    assert!(
+        large_health.grade <= 'B',
+        "3 crash loops in 3,000 pods should still be healthy, got {} ({})",
+        large_health.grade,
+        large_health.score
+    );
+    assert!(
+        small_health.score + 20 < large_health.score,
+        "the same failures should weigh more in a small cluster: small {} vs large {}",
+        small_health.score,
+        large_health.score
+    );
+}
+
+#[test]
+fn test_single_failure_stays_visible_in_large_cluster() {
+    let mut pods = healthy_pods(10_000);
+    pods.push(create_test_pod(40, "Running", false, 0, true, false));
+    let health = calculate_health(&[], &pods, &[]);
+
+    assert!(health.score < 100, "one crash loop must still cost points");
+    assert_eq!(health.critical_pods, 1);
+}
+
+#[test]
+fn test_one_bad_node_in_large_fleet_is_not_fatal() {
+    let mut nodes: Vec<NodeMetric> = (0..500).map(|_| create_test_node(40, true, 0)).collect();
+    nodes.push(create_test_node(40, false, 1));
+    let health = calculate_health(&nodes, &healthy_pods(100), &[]);
+
+    assert!(health.score >= 90, "score was {}", health.score);
+    assert_eq!(health.critical_nodes, 1);
 }

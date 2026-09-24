@@ -12,6 +12,14 @@ use crate::data::models::*;
 
 const KUBECTL_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Upper bound on concurrent kubectl processes across the whole process. One
+/// refresh of one cluster runs ~18; the cap only bites when many clusters are
+/// watched at once (the desktop fleet view), turning a burst of hundreds of
+/// processes into a queue.
+const MAX_CONCURRENT_KUBECTL: usize = 48;
+static KUBECTL_PERMITS: tokio::sync::Semaphore =
+    tokio::sync::Semaphore::const_new(MAX_CONCURRENT_KUBECTL);
+
 tokio::task_local! {
     /// kubectl context that every command in the current task targets via
     /// `--context`. Unset (the TUI) means kubectl's current context.
@@ -86,10 +94,31 @@ impl fmt::Display for KubectlError {
 
 impl std::error::Error for KubectlError {}
 
+/// `-n ALL_NAMESPACES` becomes `--all-namespaces`, so every namespaced call
+/// site supports the all-namespaces view without special-casing.
+fn expand_all_namespaces<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    let mut expanded = Vec::with_capacity(args.len());
+    let mut iter = args.iter().copied().peekable();
+    while let Some(arg) = iter.next() {
+        if (arg == "-n" || arg == "--namespace") && iter.peek() == Some(&ALL_NAMESPACES) {
+            iter.next();
+            expanded.push("--all-namespaces");
+        } else {
+            expanded.push(arg);
+        }
+    }
+    expanded
+}
+
 async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
+    let args = &expand_all_namespaces(args)[..];
     ensure_readonly_kubectl_args(program, args)
         .map_err(|err| KubectlError::new(err.to_string()))?;
 
+    let _permit = KUBECTL_PERMITS
+        .acquire()
+        .await
+        .map_err(|err| KubectlError::new(format!("kubectl limiter closed: {err}")))?;
     let mut command = Command::new(program);
     if let Some(context) = context_override() {
         command.args(["--context", &context]);
@@ -648,6 +677,24 @@ fn parse_condition_status(status: &str) -> ConditionStatus {
     }
 }
 
+/// `kubectl top pods` rows keyed by pod name, or by `namespace/name` when the
+/// output came from `--all-namespaces` (which adds a leading NAMESPACE column).
+fn parse_top_pod_metrics(output: &str, all_namespaces: bool) -> HashMap<String, (u64, u64)> {
+    let mut top_map = HashMap::new();
+    for line in output.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        let (key, rest) = match (all_namespaces, parts.as_slice()) {
+            (true, [ns, name, rest @ ..]) => (format!("{ns}/{name}"), rest),
+            (false, [name, rest @ ..]) => (name.to_string(), rest),
+            _ => continue,
+        };
+        if let [cpu, memory, ..] = rest {
+            top_map.insert(key, (parse_cpu(cpu), parse_memory_mb(memory)));
+        }
+    }
+    top_map
+}
+
 pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
     let top_args = vec!["top", "pods", "-n", namespace, "--no-headers"];
     let info_args = vec!["get", "pods", "-n", namespace, "-o", "json"];
@@ -659,18 +706,8 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
     let top_output = top_result.unwrap_or_default();
     let info_json: Value = serde_json::from_str(&info_result?)?;
 
-    // Build map: pod name -> (cpu_m, mem_mb)
-    let mut top_map = std::collections::HashMap::new();
-    for line in top_output.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 3 {
-            continue;
-        }
-        top_map.insert(
-            parts[0].to_string(),
-            (parse_cpu(parts[1]), parse_memory_mb(parts[2])),
-        );
-    }
+    let all_namespaces = namespace == ALL_NAMESPACES;
+    let top_map = parse_top_pod_metrics(&top_output, all_namespaces);
 
     let mut pods = Vec::new();
 
@@ -729,7 +766,12 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
             let (memory_request_mb, memory_limit_mb) =
                 effective_pod_memory_resources(spec_containers, init_containers);
 
-            let (cpu_millicores, memory_mb) = top_map.get(&name).copied().unwrap_or((0, 0));
+            let top_key = if all_namespaces {
+                format!("{pod_namespace}/{name}")
+            } else {
+                name.clone()
+            };
+            let (cpu_millicores, memory_mb) = top_map.get(&top_key).copied().unwrap_or((0, 0));
 
             let memory_pct = if memory_limit_mb > 0 {
                 percent_of(memory_mb, memory_limit_mb)
@@ -786,7 +828,18 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
                     })
                 })
                 .unwrap_or(false);
-            let status = derive_pod_status(memory_pct, &phase, is_ready, crash_looping, oom_killed);
+            let status_reason = item
+                .pointer("/status/reason")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let status = derive_pod_status(
+                memory_pct,
+                &phase,
+                status_reason.as_deref(),
+                is_ready,
+                crash_looping,
+                oom_killed,
+            );
 
             pods.push(PodInfo {
                 uid,
@@ -813,6 +866,7 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
                 oom_killed,
                 node_name,
                 containers,
+                status_reason,
             });
         }
     }
@@ -1598,11 +1652,18 @@ fn effective_pod_memory_resources(
 fn derive_pod_status(
     memory_pct: u8,
     phase: &str,
+    status_reason: Option<&str>,
     is_ready: bool,
     crash_looping: bool,
     oom_killed: bool,
 ) -> HealthStatus {
-    if crash_looping || oom_killed || !is_ready || matches!(phase, "Failed" | "Unknown") {
+    // Finished Job/CronJob pods are expected to be unready; evicted pods are
+    // tombstones whose replacements run elsewhere.
+    if phase == "Succeeded" {
+        HealthStatus::Healthy
+    } else if phase == "Failed" && status_reason == Some("Evicted") {
+        HealthStatus::Warning
+    } else if crash_looping || oom_killed || !is_ready || matches!(phase, "Failed" | "Unknown") {
         HealthStatus::Critical
     } else if phase == "Pending" {
         HealthStatus::Warning
@@ -2144,9 +2205,9 @@ mod tests {
         collect_hpas, collect_ingresses, collect_jobs, collect_pdbs, collect_pvcs,
         collect_services, context_override, deployment_rollout_status, derive_node_status,
         derive_pod_status, effective_pod_cpu_resources, effective_pod_memory_resources,
-        ensure_readonly_kubectl_args, fetch_current_context, inherit_context, namespace_pod_counts,
-        parse_cpu, parse_memory_mb, parse_workload_resource_result, requested_namespace,
-        with_context, workload_health,
+        ensure_readonly_kubectl_args, expand_all_namespaces, fetch_current_context,
+        inherit_context, namespace_pod_counts, parse_cpu, parse_memory_mb, parse_top_pod_metrics,
+        parse_workload_resource_result, requested_namespace, with_context, workload_health,
     };
     use crate::data::models::{
         ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
@@ -2181,6 +2242,44 @@ mod tests {
         assert_eq!(inside.0.as_deref(), Some("prod-eastus"));
         assert_eq!(inside.1, "prod-eastus");
         assert_eq!(context_override(), None);
+    }
+
+    #[test]
+    fn all_namespaces_sentinel_expands_to_flag() {
+        assert_eq!(
+            expand_all_namespaces(&["get", "pods", "-n", "*", "-o", "json"]),
+            vec!["get", "pods", "--all-namespaces", "-o", "json"]
+        );
+        assert_eq!(
+            expand_all_namespaces(&["get", "pods", "-n", "default"]),
+            vec!["get", "pods", "-n", "default"]
+        );
+    }
+
+    #[test]
+    fn top_pod_metrics_handle_namespace_column() {
+        let single = parse_top_pod_metrics("api-1 120m 300Mi\n", false);
+        assert_eq!(single.get("api-1"), Some(&(120, 300)));
+
+        let all = parse_top_pod_metrics("payments api-1 120m 300Mi\nweb api-1 5m 10Mi\n", true);
+        assert_eq!(all.get("payments/api-1"), Some(&(120, 300)));
+        assert_eq!(all.get("web/api-1"), Some(&(5, 10)));
+    }
+
+    #[test]
+    fn completed_and_evicted_pods_are_not_critical() {
+        assert_eq!(
+            derive_pod_status(0, "Succeeded", None, false, false, false),
+            HealthStatus::Healthy
+        );
+        assert_eq!(
+            derive_pod_status(0, "Failed", Some("Evicted"), false, false, false),
+            HealthStatus::Warning
+        );
+        assert_eq!(
+            derive_pod_status(0, "Failed", None, false, false, false),
+            HealthStatus::Critical
+        );
     }
 
     #[tokio::test]
@@ -2514,15 +2613,15 @@ mod tests {
     fn derived_statuses_reflect_runtime_health_not_just_memory() {
         assert_eq!(derive_node_status(10, false, 0), HealthStatus::Critical);
         assert_eq!(
-            derive_pod_status(10, "Running", false, false, false),
+            derive_pod_status(10, "Running", None, false, false, false),
             HealthStatus::Critical
         );
         assert_eq!(
-            derive_pod_status(10, "Pending", true, false, false),
+            derive_pod_status(10, "Pending", None, true, false, false),
             HealthStatus::Warning
         );
         assert_eq!(
-            derive_pod_status(10, "Running", true, false, false),
+            derive_pod_status(10, "Running", None, true, false, false),
             HealthStatus::Healthy
         );
         assert_eq!(ConditionStatus::True.as_str(), "True");

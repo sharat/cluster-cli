@@ -473,6 +473,7 @@ mod tests {
             crash_looping,
             oom_killed,
             node_name: Some("node-a".to_string()),
+            status_reason: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
                 ready: true,

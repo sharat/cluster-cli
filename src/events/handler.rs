@@ -1279,6 +1279,7 @@ mod tests {
             fetched_at: Instant::now(),
             error: None,
             context_name: Some("test".to_string()),
+            coverage: Default::default(),
         }
     }
 
@@ -1307,6 +1308,7 @@ mod tests {
             crash_looping: false,
             oom_killed: false,
             node_name: None,
+            status_reason: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
                 ready: true,

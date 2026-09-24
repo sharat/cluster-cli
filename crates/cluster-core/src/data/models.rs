@@ -4,6 +4,10 @@ use std::time::Instant;
 /// Used for health score penalties and percentage cell coloring.
 pub const RESOURCE_PRESSURE_PCT: u8 = 85;
 
+/// Namespace value meaning "every namespace" (`kubectl --all-namespaces`).
+/// `*` can never be a real namespace name.
+pub const ALL_NAMESPACES: &str = "*";
+
 /// Health score grade boundaries (score out of 100).
 /// Also used by `HealthStatus::from_pct` for percentage-to-status mapping.
 pub const GRADE_A_THRESHOLD: u8 = 90;
@@ -157,6 +161,20 @@ pub struct PodInfo {
     pub oom_killed: bool,
     pub node_name: Option<String>,
     pub containers: Vec<ContainerInfo>,
+    /// `status.reason`, e.g. `Evicted`, `NodeLost`, `Shutdown`.
+    pub status_reason: Option<String>,
+}
+
+impl PodInfo {
+    /// Finished Job/CronJob pod.
+    pub fn is_completed(&self) -> bool {
+        self.phase == "Succeeded"
+    }
+
+    /// Evicted pod left behind as a record; its replacement runs elsewhere.
+    pub fn is_evicted(&self) -> bool {
+        self.phase == "Failed" && self.status_reason.as_deref() == Some("Evicted")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -387,6 +405,31 @@ pub struct HealthScore {
     pub total_restarts: u32,
 }
 
+/// How complete a snapshot is, so a UI can flag scores computed from
+/// partial data instead of presenting them as the whole picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DataCoverage {
+    /// `kubectl top` returned usage (false without metrics-server).
+    pub metrics_available: bool,
+    /// Nodes could be listed (false when RBAC forbids cluster-scoped reads).
+    pub nodes_visible: bool,
+}
+
+impl Default for DataCoverage {
+    fn default() -> Self {
+        Self {
+            metrics_available: true,
+            nodes_visible: true,
+        }
+    }
+}
+
+impl DataCoverage {
+    pub fn is_complete(&self) -> bool {
+        self.metrics_available && self.nodes_visible
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ClusterSnapshot {
     pub nodes: Vec<NodeMetric>,
@@ -398,4 +441,5 @@ pub struct ClusterSnapshot {
     pub fetched_at: Instant,
     pub error: Option<String>,
     pub context_name: Option<String>,
+    pub coverage: DataCoverage,
 }

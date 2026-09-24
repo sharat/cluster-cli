@@ -10,81 +10,82 @@ const ROLLOUT_FAILURE_REASONS: &[&str] = &[
     "RolloutAborted",
 ];
 
+/// A share-based penalty: `cap` points once `ratio` reaches `saturation`,
+/// scaling linearly below that, and never less than `floor` while anything
+/// is affected. Ratios keep a 3,000-pod cluster with three bad pods from
+/// grading like a 30-pod cluster with three bad pods; the floor keeps a
+/// single failure visible in a very large cluster.
+fn share_penalty(affected: usize, total: usize, cap: f32, saturation: f32, floor: f32) -> f32 {
+    if affected == 0 || total == 0 {
+        return 0.0;
+    }
+    let ratio = affected as f32 / total as f32;
+    (cap * (ratio / saturation).min(1.0)).max(floor.min(cap))
+}
+
+/// Scores a snapshot 0–100 from the *share* of the cluster in trouble.
+///
+/// | Category | Cap | Full penalty at |
+/// |---|---|---|
+/// | Failing pods (crash loop, OOM, Failed/Unknown) | 30 | 10% of pods |
+/// | Unready or Pending pods | 15 | 20% of pods |
+/// | Pods at ≥85% of their memory limit | 5 | 20% of pods |
+/// | Restarts | 10 | 1 restart per pod on average |
+/// | Nodes not ready or with bad conditions | 30 | 25% of nodes |
+/// | Nodes at ≥85% memory | 15 | 25% of nodes |
+/// | Warning events (incl. scheduling and rollout failures) | 20 | fixed counts |
+///
+/// Completed Job/CronJob pods and evicted pods are not counted: both are
+/// normal leftovers, not current problems.
 pub fn calculate_health(
     nodes: &[NodeMetric],
     pods: &[PodInfo],
     events: &[ClusterEvent],
 ) -> HealthScore {
-    let mut score: i32 = 100;
-    let mut critical_nodes = 0u32;
+    let active: Vec<&PodInfo> = pods
+        .iter()
+        .filter(|pod| !pod.is_completed() && !pod.is_evicted())
+        .collect();
+
+    let mut failing_pods = 0usize;
+    let mut unready_pods = 0usize;
+    let mut memory_pressure_pods = 0usize;
     let mut critical_pods = 0u32;
     let mut total_restarts = 0u32;
-    let mut unhealthy_nodes = 0u32;
-    let mut failed_scheduling_events = 0u32;
-    let mut warning_events = 0u32;
-    let mut rollout_failures = 0u32;
-
-    for node in nodes {
-        if node.memory_pct >= RESOURCE_PRESSURE_PCT {
-            score = score.saturating_sub(15);
-            critical_nodes += 1;
-        }
-        if !node.ready || node.unhealthy_conditions > 0 {
-            unhealthy_nodes += 1;
-            score = score.saturating_sub(10);
-            score = score.saturating_sub((node.unhealthy_conditions as i32) * 4);
-        }
-    }
-
-    for pod in pods {
-        total_restarts += pod.restarts;
-
-        // Track unique critical pods (avoid double-counting)
-        let mut is_critical = false;
-
-        if pod.memory_pct >= RESOURCE_PRESSURE_PCT {
-            score = score.saturating_sub(10);
-            is_critical = true;
-        }
-
-        if pod.phase == "Failed" {
-            score = score.saturating_sub(18);
-            is_critical = true;
-        } else if pod.phase == "Pending" {
-            score = score.saturating_sub(6);
-        } else if pod.phase == "Unknown" {
-            score = score.saturating_sub(10);
-            is_critical = true;
-        }
-
-        if !pod.is_ready {
-            score = score.saturating_sub(8);
-            is_critical = true;
-        }
-
-        if pod.crash_looping {
-            score = score.saturating_sub(20);
-            is_critical = true;
-        }
-
-        if pod.oom_killed {
-            score = score.saturating_sub(15);
-            is_critical = true;
-        }
-
-        if is_critical {
+    for pod in &active {
+        total_restarts = total_restarts.saturating_add(pod.restarts);
+        let failing = pod.crash_looping
+            || pod.oom_killed
+            || matches!(pod.phase.as_str(), "Failed" | "Unknown");
+        let unready = !failing && (!pod.is_ready || pod.phase == "Pending");
+        let memory_pressure = pod.memory_pct >= RESOURCE_PRESSURE_PCT;
+        failing_pods += usize::from(failing);
+        unready_pods += usize::from(unready);
+        memory_pressure_pods += usize::from(memory_pressure);
+        if failing || unready || memory_pressure {
             critical_pods += 1;
         }
     }
 
-    let restart_penalty = (total_restarts * 2).min(100) as i32;
-    score = score.saturating_sub(restart_penalty);
+    let unhealthy_nodes = nodes
+        .iter()
+        .filter(|node| !node.ready || node.unhealthy_conditions > 0)
+        .count();
+    let pressured_nodes = nodes
+        .iter()
+        .filter(|node| node.memory_pct >= RESOURCE_PRESSURE_PCT)
+        .count();
+    let critical_nodes = nodes
+        .iter()
+        .filter(|node| {
+            !node.ready || node.unhealthy_conditions > 0 || node.memory_pct >= RESOURCE_PRESSURE_PCT
+        })
+        .count() as u32;
 
-    for event in events {
-        if event.event_type != EventType::Warning {
-            continue;
-        }
-
+    let mut warning_events = 0u32;
+    let mut failed_scheduling_events = 0u32;
+    let mut rollout_failures = 0u32;
+    for event in events.iter().filter(|e| e.event_type == EventType::Warning) {
         warning_events += event.count;
         if event.reason == "FailedScheduling" {
             failed_scheduling_events += event.count;
@@ -94,11 +95,25 @@ pub fn calculate_health(
         }
     }
 
-    score = score.saturating_sub((warning_events.min(20) as i32) * 2);
-    score = score.saturating_sub((failed_scheduling_events.min(10) as i32) * 3);
-    score = score.saturating_sub((rollout_failures.min(10) as i32) * 4);
+    let pod_count = active.len();
+    let restart_penalty = if pod_count == 0 {
+        0.0
+    } else {
+        10.0 * (total_restarts as f32 / pod_count as f32).min(1.0)
+    };
+    let event_penalty = (warning_events.min(20) as f32 * 0.5)
+        + (failed_scheduling_events.min(10) as f32 * 0.5)
+        + (rollout_failures.min(5) as f32 * 2.0);
 
-    let score = score.max(0) as u8;
+    let penalty = share_penalty(failing_pods, pod_count, 30.0, 0.10, 5.0)
+        + share_penalty(unready_pods, pod_count, 15.0, 0.20, 2.0)
+        + share_penalty(memory_pressure_pods, pod_count, 5.0, 0.20, 1.0)
+        + restart_penalty
+        + share_penalty(unhealthy_nodes, nodes.len(), 30.0, 0.25, 5.0)
+        + share_penalty(pressured_nodes, nodes.len(), 15.0, 0.25, 2.0)
+        + event_penalty.min(20.0);
+
+    let score = (100.0 - penalty).round().clamp(0.0, 100.0) as u8;
 
     let grade = if score >= GRADE_A_THRESHOLD {
         'A'
@@ -115,7 +130,7 @@ pub fn calculate_health(
     HealthScore {
         score,
         grade,
-        critical_nodes: critical_nodes + unhealthy_nodes,
+        critical_nodes,
         critical_pods,
         total_restarts,
     }
@@ -189,6 +204,7 @@ mod tests {
             oom_killed: true,
             node_name: Some("node-1".to_string()),
             containers: vec![],
+            status_reason: None,
         }];
         let events = vec![
             ClusterEvent {
@@ -213,7 +229,7 @@ mod tests {
 
         let health = calculate_health(&nodes, &pods, &events);
 
-        assert!(health.score < 20, "score was {}", health.score);
+        assert!(health.score < 30, "score was {}", health.score);
         assert_eq!(health.grade, 'F');
         assert_eq!(health.total_restarts, 3);
         assert!(health.critical_nodes >= 1);
@@ -270,6 +286,7 @@ mod tests {
             oom_killed: false,
             node_name: Some("node-1".to_string()),
             containers: vec![],
+            status_reason: None,
         }];
 
         let health = calculate_health(&nodes, &pods, &[]);

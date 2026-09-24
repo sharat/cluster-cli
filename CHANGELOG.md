@@ -8,9 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Experimental GPUI desktop app (`just desktop`) that watches every kubeconfig context at once, with a fleet overview, cluster detail, pod detail with live logs, namespace picker, and desktop notifications for new incidents and grade drops
+- Experimental GPUI desktop app (`just desktop`) that watches every kubeconfig context at once, with a fleet overview, cluster detail, pod detail with live logs, namespace picker, and desktop notifications for new incidents and grade drops; supports an all-namespaces view and large fleets
 
 ### Changed
+- Scale the health score to cluster size: penalties now depend on the share of pods and nodes affected, so large clusters are no longer stuck at F by a handful of failures
+- Stop counting completed Job/CronJob pods and evicted pods as unhealthy, in the score and in pod status
 - Split the kubectl collector, health scoring, incidents, config and fetcher into a shared `cluster-core` workspace crate; the TUI is unchanged
 
 ### Fixed

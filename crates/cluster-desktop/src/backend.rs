@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 
 const EVENT_CHANNEL_CAPACITY: usize = 256;
 const COMMAND_CHANNEL_CAPACITY: usize = 16;
+const STARTUP_STAGGER: std::time::Duration = std::time::Duration::from_millis(250);
 
 pub type TaggedEvent = (usize, DataEvent);
 
@@ -82,9 +83,15 @@ impl Backend {
         });
 
         // The fetcher's timer only runs once a namespace is resolved, so kick
-        // off the first fetch explicitly (empty = the context's default).
-        let _ = cmd_tx.try_send(FetchCommand::RefreshAll {
-            namespace: self.config.namespace.clone(),
+        // off the first fetch explicitly (empty = the context's default),
+        // staggered so a large fleet doesn't start every cluster at once.
+        let first_fetch = cmd_tx.clone();
+        let namespace = self.config.namespace.clone();
+        self.runtime.spawn(async move {
+            tokio::time::sleep(STARTUP_STAGGER * index as u32).await;
+            let _ = first_fetch
+                .send(FetchCommand::RefreshAll { namespace })
+                .await;
         });
         cmd_tx
     }

@@ -49,11 +49,11 @@ The fetcher runs on its own tokio task. The main loop uses `tokio::select!` acro
 
 ### Key modules
 
-- **`src/data/collector.rs`** — All kubectl I/O lives here. `ensure_readonly_kubectl_args()` enforces a whitelist (get, top, logs, config); mutation verbs are blocked. Errors are classified into `ConnectionIssueKind` variants (KubectlMissing, NoContext, NamespaceUnavailable, Generic).
+- **`src/data/collector.rs`** — All kubectl I/O lives here. `ensure_readonly_kubectl_args()` enforces a whitelist (get, top, logs, config); mutation verbs are blocked. `run_cmd` is the single choke point: it applies the `with_context` override, expands `-n *` (`ALL_NAMESPACES`) to `--all-namespaces`, and holds a global semaphore capping concurrent kubectl processes at 48. Errors are classified into `ConnectionIssueKind` variants (KubectlMissing, NoContext, NamespaceUnavailable, Generic).
 
 - **`src/data/models.rs`** — All shared types. Threshold constants (`RESOURCE_PRESSURE_PCT`, `GRADE_*_THRESHOLD`) are defined here and imported by both the data and UI layers to stay in sync.
 
-- **`src/data/health.rs`** — Calculates a 0–100 health score with weighted penalties (crash loop −20, OOM −15, node memory pressure −15, etc.) and maps it to an A–F grade.
+- **`src/data/health.rs`** — Calculates a 0–100 health score from capped, share-based penalties (e.g. failing pods: up to −30 at 10% of pods; unhealthy nodes: up to −30 at 25% of nodes; each category has a small floor so single failures stay visible) and maps it to an A–F grade. Completed and evicted pods are ignored.
 
 - **`src/data/incidents.rs`** — Buckets raw events/pod states into ranked `IncidentBucket` structs by reason and severity.
 
