@@ -49,6 +49,20 @@ impl Backend {
             })
     }
 
+    /// Shows a desktop notification off the UI thread (delivery can block).
+    pub fn notify(&self, summary: String, body: String) {
+        self.runtime.spawn_blocking(move || {
+            if let Err(err) = notify_rust::Notification::new()
+                .appname("cluster")
+                .summary(&summary)
+                .body(&body)
+                .show()
+            {
+                eprintln!("cluster-desktop: notification failed: {err}");
+            }
+        });
+    }
+
     /// Starts watching `context`; its events arrive tagged with `index`.
     pub fn watch(&self, index: usize, context: String) -> mpsc::Sender<FetchCommand> {
         let (fetch_tx, mut fetch_rx) = mpsc::channel(EVENT_CHANNEL_CAPACITY);

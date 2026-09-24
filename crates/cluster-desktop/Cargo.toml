@@ -21,3 +21,5 @@ cluster-core = { path = "../cluster-core" }
 gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
 tokio.workspace = true
 anyhow.workspace = true
+# Native notifications: D-Bus on Linux, Notification Center on macOS, toasts on Windows.
+notify-rust = "4.18"

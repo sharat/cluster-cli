@@ -25,8 +25,23 @@ pub async fn with_context<F: std::future::Future>(context: String, fut: F) -> F:
     CONTEXT_OVERRIDE.scope(context, fut).await
 }
 
-fn context_override() -> Option<String> {
+/// The kubectl context pinned by an enclosing [`with_context`], if any.
+pub fn context_override() -> Option<String> {
     CONTEXT_OVERRIDE.try_with(Clone::clone).ok()
+}
+
+/// Wraps `fut` so it keeps the caller's context override when handed to
+/// `tokio::spawn` (task-locals do not cross task boundaries on their own).
+pub fn inherit_context<F: std::future::Future>(
+    fut: F,
+) -> impl std::future::Future<Output = F::Output> {
+    let context = context_override();
+    async move {
+        match context {
+            Some(context) => with_context(context, fut).await,
+            None => fut.await,
+        }
+    }
 }
 
 fn percent_of(value: u64, total: u64) -> u8 {
@@ -2129,9 +2144,9 @@ mod tests {
         collect_hpas, collect_ingresses, collect_jobs, collect_pdbs, collect_pvcs,
         collect_services, context_override, deployment_rollout_status, derive_node_status,
         derive_pod_status, effective_pod_cpu_resources, effective_pod_memory_resources,
-        ensure_readonly_kubectl_args, fetch_current_context, namespace_pod_counts, parse_cpu,
-        parse_memory_mb, parse_workload_resource_result, requested_namespace, with_context,
-        workload_health,
+        ensure_readonly_kubectl_args, fetch_current_context, inherit_context, namespace_pod_counts,
+        parse_cpu, parse_memory_mb, parse_workload_resource_result, requested_namespace,
+        with_context, workload_health,
     };
     use crate::data::models::{
         ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
@@ -2166,6 +2181,17 @@ mod tests {
         assert_eq!(inside.0.as_deref(), Some("prod-eastus"));
         assert_eq!(inside.1, "prod-eastus");
         assert_eq!(context_override(), None);
+    }
+
+    #[tokio::test]
+    async fn inherit_context_carries_override_into_spawned_tasks() {
+        let spawned = with_context("staging".to_string(), async {
+            tokio::spawn(inherit_context(async { context_override() }))
+                .await
+                .expect("task should finish")
+        })
+        .await;
+        assert_eq!(spawned.as_deref(), Some("staging"));
     }
 
     #[test]

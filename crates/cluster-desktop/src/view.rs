@@ -1,18 +1,19 @@
-//! The desktop window: fleet overview, cluster detail, and the cluster and
-//! namespace pickers from the design canvas.
+//! The desktop window: fleet overview, cluster detail, pod detail, and the
+//! cluster and namespace pickers from the design canvas.
 
 use std::collections::VecDeque;
 use std::time::Duration;
 
 use cluster_core::data::models::{
-    ClusterSnapshot, ConnectionIssue, IncidentBucket, IncidentSeverity, NamespaceSummary,
-    GRADE_A_THRESHOLD, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD,
+    ClusterSnapshot, ConnectionIssue, EventType, IncidentBucket, IncidentSeverity,
+    NamespaceSummary, PodInfo, GRADE_A_THRESHOLD, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD,
+    GRADE_D_THRESHOLD,
 };
 use cluster_core::events::{DataEvent, FetchCommand};
 use gpui::{
     canvas, div, point, prelude::*, px, AnyElement, ClickEvent, Context, Div, FocusHandle,
-    FontWeight, KeyDownEvent, MouseButton, PathBuilder, Pixels, Rgba, SharedString, Stateful,
-    Window,
+    FontWeight, KeyDownEvent, MouseButton, PathBuilder, Pixels, Rgba, ScrollHandle, SharedString,
+    Stateful, Window,
 };
 use tokio::sync::mpsc;
 
@@ -22,6 +23,8 @@ use crate::theme::{self, MONO, SANS};
 /// Score samples kept per cluster for the trend chart (in memory, since launch).
 const MAX_HISTORY: usize = 240;
 const FLEET_INCIDENT_ROWS: usize = 8;
+/// Log lines kept for the open pod (kubectl starts with `--tail=100`).
+const MAX_LOG_LINES: usize = 1000;
 
 pub struct ClusterState {
     context: String,
@@ -84,6 +87,21 @@ impl ClusterState {
 enum Screen {
     Fleet,
     Cluster(usize),
+    /// The pod is `DesktopApp::pod`; the index is its cluster.
+    Pod(usize),
+}
+
+/// The pod on screen, tracked by UID across refreshes, plus its log stream.
+struct PodView {
+    uid: String,
+    name: String,
+    namespace: String,
+    container: Option<String>,
+    previous: bool,
+    stream_id: u64,
+    logs: VecDeque<String>,
+    log_error: Option<String>,
+    log_scroll: ScrollHandle,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -94,12 +112,15 @@ enum Picker {
 }
 
 pub struct DesktopApp {
-    _backend: Backend,
+    backend: Backend,
     focus_handle: FocusHandle,
     clusters: Vec<ClusterState>,
     load_error: Option<String>,
     screen: Screen,
     picker: Picker,
+    pod: Option<PodView>,
+    next_stream_id: u64,
+    alerts_enabled: bool,
 }
 
 impl DesktopApp {
@@ -159,19 +180,63 @@ impl DesktopApp {
         .detach();
 
         Self {
-            _backend: backend,
+            backend,
             focus_handle,
             clusters,
             load_error,
             screen: Screen::Fleet,
             picker: Picker::None,
+            pod: None,
+            next_stream_id: 0,
+            alerts_enabled: true,
         }
     }
 
     fn apply(&mut self, index: usize, event: DataEvent) {
+        let open_pod = match (self.screen, self.pod.as_mut()) {
+            (Screen::Pod(cluster), Some(pod)) if cluster == index => Some(pod),
+            _ => None,
+        };
+        match (&event, open_pod) {
+            (DataEvent::LogLine { stream_id, line }, Some(pod)) if *stream_id == pod.stream_id => {
+                if pod.logs.len() == MAX_LOG_LINES {
+                    pod.logs.pop_front();
+                }
+                pod.logs.push_back(line.clone());
+                pod.log_scroll.scroll_to_bottom();
+                return;
+            }
+            (DataEvent::LogStreamError { stream_id, message }, Some(pod))
+                if *stream_id == pod.stream_id =>
+            {
+                pod.log_error = Some(message.clone());
+                return;
+            }
+            _ => {}
+        }
+
         let Some(cluster) = self.clusters.get_mut(index) else {
             return;
         };
+        let alert = match &event {
+            DataEvent::Refreshed(snapshot) => cluster
+                .snapshot
+                .as_ref()
+                .and_then(|previous| snapshot_alert(&cluster.context, previous, snapshot)),
+            DataEvent::ConnectionState(Some(issue))
+                if cluster.issue.is_none() && cluster.snapshot.is_some() =>
+            {
+                Some((
+                    format!("{} is unreachable", cluster.context),
+                    issue.detail.clone(),
+                ))
+            }
+            _ => None,
+        };
+        if let Some((summary, body)) = alert.filter(|_| self.alerts_enabled) {
+            self.backend.notify(summary, body);
+        }
+
         match event {
             DataEvent::Refreshed(snapshot) => {
                 if cluster.history.len() == MAX_HISTORY {
@@ -191,9 +256,83 @@ impl DesktopApp {
         }
     }
 
-    fn open_cluster(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.screen = Screen::Cluster(index);
+    /// Every screen change goes through here so a pod's log stream stops
+    /// when its screen is left.
+    fn set_screen(&mut self, screen: Screen) {
+        if let Screen::Pod(index) = self.screen {
+            if screen != self.screen {
+                self.clusters[index].send(FetchCommand::StopLogStream);
+                self.pod = None;
+            }
+        }
+        self.screen = screen;
         self.picker = Picker::None;
+    }
+
+    fn open_cluster(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.set_screen(Screen::Cluster(index));
+        cx.notify();
+    }
+
+    fn open_pod(&mut self, index: usize, pod: &PodInfo, cx: &mut Context<Self>) {
+        self.set_screen(Screen::Pod(index));
+        self.pod = Some(PodView {
+            uid: pod.uid.clone(),
+            name: pod.name.clone(),
+            namespace: pod.namespace.clone(),
+            container: pod.containers.first().map(|c| c.name.clone()),
+            previous: false,
+            stream_id: 0,
+            logs: VecDeque::new(),
+            log_error: None,
+            log_scroll: ScrollHandle::new(),
+        });
+        self.restart_logs();
+        cx.notify();
+    }
+
+    fn open_pod_named(&mut self, index: usize, name: &str, cx: &mut Context<Self>) {
+        let pod = self.clusters[index]
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.pods.iter().find(|p| p.name == name))
+            .cloned();
+        if let Some(pod) = pod {
+            self.open_pod(index, &pod, cx);
+        }
+    }
+
+    /// (Re)starts `kubectl logs` for the open pod's container and mode.
+    fn restart_logs(&mut self) {
+        let (Screen::Pod(index), Some(pod)) = (self.screen, self.pod.as_mut()) else {
+            return;
+        };
+        self.next_stream_id += 1;
+        pod.stream_id = self.next_stream_id;
+        pod.logs.clear();
+        pod.log_error = None;
+        self.clusters[index].send(FetchCommand::StartLogStream {
+            stream_id: pod.stream_id,
+            pod: pod.name.clone(),
+            namespace: pod.namespace.clone(),
+            container: pod.container.clone(),
+            previous: pod.previous,
+        });
+    }
+
+    fn select_container(&mut self, container: String, cx: &mut Context<Self>) {
+        if let Some(pod) = self.pod.as_mut() {
+            pod.container = Some(container);
+        }
+        self.restart_logs();
+        cx.notify();
+    }
+
+    fn set_previous_logs(&mut self, previous: bool, cx: &mut Context<Self>) {
+        if let Some(pod) = self.pod.as_mut() {
+            pod.previous = previous;
+        }
+        self.restart_logs();
         cx.notify();
     }
 
@@ -230,7 +369,9 @@ impl DesktopApp {
     }
 
     /// `1`–`9` open a cluster, `n` the namespace picker, Ctrl/⌘-K the cluster
-    /// switcher, `r` refreshes, Esc closes a picker or goes back to the fleet.
+    /// switcher, `r` refreshes, `m` mutes notifications, `p` toggles a pod's
+    /// previous logs, and Esc
+    /// closes a picker or goes back one level.
     fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
         if keystroke.modifiers.secondary() && keystroke.key == "k" {
@@ -240,12 +381,20 @@ impl DesktopApp {
         } else {
             match keystroke.key.as_str() {
                 "escape" if self.picker != Picker::None => self.picker = Picker::None,
-                "escape" => self.screen = Screen::Fleet,
+                "escape" => match self.screen {
+                    Screen::Pod(index) => self.set_screen(Screen::Cluster(index)),
+                    _ => self.set_screen(Screen::Fleet),
+                },
                 "n" => match self.screen {
                     Screen::Cluster(index) => return self.open_namespace_picker(index, cx),
-                    Screen::Fleet => return,
+                    _ => return,
                 },
+                "p" if matches!(self.screen, Screen::Pod(_)) => {
+                    let previous = self.pod.as_ref().is_some_and(|p| p.previous);
+                    return self.set_previous_logs(!previous, cx);
+                }
                 "r" => self.refresh_all(cx),
+                "m" => self.alerts_enabled = !self.alerts_enabled,
                 key => match key.parse::<usize>() {
                     Ok(digit @ 1..=9) if digit <= self.clusters.len() => {
                         return self.open_cluster(digit - 1, cx)
@@ -272,6 +421,7 @@ impl Render for DesktopApp {
         let main: AnyElement = match self.screen {
             Screen::Fleet => self.render_fleet(cx).into_any_element(),
             Screen::Cluster(index) => self.render_cluster(index, cx).into_any_element(),
+            Screen::Pod(index) => self.render_pod(index, cx).into_any_element(),
         };
 
         div()
@@ -333,8 +483,10 @@ impl DesktopApp {
                     .items_center()
                     .gap(px(10.))
                     .px(px(8.))
+                    .child(logo_icon(26.))
                     .child(
                         div()
+                            .ml(px(10.))
                             .font_family(MONO)
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_size(px(17.))
@@ -370,7 +522,7 @@ impl DesktopApp {
                                 .child(incident_total.to_string()),
                         )
                         .on_click(cx.listener(|app, _: &ClickEvent, _, cx| {
-                            app.screen = Screen::Fleet;
+                            app.set_screen(Screen::Fleet);
                             cx.notify();
                         })),
                 ),
@@ -383,7 +535,10 @@ impl DesktopApp {
                     .child(section_label("Contexts").px(px(10.)).pb(px(2.)))
                     .children(self.clusters.iter().enumerate().map(|(index, cluster)| {
                         let (fg, _) = theme::grade_colors(cluster.grade());
-                        let selected = self.screen == Screen::Cluster(index);
+                        let selected = matches!(
+                            self.screen,
+                            Screen::Cluster(i) | Screen::Pod(i) if i == index
+                        );
                         div()
                             .id(("ctx", index))
                             .flex()
@@ -416,9 +571,46 @@ impl DesktopApp {
                             }))
                     })),
             )
+            // Spacer keeps the alerts toggle and read-only badge at the bottom.
+            .child(div().flex_1())
             .child(
                 div()
-                    .mt_auto()
+                    .id("alerts-toggle")
+                    .flex()
+                    .items_center()
+                    .h(px(36.))
+                    .px(px(10.))
+                    .rounded(px(8.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::selected()))
+                    .text_size(px(13.))
+                    .child(div().text_color(theme::muted()).child("Notifications"))
+                    .child(
+                        div()
+                            .ml_auto()
+                            .px(px(8.))
+                            .py(px(2.))
+                            .rounded(px(10.))
+                            .text_size(px(11.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .when(self.alerts_enabled, |d| {
+                                d.bg(theme::grade_colors('A').1)
+                                    .text_color(theme::grade_colors('A').0)
+                                    .child("On")
+                            })
+                            .when(!self.alerts_enabled, |d| {
+                                d.bg(theme::selected())
+                                    .text_color(theme::faint())
+                                    .child("Muted")
+                            }),
+                    )
+                    .on_click(cx.listener(|app, _: &ClickEvent, _, cx| {
+                        app.alerts_enabled = !app.alerts_enabled;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
                     .flex()
                     .items_center()
                     .gap(px(8.))
@@ -428,12 +620,7 @@ impl DesktopApp {
                     .rounded(px(8.))
                     .text_size(px(12.))
                     .text_color(theme::muted())
-                    .child(
-                        div()
-                            .size(px(8.))
-                            .rounded_full()
-                            .bg(theme::grade_colors('A').0),
-                    )
+                    .child(lock_icon(16., theme::grade_colors('A').0))
                     .child("Read-only · get / top / logs"),
             )
     }
@@ -681,7 +868,7 @@ impl DesktopApp {
             .items_center()
             .child(
                 icon_button("back", "‹").on_click(cx.listener(|app, _: &ClickEvent, _, cx| {
-                    app.screen = Screen::Fleet;
+                    app.set_screen(Screen::Fleet);
                     cx.notify();
                 })),
             )
@@ -768,7 +955,7 @@ impl DesktopApp {
             (_, Some(issue)) => notice(format!("Unreachable: {}", issue.detail)).into_any_element(),
             (None, None) => notice("Connecting…".to_string()).into_any_element(),
             (Some(snapshot), None) => self
-                .render_cluster_body(cluster, snapshot)
+                .render_cluster_body(index, cluster, snapshot, cx)
                 .into_any_element(),
         };
 
@@ -783,83 +970,86 @@ impl DesktopApp {
 
     fn render_cluster_body(
         &self,
+        index: usize,
         cluster: &ClusterState,
         snapshot: &ClusterSnapshot,
+        cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let health = &snapshot.health;
         let grade = health.grade;
 
-        let trend_panel = panel()
+        // Trend and the factors behind the grade share one panel.
+        let health_panel = panel()
             .flex_1()
             .min_w_0()
-            .child(panel_header("Health score", "samples since launch"))
-            .child(
-                div()
-                    .px(px(20.))
-                    .pb(px(18.))
-                    .child(score_chart(cluster.history.iter().copied().collect())),
-            );
-
-        let why_panel = panel()
-            .w(px(420.))
-            .flex_shrink_0()
             .child(panel_header(
-                &format!("Why it's a{} {grade}", article(grade)),
-                "",
+                "Health score",
+                &format!(
+                    "why it's a{} {grade} · samples since launch",
+                    article(grade)
+                ),
             ))
             .child(
                 div()
-                    .flex()
-                    .flex_col()
+                    .px(px(20.))
+                    .child(score_chart(cluster.history.iter().copied().collect(), 170.)),
+            )
+            .child(
+                div()
+                    .grid()
+                    .grid_cols(4)
                     .gap(px(12.))
                     .px(px(20.))
-                    .pb(px(18.))
-                    .child(factor_row(
+                    .pt(px(16.))
+                    .child(factor_tile(
                         "Critical nodes",
                         "memory ≥85% or not ready",
                         health.critical_nodes,
                     ))
-                    .child(factor_row(
+                    .child(factor_tile(
                         "Critical pods",
                         "failed, unready, crash-looping or OOM",
                         health.critical_pods,
                     ))
-                    .child(factor_row(
-                        "Container restarts",
+                    .child(factor_tile(
+                        "Restarts",
                         "−2 each, capped",
                         health.total_restarts,
                     ))
-                    .child(factor_row(
-                        "Incident buckets",
-                        "ranked below",
+                    .child(factor_tile(
+                        "Incidents",
+                        "listed alongside",
                         snapshot.incident_buckets.len() as u32,
-                    ))
+                    )),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .mx(px(20.))
+                    .mt(px(16.))
+                    .py(px(14.))
+                    .border_t_1()
+                    .border_color(theme::border())
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Score"))
                     .child(
                         div()
-                            .flex()
-                            .items_center()
-                            .pt(px(10.))
-                            .border_t_1()
-                            .border_color(theme::border())
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child("Score"))
-                            .child(
-                                mono(format!("{} · {grade}", health.score))
-                                    .ml_auto()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme::grade_colors(grade).0),
-                            ),
-                    )
-                    .child(
-                        div()
+                            .ml(px(12.))
                             .text_size(px(12.))
                             .text_color(theme::faint())
                             .child(grade_band_hint(health.score)),
+                    )
+                    .child(
+                        mono(format!("{} · {grade}", health.score))
+                            .ml_auto()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::grade_colors(grade).0),
                     ),
             );
 
         let incidents_panel = panel()
-            .flex_1()
-            .min_w_0()
+            .w(px(460.))
+            .flex_shrink_0()
             .child(panel_header(
                 "Incidents",
                 &snapshot.incident_buckets.len().to_string(),
@@ -879,7 +1069,12 @@ impl DesktopApp {
                     .iter()
                     .enumerate()
                     .map(|(i, bucket)| {
+                        let pod_name = bucket
+                            .targets
+                            .iter()
+                            .find_map(|t| t.pod_name().map(str::to_string));
                         let row = div()
+                            .id(("incident", i))
                             .flex()
                             .flex_col()
                             .gap(px(8.))
@@ -888,6 +1083,13 @@ impl DesktopApp {
                             .border_t_1()
                             .border_color(theme::divider())
                             .when(i == 0, |d| d.bg(theme::surface_raised()))
+                            .when_some(pod_name, |d, name| {
+                                d.cursor_pointer()
+                                    .hover(|s| s.bg(theme::selected()))
+                                    .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| {
+                                        app.open_pod_named(index, &name, cx)
+                                    }))
+                            })
                             .child(
                                 div()
                                     .flex()
@@ -895,7 +1097,9 @@ impl DesktopApp {
                                     .gap(px(10.))
                                     .child(severity_badge(bucket.severity))
                                     .child(
-                                        mono(bucket.reason.clone()).font_weight(FontWeight::MEDIUM),
+                                        mono(bucket.reason.clone())
+                                            .ml(px(10.))
+                                            .font_weight(FontWeight::MEDIUM),
                                     )
                                     .child(
                                         div()
@@ -933,14 +1137,13 @@ impl DesktopApp {
             );
 
         let nodes_panel = panel()
-            .w(px(560.))
-            .flex_shrink_0()
             .child(panel_header("Nodes", "pressure line at 85%"))
             .child(table_header(&[
                 ("Node", None),
-                ("CPU", Some(130.)),
-                ("Memory", Some(130.)),
-                ("Pods", Some(44.)),
+                ("Status", Some(130.)),
+                ("CPU", Some(240.)),
+                ("Memory", Some(240.)),
+                ("Pods", Some(56.)),
             ]))
             .children(snapshot.nodes.iter().map(|node| {
                 let pods = snapshot
@@ -948,6 +1151,7 @@ impl DesktopApp {
                     .iter()
                     .filter(|p| p.node_name.as_deref() == Some(node.name.as_str()))
                     .count();
+                let (status, status_color) = node_status(node);
                 table_row()
                     .child(
                         div()
@@ -959,10 +1163,17 @@ impl DesktopApp {
                             .text_color(theme::text_secondary())
                             .child(node.name.clone()),
                     )
-                    .child(fixed(130., usage_bar(node.cpu_pct)))
-                    .child(fixed(130., usage_bar(node.memory_pct)))
                     .child(fixed(
-                        44.,
+                        130.,
+                        div()
+                            .text_size(px(12.))
+                            .text_color(status_color)
+                            .child(status),
+                    ))
+                    .child(fixed(240., usage_bar(node.cpu_pct)))
+                    .child(fixed(240., usage_bar(node.memory_pct)))
+                    .child(fixed(
+                        56.,
                         mono(pods.to_string()).text_color(theme::muted()),
                     ))
             }));
@@ -975,17 +1186,485 @@ impl DesktopApp {
                 div()
                     .flex()
                     .gap(px(20.))
-                    .child(trend_panel)
-                    .child(why_panel),
+                    .child(health_panel)
+                    .child(incidents_panel),
             )
+            .child(nodes_panel)
+            .child(self.render_pods_panel(index, snapshot, cx))
+    }
+
+    fn render_pods_panel(
+        &self,
+        index: usize,
+        snapshot: &ClusterSnapshot,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let mut pods: Vec<&PodInfo> = snapshot.pods.iter().collect();
+        pods.sort_by(|a, b| {
+            pod_status(b)
+                .2
+                .cmp(&pod_status(a).2)
+                .then(b.restarts.cmp(&a.restarts))
+                .then(a.name.cmp(&b.name))
+        });
+
+        panel()
+            .child(panel_header(
+                "Pods",
+                "click a pod for details · worst first",
+            ))
+            .child(table_header(&[
+                ("Pod", None),
+                ("Status", Some(150.)),
+                ("Ready", Some(60.)),
+                ("Restarts", Some(70.)),
+                ("CPU", Some(170.)),
+                ("Memory", Some(170.)),
+                ("Node", Some(160.)),
+                ("Age", Some(56.)),
+            ]))
+            .children(pods.into_iter().enumerate().map(|(i, pod)| {
+                let (status, color, _) = pod_status(pod);
+                let pod = pod.clone();
+                let ready = pod.containers.iter().filter(|c| c.ready).count();
+                table_row()
+                    .id(("pod", i))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::selected()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .font_family(MONO)
+                            .text_size(px(12.))
+                            .child(pod.name.clone()),
+                    )
+                    .child(fixed(
+                        150.,
+                        div().text_size(px(12.)).text_color(color).child(status),
+                    ))
+                    .child(fixed(
+                        60.,
+                        mono(format!("{ready}/{}", pod.containers.len()))
+                            .text_size(px(12.))
+                            .text_color(theme::muted()),
+                    ))
+                    .child(fixed(
+                        70.,
+                        mono(pod.restarts.to_string())
+                            .text_size(px(12.))
+                            .text_color(if pod.restarts > 0 {
+                                theme::warning()
+                            } else {
+                                theme::muted()
+                            }),
+                    ))
+                    .child(fixed(170., usage_bar(pod.cpu_pct)))
+                    .child(fixed(170., usage_bar(pod.memory_pct)))
+                    .child(fixed(
+                        160.,
+                        mono(pod.node_name.clone().unwrap_or_else(|| "—".into()))
+                            .text_size(px(12.))
+                            .text_color(theme::muted())
+                            .truncate(),
+                    ))
+                    .child(fixed(
+                        56.,
+                        div()
+                            .text_size(px(12.))
+                            .text_color(theme::muted())
+                            .child(pod.age.clone()),
+                    ))
+                    .on_click(
+                        cx.listener(move |app, _: &ClickEvent, _, cx| {
+                            app.open_pod(index, &pod, cx)
+                        }),
+                    )
+            }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pod detail
+
+impl DesktopApp {
+    fn render_pod(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
+        let cluster = &self.clusters[index];
+        let Some(view) = self.pod.as_ref() else {
+            return div().child(notice("No pod selected.".to_string()));
+        };
+        let snapshot = cluster.snapshot.as_ref();
+        let pod = snapshot.and_then(|s| s.pods.iter().find(|p| p.uid == view.uid));
+
+        let header = div()
+            .flex()
+            .items_center()
+            .child(icon_button("pod-back", "‹").on_click(cx.listener(
+                move |app, _: &ClickEvent, _, cx| {
+                    app.set_screen(Screen::Cluster(index));
+                    cx.notify();
+                },
+            )))
+            .child(
+                div()
+                    .ml(px(20.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(
+                        div()
+                            .text_color(theme::faint())
+                            .child(format!("Fleet / {} / {}", cluster.context, view.namespace)),
+                    )
+                    .child(
+                        mono(view.name.clone())
+                            .text_size(px(22.))
+                            .font_weight(FontWeight::SEMIBOLD),
+                    ),
+            )
+            .when_some(pod, |d, pod| {
+                let (status, color, _) = pod_status(pod);
+                d.child(
+                    div()
+                        .ml_auto()
+                        .px(px(14.))
+                        .py(px(8.))
+                        .rounded(px(8.))
+                        .border_1()
+                        .border_color(color)
+                        .text_color(color)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(status),
+                )
+            });
+
+        let Some(pod) = pod else {
+            return div()
+                .flex()
+                .flex_col()
+                .gap(px(20.))
+                .child(header)
+                .child(notice(
+                    "This pod is no longer in the latest snapshot (deleted or rescheduled)."
+                        .to_string(),
+                ));
+        };
+        let snapshot = snapshot.expect("pod came from the snapshot");
+        let ready = pod.containers.iter().filter(|c| c.ready).count();
+
+        let overview = panel()
+            .flex_1()
+            .min_w_0()
+            .child(panel_header("Overview", ""))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .px(px(20.))
+                    .pb(px(18.))
+                    .child(kv("Phase", pod.phase.clone()))
+                    .child(kv(
+                        "Ready",
+                        format!("{ready}/{} containers", pod.containers.len()),
+                    ))
+                    .child(kv("Restarts", pod.restarts.to_string()))
+                    .child(kv(
+                        "Node",
+                        pod.node_name
+                            .clone()
+                            .unwrap_or_else(|| "unscheduled".into()),
+                    ))
+                    .child(kv("Namespace", pod.namespace.clone()))
+                    .child(kv("Age", pod.age.clone()))
+                    .child(kv("UID", pod.uid.clone()))
+                    .child(kv(
+                        "Flags",
+                        pod_flags(pod).unwrap_or_else(|| "none".to_string()),
+                    )),
+            );
+
+        let resources = panel()
+            .flex_1()
+            .min_w_0()
+            .child(panel_header("Resources", "usage vs limit"))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(16.))
+                    .px(px(20.))
+                    .pb(px(18.))
+                    .child(resource_block(
+                        "CPU",
+                        pod.cpu_pct,
+                        format!("{}m used", pod.cpu_millicores),
+                        format!(
+                            "request {} · limit {}",
+                            millicores(pod.cpu_request_millicores),
+                            millicores(pod.cpu_limit_millicores)
+                        ),
+                    ))
+                    .child(resource_block(
+                        "Memory",
+                        pod.memory_pct,
+                        format!("{} MiB used", pod.memory_mb),
+                        format!(
+                            "request {} · limit {}",
+                            mebibytes(pod.memory_request_mb),
+                            mebibytes(pod.memory_limit_mb)
+                        ),
+                    )),
+            );
+
+        let selected_container = view.container.clone();
+        let containers = panel()
+            .child(panel_header("Containers", "click one to show its logs"))
+            .child(table_header(&[
+                ("Container", None),
+                ("Ready", Some(70.)),
+                ("Restarts", Some(80.)),
+                ("State", Some(200.)),
+                ("Last termination", Some(200.)),
+                ("Exit", Some(60.)),
+            ]))
+            .children(pod.containers.iter().enumerate().map(|(i, c)| {
+                let name = c.name.clone();
+                let selected = selected_container.as_deref() == Some(c.name.as_str());
+                table_row()
+                    .id(("container", i))
+                    .cursor_pointer()
+                    .when(selected, |d| d.bg(theme::selected()))
+                    .hover(|s| s.bg(theme::selected()))
+                    .child(
+                        mono(c.name.clone())
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .when(selected, |d| d.text_color(theme::accent())),
+                    )
+                    .child(fixed(
+                        70.,
+                        div()
+                            .text_color(if c.ready {
+                                theme::muted()
+                            } else {
+                                theme::warning()
+                            })
+                            .child(if c.ready { "yes" } else { "no" }),
+                    ))
+                    .child(fixed(
+                        80.,
+                        mono(c.restart_count.to_string()).text_color(if c.restart_count > 0 {
+                            theme::warning()
+                        } else {
+                            theme::muted()
+                        }),
+                    ))
+                    .child(fixed(200., div().truncate().child(c.state.clone())))
+                    .child(fixed(
+                        200.,
+                        div().truncate().text_color(theme::muted()).child(
+                            c.last_termination_reason
+                                .clone()
+                                .unwrap_or_else(|| "—".into()),
+                        ),
+                    ))
+                    .child(fixed(
+                        60.,
+                        mono(
+                            c.last_exit_code
+                                .map(|code| code.to_string())
+                                .unwrap_or_else(|| "—".into()),
+                        )
+                        .text_color(theme::muted()),
+                    ))
+                    .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| {
+                        app.select_container(name.clone(), cx)
+                    }))
+            }));
+
+        let events: Vec<_> = snapshot
+            .events
+            .iter()
+            .filter(|e| e.name == pod.name)
+            .collect();
+        let events_panel = panel()
+            .flex_1()
+            .min_w_0()
+            .child(panel_header("Events", &events.len().to_string()))
+            .when(events.is_empty(), |d| {
+                d.child(
+                    div()
+                        .px(px(20.))
+                        .pb(px(16.))
+                        .text_color(theme::faint())
+                        .child("No recent events for this pod."),
+                )
+            })
+            .children(events.into_iter().map(|e| {
+                let color = if e.event_type == EventType::Warning {
+                    theme::warning()
+                } else {
+                    theme::muted()
+                };
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .px(px(20.))
+                    .py(px(10.))
+                    .border_t_1()
+                    .border_color(theme::divider())
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .child(mono(e.reason.clone()).text_color(color))
+                            .child(
+                                div()
+                                    .ml_auto()
+                                    .text_size(px(12.))
+                                    .text_color(theme::faint())
+                                    .child(format!("×{} · {}", e.count, e.timestamp)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(theme::text_secondary())
+                            .child(e.message.clone()),
+                    )
+            }));
+
+        let incidents: Vec<_> = snapshot
+            .incident_buckets
+            .iter()
+            .filter(|b| {
+                b.targets
+                    .iter()
+                    .any(|t| t.pod_name() == Some(pod.name.as_str()))
+            })
+            .collect();
+        let incidents_panel = panel()
+            .w(px(420.))
+            .flex_shrink_0()
+            .child(panel_header("Incidents", &incidents.len().to_string()))
+            .when(incidents.is_empty(), |d| {
+                d.child(
+                    div()
+                        .px(px(20.))
+                        .pb(px(16.))
+                        .text_color(theme::faint())
+                        .child("Not part of any incident."),
+                )
+            })
+            .children(incidents.into_iter().map(|b| {
+                div()
+                    .flex()
+                    .items_center()
+                    .px(px(20.))
+                    .py(px(12.))
+                    .border_t_1()
+                    .border_color(theme::divider())
+                    .child(severity_badge(b.severity))
+                    .child(mono(b.reason.clone()).ml(px(10.)))
+                    .child(
+                        div()
+                            .ml_auto()
+                            .text_size(px(12.))
+                            .text_color(theme::muted())
+                            .child(format!("×{}", b.occurrences)),
+                    )
+            }));
+
+        let previous = view.previous;
+        let logs_panel = panel()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .px(px(20.))
+                    .py(px(12.))
+                    .child(
+                        div()
+                            .text_size(px(15.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Logs"),
+                    )
+                    .child(
+                        mono(view.container.clone().unwrap_or_else(|| "default".into()))
+                            .ml(px(12.))
+                            .text_size(px(12.))
+                            .text_color(theme::muted()),
+                    )
+                    .child(
+                        div()
+                            .ml_auto()
+                            .flex()
+                            .p(px(3.))
+                            .bg(theme::bg())
+                            .border_1()
+                            .border_color(theme::border())
+                            .rounded(px(8.))
+                            .child(
+                                segment("logs-live", "Live", !previous).on_click(cx.listener(
+                                    |app, _: &ClickEvent, _, cx| app.set_previous_logs(false, cx),
+                                )),
+                            )
+                            .child(segment("logs-previous", "Previous", previous).on_click(
+                                cx.listener(|app, _: &ClickEvent, _, cx| {
+                                    app.set_previous_logs(true, cx)
+                                }),
+                            )),
+                    ),
+            )
+            .child(
+                div()
+                    .id("log-lines")
+                    .track_scroll(&view.log_scroll)
+                    .overflow_y_scroll()
+                    .h(px(360.))
+                    .mx(px(12.))
+                    .mb(px(12.))
+                    .p(px(12.))
+                    .bg(theme::bg())
+                    .border_1()
+                    .border_color(theme::border())
+                    .rounded(px(8.))
+                    .font_family(MONO)
+                    .text_size(px(12.))
+                    .text_color(theme::text_secondary())
+                    .when_some(view.log_error.clone(), |d, err| {
+                        d.child(div().text_color(theme::critical()).child(err))
+                    })
+                    .when(view.logs.is_empty() && view.log_error.is_none(), |d| {
+                        d.child(div().text_color(theme::faint()).child(if previous {
+                            "Waiting for previous container logs…"
+                        } else {
+                            "Waiting for log lines…"
+                        }))
+                    })
+                    .children(view.logs.iter().map(|line| div().child(line.clone()))),
+            );
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(20.))
+            .child(header)
+            .child(div().flex().gap(px(20.)).child(overview).child(resources))
+            .child(containers)
             .child(
                 div()
                     .flex()
                     .items_start()
                     .gap(px(20.))
-                    .child(incidents_panel)
-                    .child(nodes_panel),
+                    .child(events_panel)
+                    .child(incidents_panel),
             )
+            .child(logs_panel)
     }
 }
 
@@ -1036,7 +1715,7 @@ impl DesktopApp {
 
     fn render_cluster_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let current = match self.screen {
-            Screen::Cluster(index) => Some(index),
+            Screen::Cluster(index) | Screen::Pod(index) => Some(index),
             Screen::Fleet => None,
         };
         div()
@@ -1458,23 +2137,186 @@ fn severity_badge(severity: IncidentSeverity) -> Div {
         .child(label)
 }
 
-fn factor_row(label: &'static str, hint: &'static str, count: u32) -> Div {
+/// What changed between two snapshots that is worth a notification: new
+/// critical/warning incidents and a worse grade. `None` if nothing did.
+fn snapshot_alert(
+    context: &str,
+    previous: &ClusterSnapshot,
+    current: &ClusterSnapshot,
+) -> Option<(String, String)> {
+    let key = |b: &IncidentBucket| (b.reason.clone(), target_label(b));
+    let known: std::collections::HashSet<_> = previous.incident_buckets.iter().map(key).collect();
+    let fresh: Vec<&IncidentBucket> = current
+        .incident_buckets
+        .iter()
+        .filter(|b| b.severity != IncidentSeverity::Elevated && !known.contains(&key(b)))
+        .collect();
+    // Grades are letters, so a later letter is a worse grade.
+    let dropped = current.health.grade > previous.health.grade;
+    if fresh.is_empty() && !dropped {
+        return None;
+    }
+
+    let summary = if dropped {
+        format!(
+            "{context} dropped from {} to {}",
+            previous.health.grade, current.health.grade
+        )
+    } else if fresh.len() == 1 {
+        format!("{context}: new incident")
+    } else {
+        format!("{context}: {} new incidents", fresh.len())
+    };
+    let mut lines: Vec<String> = fresh
+        .iter()
+        .take(3)
+        .map(|b| format!("{} · {}", b.reason, target_label(b)))
+        .collect();
+    if fresh.len() > 3 {
+        lines.push(format!("+{} more", fresh.len() - 3));
+    }
+    if lines.is_empty() {
+        lines.push(format!(
+            "Score {} → {}",
+            previous.health.score, current.health.score
+        ));
+    }
+    Some((summary, lines.join("\n")))
+}
+
+/// Status label, colour and a rank for sorting (higher = worse).
+fn pod_status(pod: &PodInfo) -> (String, Rgba, u8) {
+    if pod.crash_looping {
+        ("CrashLoopBackOff".into(), theme::critical(), 4)
+    } else if pod.oom_killed {
+        ("OOMKilled".into(), theme::critical(), 4)
+    } else if pod.phase == "Failed" || pod.phase == "Unknown" {
+        (pod.phase.clone(), theme::critical(), 3)
+    } else if pod.phase == "Pending" {
+        ("Pending".into(), theme::warning(), 2)
+    } else if !pod.is_ready {
+        ("NotReady".into(), theme::warning(), 2)
+    } else {
+        (pod.phase.clone(), theme::muted(), 1)
+    }
+}
+
+fn pod_flags(pod: &PodInfo) -> Option<String> {
+    let flags: Vec<&str> = [
+        (pod.crash_looping, "crash-looping"),
+        (pod.oom_killed, "OOM-killed"),
+        (!pod.is_ready, "not ready"),
+    ]
+    .into_iter()
+    .filter_map(|(on, label)| on.then_some(label))
+    .collect();
+    (!flags.is_empty()).then(|| flags.join(", "))
+}
+
+fn kv(label: &'static str, value: String) -> Div {
     div()
         .flex()
-        .items_center()
-        .child(label)
         .child(
             div()
-                .ml(px(10.))
+                .w(px(110.))
+                .flex_shrink_0()
+                .text_color(theme::faint())
+                .child(label),
+        )
+        .child(mono(value).min_w_0().truncate())
+}
+
+fn millicores(value: u64) -> String {
+    if value == 0 {
+        "none".into()
+    } else {
+        format!("{value}m")
+    }
+}
+
+fn mebibytes(value: u64) -> String {
+    if value == 0 {
+        "none".into()
+    } else {
+        format!("{value} MiB")
+    }
+}
+
+fn resource_block(label: &'static str, pct: u8, used: String, bounds: String) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .child(
+            div()
+                .flex()
+                .child(div().font_weight(FontWeight::MEDIUM).child(label))
+                .child(mono(used).ml_auto().text_color(theme::text_secondary())),
+        )
+        .child(usage_bar(pct))
+        .child(
+            div()
                 .text_size(px(12.))
+                .text_color(theme::faint())
+                .child(bounds),
+        )
+}
+
+fn segment(id: &'static str, label: &'static str, active: bool) -> Stateful<Div> {
+    div()
+        .id(id)
+        .px(px(12.))
+        .py(px(4.))
+        .rounded(px(6.))
+        .cursor_pointer()
+        .text_size(px(12.))
+        .when(active, |d| {
+            d.bg(theme::selected()).text_color(theme::text())
+        })
+        .when(!active, |d| d.text_color(theme::muted()))
+        .child(label)
+}
+
+fn factor_tile(label: &'static str, hint: &'static str, count: u32) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .p(px(12.))
+        .bg(theme::surface_raised())
+        .rounded(px(8.))
+        .child(
+            mono(count.to_string())
+                .text_size(px(20.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(if count > 0 {
+                    theme::warning()
+                } else {
+                    theme::muted()
+                }),
+        )
+        .child(div().font_weight(FontWeight::MEDIUM).child(label))
+        .child(
+            div()
+                .text_size(px(11.))
                 .text_color(theme::faint())
                 .child(hint),
         )
-        .child(mono(count.to_string()).ml_auto().text_color(if count > 0 {
-            theme::warning()
-        } else {
-            theme::muted()
-        }))
+}
+
+/// Worst condition first: not ready, pressure, cordoned, else ready.
+fn node_status(node: &cluster_core::data::models::NodeMetric) -> (&'static str, Rgba) {
+    if !node.ready {
+        ("NotReady", theme::critical())
+    } else if node.memory_pct >= cluster_core::data::models::RESOURCE_PRESSURE_PCT {
+        ("MemoryPressure", theme::critical())
+    } else if node.draining {
+        ("Draining", theme::warning())
+    } else if node.cordoned {
+        ("Cordoned", theme::warning())
+    } else {
+        ("Ready", theme::muted())
+    }
 }
 
 fn usage_bar(pct: u8) -> Div {
@@ -1548,6 +2390,88 @@ fn namespace_row(
         })
 }
 
+/// The hexagon mark from the design canvas.
+fn logo_icon(size: f32) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let unit = bounds.size.width / 24.;
+            let at = |x: f32, y: f32| point(bounds.origin.x + unit * x, bounds.origin.y + unit * y);
+            let mut hex = PathBuilder::stroke(px(1.8));
+            hex.move_to(at(12., 2.));
+            for (x, y) in [
+                (21., 7.),
+                (21., 17.),
+                (12., 22.),
+                (3., 17.),
+                (3., 7.),
+                (12., 2.),
+            ] {
+                hex.line_to(at(x, y));
+            }
+            if let Ok(path) = hex.build() {
+                window.paint_path(path, theme::accent());
+            }
+            let mut dot = PathBuilder::stroke(px(1.8));
+            dot.move_to(at(15., 12.));
+            dot.arc_to(
+                point(unit * 3., unit * 3.),
+                px(0.),
+                false,
+                true,
+                at(9., 12.),
+            );
+            dot.arc_to(
+                point(unit * 3., unit * 3.),
+                px(0.),
+                false,
+                true,
+                at(15., 12.),
+            );
+            if let Ok(path) = dot.build() {
+                window.paint_path(path, theme::accent());
+            }
+        },
+    )
+    .size(px(size))
+    .flex_shrink_0()
+}
+
+/// Padlock for the read-only badge.
+fn lock_icon(size: f32, color: Rgba) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let unit = bounds.size.width / 24.;
+            let at = |x: f32, y: f32| point(bounds.origin.x + unit * x, bounds.origin.y + unit * y);
+            let mut body = PathBuilder::stroke(px(1.8));
+            body.move_to(at(4., 11.));
+            for (x, y) in [(20., 11.), (20., 21.), (4., 21.), (4., 11.)] {
+                body.line_to(at(x, y));
+            }
+            if let Ok(path) = body.build() {
+                window.paint_path(path, color);
+            }
+            let mut shackle = PathBuilder::stroke(px(1.8));
+            shackle.move_to(at(7., 11.));
+            shackle.line_to(at(7., 7.));
+            shackle.arc_to(
+                point(unit * 5., unit * 5.),
+                px(0.),
+                false,
+                true,
+                at(17., 7.),
+            );
+            shackle.line_to(at(17., 11.));
+            if let Ok(path) = shackle.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .size(px(size))
+    .flex_shrink_0()
+}
+
 /// Line of score samples scaled to 0–100; a single sample draws flat.
 fn sparkline(values: Vec<u8>, color: Rgba, height: f32) -> impl IntoElement {
     canvas(
@@ -1573,8 +2497,7 @@ fn sparkline(values: Vec<u8>, color: Rgba, height: f32) -> impl IntoElement {
 }
 
 /// Trend chart with dashed-free grade threshold lines at 90/75/60/45.
-fn score_chart(values: Vec<u8>) -> impl IntoElement {
-    let height = 220.;
+fn score_chart(values: Vec<u8>, height: f32) -> impl IntoElement {
     div()
         .flex()
         .gap(px(10.))

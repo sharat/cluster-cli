@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Experimental GPUI desktop app (`cargo run -p cluster-desktop`) that watches every kubeconfig context at once, with a fleet overview, cluster detail and namespace picker
+- Experimental GPUI desktop app (`just desktop`) that watches every kubeconfig context at once, with a fleet overview, cluster detail, pod detail with live logs, namespace picker, and desktop notifications for new incidents and grade drops
 
 ### Changed
 - Split the kubectl collector, health scoring, incidents, config and fetcher into a shared `cluster-core` workspace crate; the TUI is unchanged

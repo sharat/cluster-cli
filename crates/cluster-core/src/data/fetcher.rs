@@ -73,7 +73,7 @@ impl Fetcher {
                             let (tx, rx) = oneshot::channel::<()>();
                             log_cancel = Some(tx);
                             let event_tx = self.tx.clone();
-                            log_task = Some(tokio::spawn(stream_logs(
+                            log_task = Some(tokio::spawn(collector::inherit_context(stream_logs(
                                 stream_id,
                                 pod,
                                 namespace,
@@ -81,7 +81,7 @@ impl Fetcher {
                                 previous,
                                 event_tx,
                                 rx,
-                            )));
+                            ))));
                         }
                         FetchCommand::StopLogStream => {
                             stop_log_stream(&mut log_cancel, &mut log_task).await;
@@ -539,6 +539,9 @@ async fn stream_logs(
     }
 
     let mut command = tokio::process::Command::new("kubectl");
+    if let Some(context) = collector::context_override() {
+        command.args(["--context", &context]);
+    }
     command
         .args(&log_args)
         .stdout(std::process::Stdio::piped())
