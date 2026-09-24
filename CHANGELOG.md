@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Experimental GPUI desktop app (`cargo run -p cluster-desktop`) that watches every kubeconfig context at once, with a fleet overview, cluster detail and namespace picker
+
+### Changed
+- Split the kubectl collector, health scoring, incidents, config and fetcher into a shared `cluster-core` workspace crate; the TUI is unchanged
+
 ### Fixed
 - Record curl-based installations explicitly so upgrades keep using the correct method from custom install directories
 - Prevent stale log lines from a previous container or source appearing after a stream switch

@@ -1,0 +1,21 @@
+[package]
+name = "cluster-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Read-only kubectl collection, health scoring and incident ranking shared by cluster-cli front ends"
+publish = false
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+dirs.workspace = true
+toml.workspace = true
+tracing.workspace = true

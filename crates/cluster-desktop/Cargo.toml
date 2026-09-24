@@ -1,0 +1,23 @@
+[package]
+name = "cluster-desktop"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GPU-accelerated desktop companion to cluster-cli (GPUI)"
+publish = false
+
+[[bin]]
+name = "cluster-desktop"
+path = "src/main.rs"
+
+[dependencies]
+cluster-core = { path = "../cluster-core" }
+# 0.2.2 is the latest GPUI Zed has published to crates.io; pinned exactly
+# because GPUI is pre-1.0 and breaks API between releases. `runtime_shaders`
+# compiles the Metal shaders at startup on macOS, so building needs only the
+# Xcode Command Line Tools rather than full Xcode (no effect elsewhere).
+gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
+tokio.workspace = true
+anyhow.workspace = true

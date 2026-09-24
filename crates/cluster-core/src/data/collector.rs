@@ -12,6 +12,23 @@ use crate::data::models::*;
 
 const KUBECTL_TIMEOUT: Duration = Duration::from_secs(30);
 
+tokio::task_local! {
+    /// kubectl context that every command in the current task targets via
+    /// `--context`. Unset (the TUI) means kubectl's current context.
+    static CONTEXT_OVERRIDE: String;
+}
+
+/// Runs `fut` with every kubectl call it makes pinned to `context`, so one
+/// process can watch several clusters at once. The override is task-local:
+/// work that `fut` hands to `tokio::spawn` falls back to the current context.
+pub async fn with_context<F: std::future::Future>(context: String, fut: F) -> F::Output {
+    CONTEXT_OVERRIDE.scope(context, fut).await
+}
+
+fn context_override() -> Option<String> {
+    CONTEXT_OVERRIDE.try_with(Clone::clone).ok()
+}
+
 fn percent_of(value: u64, total: u64) -> u8 {
     if total == 0 {
         return 0;
@@ -58,7 +75,11 @@ async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
     ensure_readonly_kubectl_args(program, args)
         .map_err(|err| KubectlError::new(err.to_string()))?;
 
-    let output = timeout(KUBECTL_TIMEOUT, Command::new(program).args(args).output())
+    let mut command = Command::new(program);
+    if let Some(context) = context_override() {
+        command.args(["--context", &context]);
+    }
+    let output = timeout(KUBECTL_TIMEOUT, command.args(args).output())
         .await
         .map_err(|_| {
             KubectlError::new(format!(
@@ -104,7 +125,9 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
 
     match args {
         ["get", ..] | ["top", ..] | ["logs", ..] => Ok(()),
-        ["config", "current-context", ..] | ["config", "view", ..] => Ok(()),
+        ["config", "current-context", ..]
+        | ["config", "view", ..]
+        | ["config", "get-contexts", ..] => Ok(()),
         [] => anyhow::bail!("kubectl command is empty"),
         _ => anyhow::bail!(
             "Rejected non-read-only kubectl command: kubectl {}",
@@ -1747,6 +1770,9 @@ fn namespace_pod_counts(output: &str) -> std::collections::HashMap<&str, usize> 
 }
 
 pub async fn fetch_current_context() -> Result<String> {
+    if let Some(context) = context_override() {
+        return Ok(context);
+    }
     let output = run_cmd("kubectl", &["config", "current-context"]).await?;
     let context = output.trim().to_string();
     if context.is_empty() {
@@ -1761,6 +1787,17 @@ pub async fn fetch_current_context() -> Result<String> {
         .into());
     }
     Ok(context)
+}
+
+/// Names of every context in the kubeconfig, in kubeconfig order.
+pub async fn fetch_context_names() -> Result<Vec<String>> {
+    let output = run_cmd("kubectl", &["config", "get-contexts", "-o", "name"]).await?;
+    Ok(output
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect())
 }
 
 pub async fn fetch_current_namespace() -> Result<String> {
@@ -2090,10 +2127,11 @@ mod tests {
     use super::{
         attach_workload_events, build_node_metrics, classify_connection_issue, collect_cronjobs,
         collect_hpas, collect_ingresses, collect_jobs, collect_pdbs, collect_pvcs,
-        collect_services, deployment_rollout_status, derive_node_status, derive_pod_status,
-        effective_pod_cpu_resources, effective_pod_memory_resources, ensure_readonly_kubectl_args,
-        namespace_pod_counts, parse_cpu, parse_memory_mb, parse_workload_resource_result,
-        requested_namespace, workload_health,
+        collect_services, context_override, deployment_rollout_status, derive_node_status,
+        derive_pod_status, effective_pod_cpu_resources, effective_pod_memory_resources,
+        ensure_readonly_kubectl_args, fetch_current_context, namespace_pod_counts, parse_cpu,
+        parse_memory_mb, parse_workload_resource_result, requested_namespace, with_context,
+        workload_health,
     };
     use crate::data::models::{
         ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
@@ -2107,6 +2145,27 @@ mod tests {
         assert!(ensure_readonly_kubectl_args("kubectl", &["top", "nodes"]).is_ok());
         assert!(ensure_readonly_kubectl_args("kubectl", &["logs", "pod-1", "-f"]).is_ok());
         assert!(ensure_readonly_kubectl_args("kubectl", &["config", "view"]).is_ok());
+        assert!(
+            ensure_readonly_kubectl_args("kubectl", &["config", "get-contexts", "-o", "name"])
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn context_override_is_scoped_to_the_task() {
+        assert_eq!(context_override(), None);
+        let inside = with_context("prod-eastus".to_string(), async {
+            (
+                context_override(),
+                fetch_current_context()
+                    .await
+                    .expect("override short-circuits kubectl"),
+            )
+        })
+        .await;
+        assert_eq!(inside.0.as_deref(), Some("prod-eastus"));
+        assert_eq!(inside.1, "prod-eastus");
+        assert_eq!(context_override(), None);
     }
 
     #[test]

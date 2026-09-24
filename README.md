@@ -253,26 +253,43 @@ Command-line arguments override config file settings.
 ## Project Structure
 
 ```
-cluster-cli/
-├── src/
-│   ├── main.rs              # Entry point, event loop
-│   ├── app.rs               # Application state management
-│   ├── config.rs            # Configuration handling
-│   ├── data/
-│   │   ├── collector.rs     # kubectl data collection
-│   │   ├── fetcher.rs       # Async data fetching
-│   │   └── models.rs        # Data structures
-│   ├── events/
-│   │   ├── handler.rs       # Input/keyboard handling
-│   │   └── mod.rs           # Event definitions
-│   └── ui/
-│       ├── mod.rs           # UI rendering
-│       ├── theme.rs         # Colors and styling
-│       ├── components/      # Reusable UI components
-│       └── views/           # Dashboard and detail views
-├── cluster-health.sh        # Standalone health check script
-└── Cargo.toml               # Rust dependencies
+cluster-cli/                     # Cargo workspace; the root package is the TUI
+├── src/                         # `cluster` TUI (ratatui)
+│   ├── main.rs                  # Entry point, event loop
+│   ├── app.rs                   # Application state management
+│   ├── events/handler.rs        # Input/keyboard handling
+│   └── ui/                      # Theme, components, dashboard and detail views
+├── crates/
+│   ├── cluster-core/            # Shared, UI-agnostic core
+│   │   └── src/
+│   │       ├── config.rs        # Configuration handling
+│   │       ├── events.rs        # AppEvent / DataEvent / FetchCommand
+│   │       └── data/            # kubectl collector, fetcher, health, incidents, models
+│   └── cluster-desktop/         # Experimental GPUI desktop app
+└── Cargo.toml                   # Workspace + TUI manifest
 ```
+
+## Desktop App (experimental)
+
+`cluster-desktop` is a GPU-accelerated companion to the TUI, built with
+[GPUI](https://www.gpui.rs/). It watches every context in your kubeconfig at
+once through the same read-only core, and shows a fleet overview, per-cluster
+detail and a namespace picker.
+
+```bash
+just desktop        # or: cargo run -p cluster-desktop --release
+just desktop-dev    # debug build, faster to rebuild
+```
+
+Keys: `1`–`9` open a cluster, `n` the namespace picker, Ctrl/⌘-K the cluster
+switcher, `r` refreshes, Esc goes back.
+
+It is not part of the default build or the release binaries. Build
+requirements:
+
+- **macOS:** Xcode Command Line Tools (`xcode-select --install`).
+- **Linux:** Vulkan plus the X11/Wayland development headers (e.g.
+  `libxkbcommon`, `libwayland`, `libxcb`, `fontconfig`, `vulkan-loader`).
 
 ## Data Visualization
 

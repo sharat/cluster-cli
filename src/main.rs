@@ -12,11 +12,11 @@ use std::{io, time::Duration};
 use tokio::{sync::mpsc, time::interval};
 
 mod app;
-mod config;
-mod data;
 mod events;
 mod ui;
 mod updater;
+
+use cluster_core::{config, data};
 
 use app::AppState;
 use config::{Config, ConfigOverrides};

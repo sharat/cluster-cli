@@ -30,6 +30,10 @@ For PRs with user-facing UI/TUI changes, include screenshots or recordings in th
 
 cluster-cli is a read-only Kubernetes TUI built on ratatui + crossterm with a tokio async runtime.
 
+The repo is a Cargo workspace. The root package is the TUI; `crates/cluster-core` holds everything UI-agnostic (`config`, `events`, `data/*`); `crates/cluster-desktop` is an experimental GPUI desktop app. `default-members` excludes the desktop crate, so plain `cargo build`/`cargo test` (and CI) cover only the TUI and core — use `-p cluster-desktop` for the GUI. Paths below under `src/data/`, `src/config.rs` and `src/events/mod.rs` now live in `crates/cluster-core/src/`.
+
+The desktop app runs one `Fetcher` per kubeconfig context on a tokio runtime thread, each wrapped in `collector::with_context`, a task-local override that makes `run_cmd` pass `--context`. Events are tagged with the cluster index and drained into GPUI via `cx.spawn`.
+
 ### Data flow
 
 ```
