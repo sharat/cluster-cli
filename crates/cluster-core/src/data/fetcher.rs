@@ -1,19 +1,111 @@
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinSet;
+use tokio::time::Instant;
 use tracing::error;
 
 use crate::config::Config;
 use crate::data::models::{
-    ClusterEvent, ClusterSnapshot, ConnectionIssue, ConnectionIssueKind, DataCoverage,
-    MAX_EVENT_CACHE_ENTRIES,
+    ClusterSnapshot, ConnectionIssue, ConnectionIssueKind, ResourceProblem, MAX_EVENT_CACHE_ENTRIES,
 };
-use crate::data::{collector, health, incidents};
+use crate::data::store::{ClusterStore, ResourceSet};
+use crate::data::watch::{self, WatchUpdate};
+use crate::data::{checks, collector};
 use crate::events::{AppEvent, DataEvent, FetchCommand};
+
+/// Quiet period after a watch update before the snapshot is rebuilt, so a
+/// burst of changes (a rollout, a node drain) redraws once.
+const WATCH_DEBOUNCE: Duration = Duration::from_millis(500);
+/// Upper bound on the debounce, so constant churn (events on a busy
+/// cluster never go quiet) still redraws, but at most this often.
+const WATCH_MAX_DELAY: Duration = Duration::from_secs(2);
+const WATCH_CHANNEL_CAPACITY: usize = 1024;
+/// Cluster-scoped checks list every APIService, PV and Namespace; their
+/// failures are slow-moving, so they run at most this often.
+const CLUSTER_CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 pub struct Fetcher {
     config: Config,
     tx: mpsc::Sender<AppEvent>,
+}
+
+/// Results of the last cluster-scoped checks, reused between runs.
+#[derive(Default)]
+struct ClusterChecks {
+    problems: Vec<ResourceProblem>,
+    checked_at: Option<Instant>,
+    /// Context the results came from; they are cluster-specific and must
+    /// not outlive a `kubectl config use-context` made elsewhere.
+    context: Option<String>,
+}
+
+impl ClusterChecks {
+    /// Records the context of results produced by this poll, or drops older
+    /// results from another context and forces a rerun on the next poll.
+    /// kubectl resolves the context per call, so results are only trusted
+    /// when they match the context the poll itself observed.
+    fn reconcile_context(&mut self, context: Option<&str>, ran_this_poll: bool) {
+        if ran_this_poll {
+            self.context = context.map(str::to_string);
+        } else if self.context.as_deref() != context {
+            *self = Self::default();
+        }
+    }
+
+    fn is_due(&self) -> bool {
+        match self.checked_at {
+            Some(at) => at.elapsed() >= CLUSTER_CHECK_INTERVAL,
+            None => true,
+        }
+    }
+}
+
+/// Everything a poll reads and updates, carried across loop iterations.
+#[derive(Default)]
+struct PollState {
+    store: Option<ClusterStore>,
+    event_cache: HashMap<String, ResourceSet>,
+    watches: Watches,
+    cluster_checks: ClusterChecks,
+}
+
+/// The running `kubectl --watch` streams for one context and namespace.
+#[derive(Default)]
+struct Watches {
+    /// Dropping the set aborts the tasks, which kills their kubectl processes.
+    tasks: JoinSet<()>,
+    /// Bumped on every start and stop; updates tagged with an older
+    /// generation are still draining from stopped watches and are dropped.
+    generation: u64,
+    target: Option<(Option<String>, String)>,
+}
+
+impl Watches {
+    /// The store is reused across a context switch (only a namespace change
+    /// makes it stale), so the generation bump in `stop()` is what keeps the
+    /// old cluster's queued updates, and their meaningless resource versions,
+    /// out of it.
+    fn ensure(&mut self, context: Option<&str>, namespace: &str, tx: &mpsc::Sender<WatchUpdate>) {
+        let target = (context.map(str::to_string), namespace.to_string());
+        if self.target.as_ref() == Some(&target) {
+            return;
+        }
+        self.stop();
+        watch::spawn_watches(&mut self.tasks, context, namespace, self.generation, tx);
+        self.target = Some(target);
+    }
+
+    fn stop(&mut self) {
+        self.generation += 1;
+        self.tasks = JoinSet::new();
+        self.target = None;
+    }
+}
+
+/// When to publish after a watch update, given when the pending batch began.
+fn next_flush(now: Instant, batch_started: Instant) -> Instant {
+    (now + WATCH_DEBOUNCE).min(batch_started + WATCH_MAX_DELAY)
 }
 
 impl Fetcher {
@@ -25,7 +117,11 @@ impl Fetcher {
         let mut interval_secs = self.config.refresh_interval_secs;
         let mut interval = aligned_interval(interval_secs);
         let mut current_namespace = self.config.namespace.clone();
-        let mut event_cache: HashMap<String, Vec<ClusterEvent>> = HashMap::new();
+        let mut state = PollState::default();
+
+        let (watch_tx, mut watch_rx) = mpsc::channel::<WatchUpdate>(WATCH_CHANNEL_CAPACITY);
+        let mut flush_at: Option<Instant> = None;
+        let mut batch_started: Option<Instant> = None;
 
         let mut log_cancel: Option<oneshot::Sender<()>> = None;
         let mut log_task: Option<tokio::task::JoinHandle<()>> = None;
@@ -36,7 +132,28 @@ impl Fetcher {
                     if current_namespace.trim().is_empty() {
                         continue;
                     }
-                    self.fetch_all(&current_namespace, &mut event_cache).await;
+                    flush_at = None;
+                    batch_started = None;
+                    self.poll(&current_namespace, &mut state, &watch_tx).await;
+                }
+                Some(update) = watch_rx.recv() => {
+                    if update.generation != state.watches.generation {
+                        continue;
+                    }
+                    if let Some(store) = state.store.as_mut() {
+                        store.apply(update);
+                        let now = Instant::now();
+                        let started = *batch_started.get_or_insert(now);
+                        flush_at = Some(next_flush(now, started));
+                    }
+                }
+                _ = tokio::time::sleep_until(flush_at.unwrap_or_else(Instant::now)), if flush_at.is_some() => {
+                    flush_at = None;
+                    batch_started = None;
+                    if let Some(store) = &state.store {
+                        let snapshot = store.snapshot(self.config.node_pool_filter.as_deref(), false);
+                        let _ = self.tx.send(AppEvent::Data(DataEvent::Refreshed(snapshot))).await;
+                    }
                 }
                 Some(cmd) = cmd_rx.recv() => {
                     match cmd {
@@ -49,7 +166,9 @@ impl Fetcher {
                                 }
                             }
                             interval.reset();
-                            self.fetch_all(&current_namespace, &mut event_cache).await;
+                            flush_at = None;
+                    batch_started = None;
+                            self.poll(&current_namespace, &mut state, &watch_tx).await;
                         }
                         FetchCommand::UpdateRefreshInterval { namespace, interval_secs: new_interval_secs } => {
                             match self.resolve_namespace(namespace).await {
@@ -61,7 +180,9 @@ impl Fetcher {
                             }
                             interval_secs = new_interval_secs.max(1);
                             interval = aligned_interval(interval_secs);
-                            self.fetch_all(&current_namespace, &mut event_cache).await;
+                            flush_at = None;
+                    batch_started = None;
+                            self.poll(&current_namespace, &mut state, &watch_tx).await;
                         }
                         FetchCommand::StartLogStream {
                             stream_id,
@@ -106,18 +227,68 @@ impl Fetcher {
         }
     }
 
-    async fn fetch_all(
+    /// Lists everything, replaces the store with the result and publishes a
+    /// snapshot, then makes sure watches are streaming for `namespace`.
+    async fn poll(
         &self,
         namespace: &str,
-        event_cache: &mut HashMap<String, Vec<ClusterEvent>>,
+        state: &mut PollState,
+        watch_tx: &mpsc::Sender<WatchUpdate>,
     ) {
-        let (nodes_result, workloads_result, pods_result, events_result, context_result) = tokio::join!(
-            collector::fetch_node_metrics(self.config.node_pool_filter.as_deref()),
+        let PollState {
+            store,
+            event_cache,
+            watches,
+            cluster_checks,
+        } = state;
+        let run_cluster_checks = cluster_checks.is_due();
+        let (
+            nodes_result,
+            node_top,
+            workloads,
+            pods_result,
+            pod_top,
+            events_result,
+            context_result,
+            check_results,
+            cluster_problems,
+        ) = tokio::join!(
+            collector::list_nodes(),
+            collector::top_nodes(),
             collector::fetch_workload_summaries(namespace),
-            collector::fetch_pod_info(namespace),
-            collector::fetch_events(namespace),
+            collector::list_pods(namespace),
+            collector::top_pods(namespace),
+            collector::list_events(namespace),
             collector::fetch_current_context(),
+            checks::run_custom_resource_checks(namespace, &self.config.crd_checks),
+            async {
+                if run_cluster_checks {
+                    Some(checks::run_cluster_checks().await)
+                } else {
+                    None
+                }
+            },
         );
+        let checks_ran = cluster_problems.is_some();
+        if let Some(problems) = cluster_problems {
+            cluster_checks.problems = problems;
+            cluster_checks.checked_at = Some(Instant::now());
+        }
+
+        let stale = match store {
+            Some(store) => store.namespace != namespace,
+            None => true,
+        };
+        if stale {
+            // Watches for the previous namespace must not patch the new store,
+            // even if this poll fails before new watches start.
+            watches.stop();
+            *store = Some(ClusterStore::new(namespace));
+        }
+        let Some(store) = store.as_mut() else {
+            return;
+        };
+
         let mut errors = Vec::new();
         let mut connection_issue: Option<ConnectionIssue> = None;
         let (context_name, context_issue) = match context_result {
@@ -129,29 +300,21 @@ impl Fetcher {
         };
         let cache_key = event_cache_key(context_name.as_deref(), namespace);
 
-        let nodes_visible = nodes_result.is_ok();
-        let nodes = match nodes_result {
-            Ok(n) => n,
+        store.nodes_visible = nodes_result.is_ok();
+        match nodes_result {
+            Ok(list) => store.nodes.replace(list),
             Err(e) => {
                 errors.push(format!("Nodes: {e}"));
                 connection_issue = prioritize_connection_issue(
                     connection_issue,
                     collector::classify_kubectl_error(&e),
                 );
-                vec![]
+                store.nodes.clear();
             }
-        };
+        }
 
-        errors.extend(
-            workloads_result
-                .warnings
-                .iter()
-                .map(|warning| format!("Workloads/{warning}")),
-        );
-        let mut workloads = workloads_result.summaries;
-
-        let pods = match pods_result {
-            Ok(pods) => pods,
+        match pods_result {
+            Ok(list) => store.pods.replace(list),
             Err(e) => {
                 error!("Failed to fetch pods: {}", e);
                 errors.push(format!("Pods: {e}"));
@@ -159,12 +322,19 @@ impl Fetcher {
                     connection_issue,
                     collector::classify_kubectl_error(&e),
                 );
-                vec![]
+                store.pods.clear();
             }
-        };
+        }
 
-        let events = match events_result {
-            Ok(events) => events,
+        match events_result {
+            Ok(list) => {
+                store.events.replace(list);
+                let newest = collector::newest_events(store.events.values());
+                event_cache.insert(
+                    cache_key.clone(),
+                    ResourceSet::unlisted(newest.into_iter().cloned()),
+                );
+            }
             Err(e) => {
                 error!("Failed to fetch events: {}", e);
                 errors.push(format!("Events: {e}"));
@@ -172,15 +342,27 @@ impl Fetcher {
                     connection_issue,
                     collector::classify_kubectl_error(&e),
                 );
-                event_cache.get(&cache_key).cloned().unwrap_or_default()
+                store.events = event_cache.get(&cache_key).cloned().unwrap_or_default();
             }
-        };
+        }
+        if event_cache.len() > MAX_EVENT_CACHE_ENTRIES {
+            event_cache.retain(|k, _| k == &cache_key);
+        }
+
+        errors.extend(check_results.warnings);
+        store.node_top = node_top;
+        store.pod_top = pod_top;
+        store.workloads = workloads;
+        cluster_checks.reconcile_context(context_name.as_deref(), checks_ran);
+        store.problems = cluster_checks.problems.clone();
+        store.problems.extend(check_results.problems);
+        store.errors = errors;
+        store.context_name = context_name;
+        store.polled_at = Some(Instant::now().into_std());
 
         connection_issue = prioritize_connection_issue(connection_issue, context_issue);
-
-        let has_usable_data =
-            !nodes.is_empty() || !workloads.is_empty() || !pods.is_empty() || !events.is_empty();
-        if connection_issue.is_some() && !has_usable_data {
+        if connection_issue.is_some() && !store.has_data() {
+            watches.stop();
             let _ = self
                 .tx
                 .send(AppEvent::Data(DataEvent::ConnectionState(connection_issue)))
@@ -188,52 +370,18 @@ impl Fetcher {
             return;
         }
 
-        collector::attach_workload_events(&mut workloads, &events);
-
-        // Without metrics-server every usage figure is zero; a cluster with any
-        // workload never reads exactly zero across the board.
-        let metrics_available = (nodes.is_empty() && pods.is_empty())
-            || nodes
-                .iter()
-                .any(|n| n.cpu_millicores > 0 || n.memory_mb > 0)
-            || pods.iter().any(|p| p.cpu_millicores > 0 || p.memory_mb > 0);
-        let coverage = DataCoverage {
-            metrics_available,
-            nodes_visible,
-        };
-        let health_score = health::calculate_health(&nodes, &pods, &events);
-        let incident_buckets = incidents::build_incident_buckets(&nodes, &pods, &events);
-        let error_msg = if errors.is_empty() {
-            None
-        } else {
-            Some(errors.join(" | "))
-        };
-
         let _ = self
             .tx
             .send(AppEvent::Data(DataEvent::ConnectionState(connection_issue)))
             .await;
-        let snapshot = ClusterSnapshot {
-            nodes,
-            workloads,
-            pods,
-            events: events.clone(),
-            incident_buckets,
-            health: health_score,
-            fetched_at: std::time::Instant::now(),
-            error: error_msg,
-            context_name: context_name.clone(),
-            coverage,
-        };
-
+        let snapshot = store.snapshot(self.config.node_pool_filter.as_deref(), true);
         let _ = self
             .tx
             .send(AppEvent::Data(DataEvent::Refreshed(snapshot)))
             .await;
-        event_cache.insert(cache_key, events);
-        if event_cache.len() > MAX_EVENT_CACHE_ENTRIES {
-            let current_key = event_cache_key(context_name.as_deref(), namespace);
-            event_cache.retain(|k, _| k == &current_key);
+
+        if self.config.watch {
+            watches.ensure(store.context_name.as_deref(), namespace, watch_tx);
         }
     }
 
@@ -314,6 +462,8 @@ impl Fetcher {
                     error: None,
                     context_name: Some(cluster_label.clone()),
                     coverage: Default::default(),
+                    resource_problems: vec![],
+                    metrics_sampled: true,
                 };
                 match write_pods_csv(&snapshot, &path) {
                     Ok(count) => {
@@ -637,6 +787,33 @@ async fn stream_logs(
 #[cfg(test)]
 mod tests {
     use super::{event_cache_key, export_path, log_args, write_log_file, write_pods_csv};
+
+    #[test]
+    fn cluster_check_results_do_not_survive_a_context_switch() {
+        use super::ClusterChecks;
+        use crate::data::models::{IncidentSeverity, ResourceProblem};
+
+        let mut checks = ClusterChecks {
+            problems: vec![ResourceProblem {
+                kind: "APIService".to_string(),
+                name: "v1beta1.metrics.k8s.io".to_string(),
+                namespace: None,
+                reason: "APIServiceUnavailable".to_string(),
+                severity: IncidentSeverity::Critical,
+                message: String::new(),
+            }],
+            checked_at: Some(tokio::time::Instant::now()),
+            context: None,
+        };
+        checks.reconcile_context(Some("staging"), true);
+        checks.reconcile_context(Some("staging"), false);
+        assert_eq!(checks.problems.len(), 1);
+        assert!(!checks.is_due());
+
+        checks.reconcile_context(Some("prod"), false);
+        assert!(checks.problems.is_empty());
+        assert!(checks.is_due());
+    }
     use crate::data::models::{ClusterSnapshot, HealthScore};
 
     fn empty_snapshot() -> ClusterSnapshot {
@@ -657,6 +834,8 @@ mod tests {
             error: None,
             context_name: None,
             coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         }
     }
 

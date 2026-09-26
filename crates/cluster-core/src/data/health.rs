@@ -1,6 +1,7 @@
 use crate::data::models::{
-    ClusterEvent, EventType, HealthScore, NodeMetric, PodInfo, GRADE_A_THRESHOLD,
-    GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD, RESOURCE_PRESSURE_PCT,
+    ClusterEvent, ClusterSignals, EventType, HealthScore, IncidentSeverity, PodInfo,
+    GRADE_A_THRESHOLD, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD,
+    RESOURCE_PRESSURE_PCT,
 };
 const ROLLOUT_FAILURE_REASONS: &[&str] = &[
     "ProgressDeadlineExceeded",
@@ -34,14 +35,17 @@ fn share_penalty(affected: usize, total: usize, cap: f32, saturation: f32, floor
 /// | Nodes not ready or with bad conditions | 30 | 25% of nodes |
 /// | Nodes at ≥85% memory | 15 | 25% of nodes |
 /// | Warning events (incl. scheduling and rollout failures) | 20 | fixed counts |
+/// | Failing cluster-scoped objects and custom resources | 15 | fixed counts |
 ///
 /// Completed Job/CronJob pods and evicted pods are not counted: both are
 /// normal leftovers, not current problems.
-pub fn calculate_health(
-    nodes: &[NodeMetric],
-    pods: &[PodInfo],
-    events: &[ClusterEvent],
-) -> HealthScore {
+pub fn calculate_health(signals: &ClusterSignals) -> HealthScore {
+    let ClusterSignals {
+        nodes,
+        pods,
+        events,
+        resource_problems,
+    } = *signals;
     let active: Vec<&PodInfo> = pods
         .iter()
         .filter(|pod| !pod.is_completed() && !pod.is_evicted())
@@ -104,6 +108,14 @@ pub fn calculate_health(
     let event_penalty = (warning_events.min(20) as f32 * 0.5)
         + (failed_scheduling_events.min(10) as f32 * 0.5)
         + (rollout_failures.min(5) as f32 * 2.0);
+    let problem_penalty: f32 = resource_problems
+        .iter()
+        .map(|problem| match problem.severity {
+            IncidentSeverity::Critical => 5.0,
+            IncidentSeverity::Warning => 2.0,
+            IncidentSeverity::Elevated => 0.5,
+        })
+        .sum();
 
     let penalty = share_penalty(failing_pods, pod_count, 30.0, 0.10, 5.0)
         + share_penalty(unready_pods, pod_count, 15.0, 0.20, 2.0)
@@ -111,7 +123,8 @@ pub fn calculate_health(
         + restart_penalty
         + share_penalty(unhealthy_nodes, nodes.len(), 30.0, 0.25, 5.0)
         + share_penalty(pressured_nodes, nodes.len(), 15.0, 0.25, 2.0)
-        + event_penalty.min(20.0);
+        + event_penalty.min(20.0)
+        + problem_penalty.min(15.0);
 
     let score = (100.0 - penalty).round().clamp(0.0, 100.0) as u8;
 
@@ -151,7 +164,8 @@ fn is_rollout_failure(event: &ClusterEvent) -> bool {
 mod tests {
     use super::calculate_health;
     use crate::data::models::{
-        ClusterEvent, ConditionStatus, EventType, HealthStatus, NodeConditions, NodeMetric, PodInfo,
+        ClusterEvent, ClusterSignals, ConditionStatus, EventType, HealthStatus, IncidentSeverity,
+        NodeConditions, NodeMetric, PodInfo, ResourceProblem,
     };
 
     #[test]
@@ -227,7 +241,7 @@ mod tests {
             },
         ];
 
-        let health = calculate_health(&nodes, &pods, &events);
+        let health = calculate_health(&ClusterSignals::new(&nodes, &pods, &events));
 
         assert!(health.score < 30, "score was {}", health.score);
         assert_eq!(health.grade, 'F');
@@ -289,9 +303,30 @@ mod tests {
             status_reason: None,
         }];
 
-        let health = calculate_health(&nodes, &pods, &[]);
+        let health = calculate_health(&ClusterSignals::new(&nodes, &pods, &[]));
 
         assert!(health.score >= 95, "score was {}", health.score);
         assert_eq!(health.grade, 'A');
+    }
+
+    #[test]
+    fn failing_cluster_resources_lower_the_score_with_a_cap() {
+        let problem = |severity| ResourceProblem {
+            kind: "APIService".to_string(),
+            name: "v1beta1.metrics.k8s.io".to_string(),
+            namespace: None,
+            reason: "APIServiceUnavailable".to_string(),
+            severity,
+            message: String::new(),
+        };
+        let one = vec![problem(IncidentSeverity::Critical)];
+        let many = vec![problem(IncidentSeverity::Critical); 10];
+
+        let one_health = calculate_health(&ClusterSignals::new(&[], &[], &[]).with_problems(&one));
+        let many_health =
+            calculate_health(&ClusterSignals::new(&[], &[], &[]).with_problems(&many));
+
+        assert_eq!(one_health.score, 95);
+        assert_eq!(many_health.score, 85);
     }
 }

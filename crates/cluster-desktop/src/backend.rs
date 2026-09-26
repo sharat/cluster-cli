@@ -23,7 +23,10 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn start(config: Config) -> (Self, mpsc::UnboundedReceiver<TaggedEvent>) {
+    pub fn start(mut config: Config) -> (Self, mpsc::UnboundedReceiver<TaggedEvent>) {
+        // Three long-lived kubectl watches per context add up across a fleet;
+        // the overview is fine at the poll interval.
+        config.watch = false;
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("cluster-fetch")

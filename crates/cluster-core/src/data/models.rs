@@ -189,6 +189,10 @@ pub enum WorkloadKind {
     Service,
     Ingress,
     PersistentVolumeClaim,
+    /// A cluster-scoped object or configured custom resource that failed a
+    /// health check. Only failing ones are listed; the real kind lives in
+    /// `related_event_targets` and `details`.
+    Resource,
 }
 
 impl WorkloadKind {
@@ -204,6 +208,7 @@ impl WorkloadKind {
             Self::Service => "Service",
             Self::Ingress => "Ingress",
             Self::PersistentVolumeClaim => "PersistentVolumeClaim",
+            Self::Resource => "Resource",
         }
     }
 
@@ -219,6 +224,7 @@ impl WorkloadKind {
             Self::Service => "Svc",
             Self::Ingress => "Ing",
             Self::PersistentVolumeClaim => "PVC",
+            Self::Resource => "Res",
         }
     }
 }
@@ -333,6 +339,14 @@ pub enum IncidentTarget {
         pod_name: String,
         container_name: String,
     },
+    /// A failing cluster-scoped object or custom resource; see
+    /// [`ResourceProblem`]. Kept apart from `Workload` so it never drives
+    /// the name-based pod focus.
+    Resource {
+        kind: String,
+        name: String,
+        namespace: Option<String>,
+    },
 }
 
 impl IncidentTarget {
@@ -345,6 +359,16 @@ impl IncidentTarget {
                 pod_name,
                 container_name,
             } => format!("Pod/{pod_name}/{container_name}"),
+            Self::Resource {
+                kind,
+                name,
+                namespace: Some(namespace),
+            } => format!("{kind}/{namespace}/{name}"),
+            Self::Resource {
+                kind,
+                name,
+                namespace: None,
+            } => format!("{kind}/{name}"),
         }
     }
 
@@ -368,6 +392,18 @@ impl IncidentTarget {
             _ => None,
         }
     }
+
+    /// `(kind, name, namespace)` of a [`Self::Resource`] target.
+    pub fn resource_key(&self) -> Option<(&str, &str, Option<&str>)> {
+        match self {
+            Self::Resource {
+                kind,
+                name,
+                namespace,
+            } => Some((kind, name, namespace.as_deref())),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -379,6 +415,47 @@ pub struct IncidentBucket {
     pub affected_resources: Vec<String>,
     pub latest_timestamp: String,
     pub sample_message: Option<String>,
+}
+
+/// A cluster-scoped object (APIService, PersistentVolume, Namespace) or a
+/// configured custom resource that is failing its health check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceProblem {
+    pub kind: String,
+    pub name: String,
+    /// `None` for cluster-scoped objects.
+    pub namespace: Option<String>,
+    /// Incident bucket reason, e.g. `APIServiceUnavailable`.
+    pub reason: String,
+    pub severity: IncidentSeverity,
+    pub message: String,
+}
+
+/// Everything the health score and incident queue are derived from.
+#[derive(Debug, Clone, Copy)]
+pub struct ClusterSignals<'a> {
+    pub nodes: &'a [NodeMetric],
+    pub pods: &'a [PodInfo],
+    pub events: &'a [ClusterEvent],
+    pub resource_problems: &'a [ResourceProblem],
+}
+
+impl<'a> ClusterSignals<'a> {
+    pub fn new(nodes: &'a [NodeMetric], pods: &'a [PodInfo], events: &'a [ClusterEvent]) -> Self {
+        Self {
+            nodes,
+            pods,
+            events,
+            resource_problems: &[],
+        }
+    }
+
+    pub fn with_problems(self, resource_problems: &'a [ResourceProblem]) -> Self {
+        Self {
+            resource_problems,
+            ..self
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -442,4 +519,9 @@ pub struct ClusterSnapshot {
     pub error: Option<String>,
     pub context_name: Option<String>,
     pub coverage: DataCoverage,
+    pub resource_problems: Vec<ResourceProblem>,
+    /// True when this snapshot carries a fresh `kubectl top` sample. Watch
+    /// updates between polls reuse the previous sample, so per-sample history
+    /// (sparklines, score trends) should only advance when this is set.
+    pub metrics_sampled: bool,
 }

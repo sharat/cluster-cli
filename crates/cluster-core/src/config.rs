@@ -24,6 +24,10 @@ pub struct ConfigOverrides {
     /// Node pool name filter (e.g. "nodepool1")
     #[arg(long)]
     node_pool_filter: Option<String>,
+
+    /// Disable live `kubectl --watch` updates and only poll on the refresh interval
+    #[arg(long)]
+    no_watch: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -33,6 +37,17 @@ pub struct Config {
     pub cluster_name: Option<String>,
     pub refresh_interval_secs: u64,
     pub node_pool_filter: Option<String>,
+    /// Stream pod, node and event changes between polls with `kubectl --watch`.
+    #[serde(default = "default_watch")]
+    pub watch: bool,
+    /// Custom resources (`plural.group`) whose Ready-style conditions feed the
+    /// incident queue, e.g. `certificates.cert-manager.io`.
+    #[serde(default)]
+    pub crd_checks: Vec<String>,
+}
+
+fn default_watch() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -43,6 +58,8 @@ impl Default for Config {
             cluster_name: None,
             refresh_interval_secs: 60, // 1 minute, aligned to clock boundaries
             node_pool_filter: None,
+            watch: default_watch(),
+            crd_checks: Vec::new(),
         }
     }
 }
@@ -82,6 +99,9 @@ impl Config {
         if let Some(filter) = overrides.node_pool_filter {
             config.node_pool_filter = Some(filter);
         }
+        if overrides.no_watch {
+            config.watch = false;
+        }
 
         Ok(config)
     }
@@ -112,6 +132,35 @@ mod tests {
         let config = Config::load_from_overrides(args.config).expect("config should load");
 
         assert_eq!(config.refresh_interval_secs, 15);
+    }
+
+    #[test]
+    fn older_config_files_get_defaults_for_new_fields() {
+        let config: Config =
+            toml::from_str("namespace = \"default\"\nrefresh_interval_secs = 30\n")
+                .expect("config without watch/crd_checks should parse");
+
+        assert!(config.watch);
+        assert!(config.crd_checks.is_empty());
+    }
+
+    #[test]
+    fn crd_checks_parse_from_toml() {
+        let config: Config = toml::from_str(
+            "namespace = \"default\"\nrefresh_interval_secs = 30\nwatch = false\ncrd_checks = [\"certificates.cert-manager.io\"]\n",
+        )
+        .expect("config should parse");
+
+        assert!(!config.watch);
+        assert_eq!(config.crd_checks, vec!["certificates.cert-manager.io"]);
+    }
+
+    #[test]
+    fn cli_no_watch_disables_watch() {
+        let args = TestCli::parse_from(["cluster-cli", "--no-watch"]);
+        let config = Config::load_from_overrides(args.config).expect("config should load");
+
+        assert!(!config.watch);
     }
 
     #[test]

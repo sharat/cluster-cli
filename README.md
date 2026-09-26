@@ -22,7 +22,10 @@ For the current detailed feature inventory, see [features.md](features.md).
 - **Workload Popup**: Inspect controllers, batch workloads, autoscaling, disruption budgets, networking, and storage with `w`
 - **Pod History**: Visual CPU and memory sparklines in pod detail view
 - **Memory Usage Bars**: Horizontal bar graphs with percentage and absolute values
-- **Incident Queue**: Monitor ranked warning and failure signals built from nodes, pods, and events
+- **Incident Queue**: Monitor ranked warning and failure signals built from nodes, pods, events, and cluster-wide checks
+- **Live Updates**: Pod, node, and event changes stream in between refreshes via read-only `kubectl get --watch`
+- **Cluster-Wide Checks**: Flags unavailable APIServices (which break `kubectl top` and HPAs), failed PersistentVolumes, namespaces stuck terminating, and unreachable admission webhooks
+- **Custom Resource Checks**: Opt-in health checks for custom resources such as cert-manager Certificates, Flux Kustomizations, and Argo CD Applications
 - **Incident Drill-Down**: Press `Enter` on an incident to jump to the related pod, node, or workload when possible
 - **Pod Details**: Deep-dive into individual pods with:
   - Overview (metadata, resource limits/requests)
@@ -32,7 +35,7 @@ For the current detailed feature inventory, see [features.md](features.md).
   - Multi-container live and previous log viewing with search, timestamps, wrapping, and export
 - **Pod Prioritization**: Cycle pod sort modes with `s` to surface restarts, CPU pressure, memory pressure, readiness, or latest incident activity first
 - **CSV Export**: Export the current pod list to CSV with `E`
-- **Health Scoring**: Aggregate cluster health score weighted by pod readiness and phase, failed scheduling, node conditions, crash loops, OOM kills, warning volume, and rollout failures
+- **Health Scoring**: Aggregate cluster health score weighted by pod readiness and phase, failed scheduling, node conditions, crash loops, OOM kills, warning volume, rollout failures, and failing cluster-wide or custom resources
 - **Namespace Management**: Interactive namespace selector with color-coded current namespace and pod totals
 - **Built-in Updates**: Check for and install new releases with `--check-update` and `--upgrade`
 - **Cluster Identification**: Connected cluster name highlighted in header
@@ -103,6 +106,7 @@ Options:
   -r, --refresh <REFRESH>                  Refresh interval in seconds [default: 60] [aliases: --frequency]
       --node-pool-filter <NODE_POOL_FILTER>
                                             Node pool name filter (e.g. "nodepool1")
+      --no-watch                              Disable live kubectl --watch updates; only poll on the refresh interval
       --check-update                          Check for a newer release without installing it
       --upgrade                               Upgrade using the detected install method
       --info                                  Show version, install method, and config directory
@@ -158,9 +162,34 @@ resource_group = "my-resource-group"
 cluster_name = "my-cluster"
 refresh_interval_secs = 60
 node_pool_filter = "nodepool1"
+# Stream pod, node, and event changes between refreshes (default: true)
+watch = true
+# Custom resources (plural.group) whose health feeds the incident queue
+crd_checks = [
+  "certificates.cert-manager.io",
+  "kustomizations.kustomize.toolkit.fluxcd.io",
+  "applications.argoproj.io",
+]
 ```
 
 Command-line arguments override config file settings.
+
+### Live updates and refresh
+
+Every refresh interval the app lists everything and runs `kubectl top` for usage. Between refreshes, three long-lived `kubectl get --watch` streams (pods, nodes, events) push changes as they happen, so a crash loop shows up within a second. Workloads, usage figures, and health checks update on the refresh interval. The desktop app polls only, to keep the process count low across a fleet.
+
+### Health checks
+
+Built in, cluster-wide, regardless of the selected namespace, run every 5 minutes (skipped quietly if RBAC forbids them):
+
+| Check | Incident | Severity |
+|---|---|---|
+| APIService `Available=False` | `APIServiceUnavailable` | Critical |
+| PersistentVolume phase `Failed` | `PersistentVolumeFailed` | Warning |
+| Namespace terminating for over 10 minutes | `NamespaceStuckTerminating` | Warning |
+| Events reporting `failed calling webhook` | `WebhookFailure` | Critical |
+
+Each resource in `crd_checks` is listed in the current namespace. An object is flagged as `<Kind>NotReady`, `<Kind>Unavailable`, `<Kind>Unhealthy`, or `<Kind>NotSynced` when that condition has been `False` for over 5 minutes (so objects still being set up are not flagged), or as `<Kind>Degraded`/`<Kind>Missing` from Argo CD's `.status.health`. Failing objects appear in the workload popup (`w`), and `Enter` on their incident jumps there.
 
 ## Keyboard Shortcuts
 
@@ -321,7 +350,7 @@ Single-line health bar showing:
 - Cluster health score (0-100) with grade (A-F)
 - Number of critical nodes and pods
 - Total restarts count
-- Weighted by readiness, scheduling failures, node conditions, crash loops, OOM kills, warning volume, and rollout failures
+- Weighted by readiness, scheduling failures, node conditions, crash loops, OOM kills, warning volume, rollout failures, and failing cluster-wide or custom resources
 - Scaled to cluster size: penalties depend on the *share* of pods and nodes affected, so a few failures in a 3,000-pod cluster don't grade it F, while a single failure still costs points
 - Completed Job/CronJob pods and evicted pods are ignored
 - Color-coded based on severity
@@ -358,7 +387,8 @@ The application follows an async architecture using Tokio:
 
 Data flows:
 - User input → Event handler → State updates → UI render
-- Periodic refresh → kubectl commands → Data parsing → State update
+- Periodic refresh → kubectl list/top commands → store replaced → snapshot
+- `kubectl get --watch` streams → store patched → debounced snapshot
 
 ## Logging
 

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Experimental GPUI desktop app (`just desktop`) that watches every kubeconfig context at once, with a fleet overview, cluster detail, pod detail with live logs, namespace picker, and desktop notifications for new incidents and grade drops; supports an all-namespaces view and large fleets
+- Stream pod, node, and event changes between refreshes with read-only `kubectl get --watch`, so crash loops and new pods appear within a second instead of at the next refresh; disable with `--no-watch` or `watch = false`
+- Add cluster-wide health checks to the incident queue and score: unavailable APIServices, failed PersistentVolumes, namespaces stuck terminating, and admission webhooks that cannot be reached
+- Add `crd_checks` to flag custom resources (e.g. cert-manager Certificates, Flux Kustomizations, Argo CD Applications) whose Ready/Available/Healthy/Synced condition has been `False` for over 5 minutes or whose Argo health is Degraded/Missing
 
 ### Changed
 - Scale the health score to cluster size: penalties now depend on the share of pods and nodes affected, so large clusters are no longer stuck at F by a handful of failures
@@ -19,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Record curl-based installations explicitly so upgrades keep using the correct method from custom install directories
 - Prevent stale log lines from a previous container or source appearing after a stream switch
 - Surface workload kinds that could not be collected instead of silently showing incomplete data
+- Order events that only set `eventTime` (events.k8s.io reporters) by that time instead of treating them as oldest
 - Recognize the standard Cluster API deployment label when it is propagated to Nodes
 
 ## [0.3.0] - 2026-08-19

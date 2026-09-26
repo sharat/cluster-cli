@@ -302,10 +302,12 @@ impl DesktopApp {
 
         match event {
             DataEvent::Refreshed(snapshot) => {
-                if cluster.history.len() == MAX_HISTORY {
-                    cluster.history.pop_front();
+                if snapshot.metrics_sampled {
+                    if cluster.history.len() == MAX_HISTORY {
+                        cluster.history.pop_front();
+                    }
+                    cluster.history.push_back(snapshot.health.score);
                 }
-                cluster.history.push_back(snapshot.health.score);
                 cluster.error = snapshot.error.clone();
                 cluster.issue = None;
                 cluster.snapshot = Some(snapshot);

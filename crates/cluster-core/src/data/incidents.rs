@@ -1,14 +1,16 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::data::models::{
-    ClusterEvent, IncidentBucket, IncidentSeverity, IncidentTarget, NodeMetric, PodInfo,
+    ClusterEvent, ClusterSignals, IncidentBucket, IncidentSeverity, IncidentTarget,
 };
 
-pub fn build_incident_buckets(
-    nodes: &[NodeMetric],
-    pods: &[PodInfo],
-    events: &[ClusterEvent],
-) -> Vec<IncidentBucket> {
+pub fn build_incident_buckets(signals: &ClusterSignals) -> Vec<IncidentBucket> {
+    let ClusterSignals {
+        nodes,
+        pods,
+        events,
+        resource_problems,
+    } = *signals;
     let mut buckets: HashMap<String, IncidentAccumulator> = HashMap::new();
 
     for node in nodes {
@@ -109,6 +111,22 @@ pub fn build_incident_buckets(
         }
     }
 
+    for problem in resource_problems {
+        add_incident(
+            &mut buckets,
+            &problem.reason,
+            problem.severity,
+            IncidentTarget::Resource {
+                kind: problem.kind.clone(),
+                name: problem.name.clone(),
+                namespace: problem.namespace.clone(),
+            },
+            1,
+            String::new(),
+            (!problem.message.is_empty()).then(|| problem.message.clone()),
+        );
+    }
+
     for event in events {
         if let Some((reason, severity)) = canonical_event_reason(event) {
             add_incident(
@@ -177,6 +195,12 @@ fn canonical_event_reason(event: &ClusterEvent) -> Option<(&str, IncidentSeverit
 
     if reason == "OOMKilled" || message.contains("oomkilled") {
         return Some(("OOMKilled", IncidentSeverity::Critical));
+    }
+
+    // Admission webhooks that cannot be reached block every create/update
+    // they match, surfacing as FailedCreate/FailedUpdate on the controller.
+    if message.contains("failed calling webhook") {
+        return Some(("WebhookFailure", IncidentSeverity::Critical));
     }
 
     if reason.is_empty() {
@@ -296,8 +320,8 @@ fn event_target(event: &ClusterEvent) -> IncidentTarget {
 mod tests {
     use super::build_incident_buckets;
     use crate::data::models::{
-        ClusterEvent, ConditionStatus, ContainerInfo, EventType, HealthStatus, IncidentSeverity,
-        IncidentTarget, NodeConditions, NodeMetric, PodInfo,
+        ClusterEvent, ClusterSignals, ConditionStatus, ContainerInfo, EventType, HealthStatus,
+        IncidentSeverity, IncidentTarget, NodeConditions, NodeMetric, PodInfo, ResourceProblem,
     };
 
     #[test]
@@ -350,7 +374,7 @@ mod tests {
             },
         ];
 
-        let buckets = build_incident_buckets(&nodes, &pods, &events);
+        let buckets = build_incident_buckets(&ClusterSignals::new(&nodes, &pods, &events));
 
         assert_eq!(buckets[0].reason, "CrashLoopBackOff");
         assert_eq!(buckets[0].severity, IncidentSeverity::Critical);
@@ -389,7 +413,7 @@ mod tests {
             },
         ];
 
-        let buckets = build_incident_buckets(&nodes, &pods, &events);
+        let buckets = build_incident_buckets(&ClusterSignals::new(&nodes, &pods, &events));
 
         let workload_bucket = buckets
             .iter()
@@ -435,7 +459,7 @@ mod tests {
             },
         ];
 
-        let buckets = build_incident_buckets(&nodes, &pods, &events);
+        let buckets = build_incident_buckets(&ClusterSignals::new(&nodes, &pods, &events));
 
         assert_eq!(buckets.len(), 1);
         let bucket = &buckets[0];
@@ -446,6 +470,56 @@ mod tests {
             bucket.affected_resources,
             vec!["Node/node-a".to_string(), "Pod/api".to_string()]
         );
+    }
+
+    #[test]
+    fn resource_problems_become_workload_targeted_incidents() {
+        let problems = vec![ResourceProblem {
+            kind: "APIService".to_string(),
+            name: "v1beta1.metrics.k8s.io".to_string(),
+            namespace: None,
+            reason: "APIServiceUnavailable".to_string(),
+            severity: IncidentSeverity::Critical,
+            message: "FailedDiscoveryCheck".to_string(),
+        }];
+
+        let buckets =
+            build_incident_buckets(&ClusterSignals::new(&[], &[], &[]).with_problems(&problems));
+
+        assert_eq!(buckets.len(), 1);
+        assert_eq!(buckets[0].reason, "APIServiceUnavailable");
+        assert_eq!(buckets[0].severity, IncidentSeverity::Critical);
+        assert_eq!(
+            buckets[0].sample_message.as_deref(),
+            Some("FailedDiscoveryCheck")
+        );
+        assert_eq!(
+            buckets[0].targets,
+            vec![IncidentTarget::Resource {
+                kind: "APIService".to_string(),
+                name: "v1beta1.metrics.k8s.io".to_string(),
+                namespace: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn unreachable_webhook_events_are_critical() {
+        let events = vec![ClusterEvent {
+            kind: "ReplicaSet".to_string(),
+            name: "api-7f9c".to_string(),
+            reason: "FailedCreate".to_string(),
+            message: "Internal error occurred: failed calling webhook \"validate.example.com\""
+                .to_string(),
+            event_type: EventType::Warning,
+            count: 3,
+            timestamp: "2026-03-09T10:00:00Z".to_string(),
+        }];
+
+        let buckets = build_incident_buckets(&ClusterSignals::new(&[], &[], &events));
+
+        assert_eq!(buckets[0].reason, "WebhookFailure");
+        assert_eq!(buckets[0].severity, IncidentSeverity::Critical);
     }
 
     fn pod(name: &str, crash_looping: bool, oom_killed: bool, state: &str) -> PodInfo {

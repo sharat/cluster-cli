@@ -1065,6 +1065,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs 7.0.0",
+ "futures",
  "serde",
  "serde_json",
  "tokio",

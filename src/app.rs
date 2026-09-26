@@ -769,6 +769,8 @@ mod tests {
             error: None,
             context_name: Some("test".to_string()),
             coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         }
     }
 
@@ -973,6 +975,8 @@ mod tests {
             error: None,
             context_name: None,
             coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         });
         app.pod_filter = "API".to_string();
 
@@ -1047,6 +1051,8 @@ mod tests {
             error: None,
             context_name: None,
             coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         });
 
         let filtered = app.filtered_pods();
@@ -1099,6 +1105,8 @@ mod tests {
             error: None,
             context_name: None,
             coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         });
 
         app.apply_incident_focus(&bucket);

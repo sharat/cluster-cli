@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::app::{AppState, AppView, LogInputMode, LogSource, Overlay, Panel, PodDetailSection};
-use crate::data::models::MAX_LOG_BUFFER_LINES;
+use crate::data::models::{IncidentTarget, WorkloadKind, MAX_LOG_BUFFER_LINES};
 use crate::events::{DataEvent, FetchCommand};
 
 // Kubernetes namespace names are limited to 63 characters (RFC 1123)
@@ -419,6 +419,19 @@ fn handle_incident_enter(app: &mut AppState) -> Option<AppCommand> {
         }
     }
 
+    // Failing cluster-scoped objects and custom resources are listed in the
+    // workload popup; they have no pods to focus.
+    let resource = bucket.targets.iter().find_map(IncidentTarget::resource_key);
+    if let Some((kind, name, namespace)) = resource {
+        if pod_names.is_empty() && node_names.is_empty() && workload_keys.is_empty() {
+            if let Some(index) = resolve_resource_index(app, kind, name, namespace) {
+                app.workload_cursor = index;
+            }
+            app.overlay = Overlay::WorkloadPopup;
+            return None;
+        }
+    }
+
     if !pod_names.is_empty() || !workload_keys.is_empty() {
         app.apply_incident_focus(&bucket);
         app.focused_panel = Panel::Pods;
@@ -451,6 +464,23 @@ fn resolve_workload_index(app: &AppState, kind: &str, name: &str) -> Option<usiz
     snapshot.workloads.iter().position(|workload| {
         (workload.kind.as_str() == kind && workload.name == name)
             || workload
+                .related_event_targets
+                .iter()
+                .any(|(target_kind, target_name)| target_kind == kind && target_name == name)
+    })
+}
+
+fn resolve_resource_index(
+    app: &AppState,
+    kind: &str,
+    name: &str,
+    namespace: Option<&str>,
+) -> Option<usize> {
+    let snapshot = app.snapshot.as_ref()?;
+    snapshot.workloads.iter().position(|workload| {
+        workload.kind == WorkloadKind::Resource
+            && workload.namespace == namespace.unwrap_or_default()
+            && workload
                 .related_event_targets
                 .iter()
                 .any(|(target_kind, target_name)| target_kind == kind && target_name == name)
@@ -617,10 +647,14 @@ fn handle_node_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppComman
 pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
     match event {
         DataEvent::Refreshed(snapshot) => {
-            if let Some(msg) = snapshot.error.clone() {
-                app.status_message = Some((msg, std::time::Instant::now()));
+            // Watch-driven snapshots reuse the last poll's metrics and errors;
+            // only a poll adds a sparkline sample or re-raises the error.
+            if snapshot.metrics_sampled {
+                if let Some(msg) = snapshot.error.clone() {
+                    app.status_message = Some((msg, std::time::Instant::now()));
+                }
+                app.update_pod_history(&snapshot.pods);
             }
-            app.update_pod_history(&snapshot.pods);
             app.snapshot = Some(snapshot);
             let node_len = app.snapshot.as_ref().map(|s| s.nodes.len()).unwrap_or(0);
             if node_len == 0 {
@@ -807,6 +841,62 @@ mod tests {
     }
 
     #[test]
+    fn watch_snapshots_do_not_add_history_samples() {
+        let mut app = AppState::new(Config::default());
+        let pod = pod("api-0", "default");
+        let polled =
+            snapshot_with_incident_targets(vec![], vec![pod.clone()], vec![], vec![], vec![]);
+        let mut watched = polled.clone();
+        watched.metrics_sampled = false;
+        watched.error = Some("Pods: timed out".to_string());
+
+        handle_data_event(&mut app, DataEvent::Refreshed(polled));
+        handle_data_event(&mut app, DataEvent::Refreshed(watched));
+
+        assert_eq!(app.get_pod_memory_history(&pod).map(Vec::len), Some(1));
+        assert!(app.status_message.is_none());
+        assert!(!app.snapshot.as_ref().unwrap().metrics_sampled);
+    }
+
+    #[test]
+    fn enter_on_resource_incident_opens_popup_on_the_right_namespace() {
+        use crate::data::checks::problem_workload;
+        use crate::data::models::ResourceProblem;
+
+        let problem = |namespace: &str| ResourceProblem {
+            kind: "Certificate".to_string(),
+            name: "tls".to_string(),
+            namespace: Some(namespace.to_string()),
+            reason: "CertificateNotReady".to_string(),
+            severity: IncidentSeverity::Warning,
+            message: String::new(),
+        };
+        let workloads = vec![
+            problem_workload(&problem("a")),
+            problem_workload(&problem("b")),
+        ];
+        let mut app = AppState::new(Config::default());
+        app.snapshot = Some(snapshot_with_incident_targets(
+            vec![IncidentTarget::Resource {
+                kind: "Certificate".to_string(),
+                name: "tls".to_string(),
+                namespace: Some("b".to_string()),
+            }],
+            vec![pod("tls-cleaner", "b")],
+            vec![],
+            workloads,
+            vec![],
+        ));
+        app.focused_panel = Panel::Events;
+
+        super::handle_incident_enter(&mut app);
+
+        assert_eq!(app.overlay, Overlay::WorkloadPopup);
+        assert_eq!(app.workload_cursor, 1);
+        assert!(app.incident_focus.is_none());
+    }
+
+    #[test]
     fn stale_log_events_are_ignored_after_stream_switch() {
         let mut app = AppState::new(Config::default());
         let stale_stream_id = app.begin_log_stream();
@@ -880,6 +970,7 @@ mod tests {
             resource_group: None,
             refresh_interval_secs: 60,
             node_pool_filter: None,
+            ..Config::default()
         });
         let mut snapshot = snapshot_with_events();
         snapshot.context_name = Some("prod-cluster".to_string());
@@ -904,6 +995,7 @@ mod tests {
             resource_group: None,
             refresh_interval_secs: 60,
             node_pool_filter: None,
+            ..Config::default()
         });
         let mut snapshot = snapshot_with_events();
         snapshot.context_name = None;
@@ -1280,6 +1372,8 @@ mod tests {
             error: None,
             context_name: Some("test".to_string()),
             coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         }
     }
 

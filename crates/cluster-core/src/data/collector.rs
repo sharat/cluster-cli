@@ -96,7 +96,7 @@ impl std::error::Error for KubectlError {}
 
 /// `-n ALL_NAMESPACES` becomes `--all-namespaces`, so every namespaced call
 /// site supports the all-namespaces view without special-casing.
-fn expand_all_namespaces<'a>(args: &[&'a str]) -> Vec<&'a str> {
+pub(crate) fn expand_all_namespaces<'a>(args: &[&'a str]) -> Vec<&'a str> {
     let mut expanded = Vec::with_capacity(args.len());
     let mut iter = args.iter().copied().peekable();
     while let Some(arg) = iter.next() {
@@ -110,7 +110,7 @@ fn expand_all_namespaces<'a>(args: &[&'a str]) -> Vec<&'a str> {
     expanded
 }
 
-async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
+pub(crate) async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
     let args = &expand_all_namespaces(args)[..];
     ensure_readonly_kubectl_args(program, args)
         .map_err(|err| KubectlError::new(err.to_string()))?;
@@ -181,18 +181,70 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
 }
 
 pub async fn fetch_node_metrics(node_pool_filter: Option<&str>) -> Result<Vec<NodeMetric>> {
-    let (top_result, info_result) = tokio::join!(
-        run_cmd("kubectl", &["top", "nodes", "--no-headers"]),
-        run_cmd("kubectl", &["get", "nodes", "-o", "json"]),
-    );
-
-    let top_output = top_result.unwrap_or_default();
-    let info_json: Value = serde_json::from_str(&info_result?)?;
+    let (top_output, list) = tokio::join!(top_nodes(), list_nodes());
     Ok(build_node_metrics(
         &top_output,
-        &info_json,
+        &list?.items,
         node_pool_filter,
     ))
+}
+
+/// A `kubectl get <resource> -o json` list.
+#[derive(Debug, Clone, Default)]
+pub struct ResourceList {
+    pub items: Vec<Value>,
+    /// The list's `metadata.resourceVersion`: the point in time it reflects.
+    pub resource_version: Option<u64>,
+}
+
+pub(crate) async fn list_items(args: &[&str]) -> Result<ResourceList> {
+    let output = run_cmd("kubectl", args).await?;
+    let mut json: Value = serde_json::from_str(&output)?;
+    let resource_version = resource_version(&json);
+    let items = match json.get_mut("items").map(Value::take) {
+        Some(Value::Array(items)) => items,
+        _ => Vec::new(),
+    };
+    Ok(ResourceList {
+        items,
+        resource_version,
+    })
+}
+
+/// `metadata.resourceVersion` as a number. The API documents it as opaque,
+/// but it is etcd's revision and orders changes within a resource type;
+/// `None` (unparsable) disables version-based ordering for that object.
+pub fn resource_version(object: &Value) -> Option<u64> {
+    object
+        .pointer("/metadata/resourceVersion")
+        .and_then(Value::as_str)
+        .and_then(|version| version.parse().ok())
+}
+
+pub async fn list_nodes() -> Result<ResourceList> {
+    list_items(&["get", "nodes", "-o", "json"]).await
+}
+
+pub async fn list_pods(namespace: &str) -> Result<ResourceList> {
+    list_items(&["get", "pods", "-n", namespace, "-o", "json"]).await
+}
+
+pub async fn list_events(namespace: &str) -> Result<ResourceList> {
+    list_items(&["get", "events", "-n", namespace, "-o", "json"]).await
+}
+
+/// `kubectl top nodes` output; empty when metrics-server is unavailable.
+pub async fn top_nodes() -> String {
+    run_cmd("kubectl", &["top", "nodes", "--no-headers"])
+        .await
+        .unwrap_or_default()
+}
+
+/// `kubectl top pods` output; empty when metrics-server is unavailable.
+pub async fn top_pods(namespace: &str) -> String {
+    run_cmd("kubectl", &["top", "pods", "-n", namespace, "--no-headers"])
+        .await
+        .unwrap_or_default()
 }
 
 #[derive(Clone, Copy)]
@@ -203,24 +255,22 @@ struct TopNodeMetrics {
     memory_pct: Option<u8>,
 }
 
-fn build_node_metrics(
+pub fn build_node_metrics<'a>(
     top_output: &str,
-    info_json: &Value,
+    items: impl IntoIterator<Item = &'a Value>,
     node_pool_filter: Option<&str>,
 ) -> Vec<NodeMetric> {
     let top_map = parse_top_node_metrics(top_output);
     let mut nodes = Vec::new();
 
-    if let Some(items) = info_json.get("items").and_then(|v| v.as_array()) {
-        for item in items {
-            if node_pool_filter.is_some_and(|filter| !node_matches_pool(item, filter)) {
-                continue;
-            }
-            if let Some(node) =
-                build_node_metric(item, top_map.get(metadata_name(item).as_str()).copied())
-            {
-                nodes.push(node);
-            }
+    for item in items {
+        if node_pool_filter.is_some_and(|filter| !node_matches_pool(item, filter)) {
+            continue;
+        }
+        if let Some(node) =
+            build_node_metric(item, top_map.get(metadata_name(item).as_str()).copied())
+        {
+            nodes.push(node);
         }
     }
 
@@ -696,184 +746,184 @@ fn parse_top_pod_metrics(output: &str, all_namespaces: bool) -> HashMap<String, 
 }
 
 pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
-    let top_args = vec!["top", "pods", "-n", namespace, "--no-headers"];
-    let info_args = vec!["get", "pods", "-n", namespace, "-o", "json"];
-    let (top_result, info_result) = tokio::join!(
-        run_cmd("kubectl", &top_args),
-        run_cmd("kubectl", &info_args),
-    );
+    let (top_output, list) = tokio::join!(top_pods(namespace), list_pods(namespace));
+    Ok(build_pods(&list?.items, &top_output, namespace))
+}
 
-    let top_output = top_result.unwrap_or_default();
-    let info_json: Value = serde_json::from_str(&info_result?)?;
-
+/// Builds pods from `kubectl get pods -o json` items, joining usage from the
+/// `kubectl top pods` output for the same `namespace`.
+pub fn build_pods<'a>(
+    items: impl IntoIterator<Item = &'a Value>,
+    top_output: &str,
+    namespace: &str,
+) -> Vec<PodInfo> {
     let all_namespaces = namespace == ALL_NAMESPACES;
-    let top_map = parse_top_pod_metrics(&top_output, all_namespaces);
+    let top_map = parse_top_pod_metrics(top_output, all_namespaces);
 
     let mut pods = Vec::new();
 
-    if let Some(items) = info_json.get("items").and_then(|v| v.as_array()) {
-        for item in items {
-            let name = item
-                .pointer("/metadata/name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let uid = item
-                .pointer("/metadata/uid")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let pod_namespace = item
-                .pointer("/metadata/namespace")
-                .and_then(|v| v.as_str())
-                .unwrap_or(namespace)
-                .to_string();
+    for item in items {
+        let name = item
+            .pointer("/metadata/name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let uid = item
+            .pointer("/metadata/uid")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let pod_namespace = item
+            .pointer("/metadata/namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or(namespace)
+            .to_string();
 
-            let phase = item
-                .pointer("/status/phase")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
-                .to_string();
+        let phase = item
+            .pointer("/status/phase")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
 
-            let node_name = item
-                .pointer("/spec/nodeName")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+        let node_name = item
+            .pointer("/spec/nodeName")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
-            let restarts: u32 = item
-                .pointer("/status/containerStatuses")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .map(|c| c.get("restartCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32)
-                        .sum()
+        let restarts: u32 = item
+            .pointer("/status/containerStatuses")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|c| c.get("restartCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32)
+                    .sum()
+            })
+            .unwrap_or(0);
+
+        let age = item
+            .pointer("/metadata/creationTimestamp")
+            .and_then(|v| v.as_str())
+            .map(calculate_age)
+            .unwrap_or_else(|| "?".to_string());
+
+        let spec_containers = item.pointer("/spec/containers").and_then(|v| v.as_array());
+        let init_containers = item
+            .pointer("/spec/initContainers")
+            .and_then(|v| v.as_array());
+
+        let (cpu_request_millicores, cpu_limit_millicores) =
+            effective_pod_cpu_resources(spec_containers, init_containers);
+        let (memory_request_mb, memory_limit_mb) =
+            effective_pod_memory_resources(spec_containers, init_containers);
+
+        let top_key = if all_namespaces {
+            format!("{pod_namespace}/{name}")
+        } else {
+            name.clone()
+        };
+        let (cpu_millicores, memory_mb) = top_map.get(&top_key).copied().unwrap_or((0, 0));
+
+        let memory_pct = if memory_limit_mb > 0 {
+            percent_of(memory_mb, memory_limit_mb)
+        } else {
+            0
+        };
+        let memory_request_pct = if memory_request_mb > 0 {
+            percent_of(memory_mb, memory_request_mb)
+        } else {
+            0
+        };
+
+        let cpu_pct = if cpu_limit_millicores > 0 {
+            percent_of(cpu_millicores, cpu_limit_millicores)
+        } else {
+            0
+        };
+        let cpu_request_pct = if cpu_request_millicores > 0 {
+            percent_of(cpu_millicores, cpu_request_millicores)
+        } else {
+            0
+        };
+
+        let container_statuses = item
+            .pointer("/status/containerStatuses")
+            .and_then(|v| v.as_array());
+        let containers = extract_container_info(container_statuses);
+        let total_containers = container_statuses.map(|arr| arr.len() as u32).unwrap_or(0);
+        let ready_containers = container_statuses
+            .map(|arr| {
+                arr.iter()
+                    .filter(|c| c.get("ready").and_then(|v| v.as_bool()).unwrap_or(false))
+                    .count() as u32
+            })
+            .unwrap_or(0);
+        let is_ready = total_containers > 0 && ready_containers == total_containers;
+        let crash_looping = container_statuses
+            .map(|arr| {
+                arr.iter().any(|c| {
+                    c.pointer("/state/waiting/reason").and_then(|v| v.as_str())
+                        == Some("CrashLoopBackOff")
                 })
-                .unwrap_or(0);
-
-            let age = item
-                .pointer("/metadata/creationTimestamp")
-                .and_then(|v| v.as_str())
-                .map(calculate_age)
-                .unwrap_or_else(|| "?".to_string());
-
-            let spec_containers = item.pointer("/spec/containers").and_then(|v| v.as_array());
-            let init_containers = item
-                .pointer("/spec/initContainers")
-                .and_then(|v| v.as_array());
-
-            let (cpu_request_millicores, cpu_limit_millicores) =
-                effective_pod_cpu_resources(spec_containers, init_containers);
-            let (memory_request_mb, memory_limit_mb) =
-                effective_pod_memory_resources(spec_containers, init_containers);
-
-            let top_key = if all_namespaces {
-                format!("{pod_namespace}/{name}")
-            } else {
-                name.clone()
-            };
-            let (cpu_millicores, memory_mb) = top_map.get(&top_key).copied().unwrap_or((0, 0));
-
-            let memory_pct = if memory_limit_mb > 0 {
-                percent_of(memory_mb, memory_limit_mb)
-            } else {
-                0
-            };
-            let memory_request_pct = if memory_request_mb > 0 {
-                percent_of(memory_mb, memory_request_mb)
-            } else {
-                0
-            };
-
-            let cpu_pct = if cpu_limit_millicores > 0 {
-                percent_of(cpu_millicores, cpu_limit_millicores)
-            } else {
-                0
-            };
-            let cpu_request_pct = if cpu_request_millicores > 0 {
-                percent_of(cpu_millicores, cpu_request_millicores)
-            } else {
-                0
-            };
-
-            let container_statuses = item
-                .pointer("/status/containerStatuses")
-                .and_then(|v| v.as_array());
-            let containers = extract_container_info(container_statuses);
-            let total_containers = container_statuses.map(|arr| arr.len() as u32).unwrap_or(0);
-            let ready_containers = container_statuses
-                .map(|arr| {
-                    arr.iter()
-                        .filter(|c| c.get("ready").and_then(|v| v.as_bool()).unwrap_or(false))
-                        .count() as u32
-                })
-                .unwrap_or(0);
-            let is_ready = total_containers > 0 && ready_containers == total_containers;
-            let crash_looping = container_statuses
-                .map(|arr| {
-                    arr.iter().any(|c| {
-                        c.pointer("/state/waiting/reason").and_then(|v| v.as_str())
-                            == Some("CrashLoopBackOff")
-                    })
-                })
-                .unwrap_or(false);
-            let oom_killed = container_statuses
-                .map(|arr| {
-                    arr.iter().any(|c| {
-                        c.pointer("/lastState/terminated/reason")
+            })
+            .unwrap_or(false);
+        let oom_killed = container_statuses
+            .map(|arr| {
+                arr.iter().any(|c| {
+                    c.pointer("/lastState/terminated/reason")
+                        .and_then(|v| v.as_str())
+                        == Some("OOMKilled")
+                        || c.pointer("/state/terminated/reason")
                             .and_then(|v| v.as_str())
                             == Some("OOMKilled")
-                            || c.pointer("/state/terminated/reason")
-                                .and_then(|v| v.as_str())
-                                == Some("OOMKilled")
-                    })
                 })
-                .unwrap_or(false);
-            let status_reason = item
-                .pointer("/status/reason")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let status = derive_pod_status(
-                memory_pct,
-                &phase,
-                status_reason.as_deref(),
-                is_ready,
-                crash_looping,
-                oom_killed,
-            );
+            })
+            .unwrap_or(false);
+        let status_reason = item
+            .pointer("/status/reason")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let status = derive_pod_status(
+            memory_pct,
+            &phase,
+            status_reason.as_deref(),
+            is_ready,
+            crash_looping,
+            oom_killed,
+        );
 
-            pods.push(PodInfo {
-                uid,
-                name,
-                namespace: pod_namespace,
-                phase,
-                restarts,
-                age,
-                cpu_millicores,
-                cpu_request_millicores,
-                cpu_limit_millicores,
-                memory_mb,
-                memory_request_mb,
-                memory_limit_mb,
-                memory_request_pct,
-                memory_pct,
-                cpu_request_pct,
-                cpu_pct,
-                status,
-                ready_containers,
-                total_containers,
-                is_ready,
-                crash_looping,
-                oom_killed,
-                node_name,
-                containers,
-                status_reason,
-            });
-        }
+        pods.push(PodInfo {
+            uid,
+            name,
+            namespace: pod_namespace,
+            phase,
+            restarts,
+            age,
+            cpu_millicores,
+            cpu_request_millicores,
+            cpu_limit_millicores,
+            memory_mb,
+            memory_request_mb,
+            memory_limit_mb,
+            memory_request_pct,
+            memory_pct,
+            cpu_request_pct,
+            cpu_pct,
+            status,
+            ready_containers,
+            total_containers,
+            is_ready,
+            crash_looping,
+            oom_killed,
+            node_name,
+            containers,
+            status_reason,
+        });
     }
 
-    Ok(pods)
+    pods
 }
 
+#[derive(Debug, Clone, Default)]
 pub struct WorkloadCollection {
     pub summaries: Vec<WorkloadSummary>,
     pub warnings: Vec<String>,
@@ -1121,17 +1171,22 @@ pub async fn fetch_workload_summaries(namespace: &str) -> WorkloadCollection {
     collect_ingresses(&ingresses_json, namespace, &mut workloads);
     collect_pvcs(&pvcs_json, namespace, &mut workloads);
 
+    sort_workloads(&mut workloads);
+
+    WorkloadCollection {
+        summaries: workloads,
+        warnings,
+    }
+}
+
+/// Worst status first, then by kind and name.
+pub fn sort_workloads(workloads: &mut [WorkloadSummary]) {
     workloads.sort_by(|a, b| {
         workload_status_rank(&b.status)
             .cmp(&workload_status_rank(&a.status))
             .then_with(|| a.kind.as_str().cmp(b.kind.as_str()))
             .then_with(|| a.name.cmp(&b.name))
     });
-
-    WorkloadCollection {
-        summaries: workloads,
-        warnings,
-    }
 }
 
 fn parse_workload_resource_result<E: std::fmt::Display>(
@@ -1739,76 +1794,85 @@ fn summarize_container_state(status: &Value) -> String {
 }
 
 pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
-    let output = run_cmd(
-        "kubectl",
-        &[
-            "get",
-            "events",
-            "-n",
-            namespace,
-            "--sort-by=.lastTimestamp",
-            "-o",
-            "json",
-        ],
-    )
-    .await?;
+    Ok(build_events(&list_events(namespace).await?.items))
+}
 
-    let json: Value = serde_json::from_str(&output)?;
+/// The most recent [`MAX_EVENTS_PER_FETCH`] events, newest first.
+pub fn build_events<'a>(items: impl IntoIterator<Item = &'a Value>) -> Vec<ClusterEvent> {
     let mut events = Vec::new();
+    for item in newest_events(items) {
+        let kind = item
+            .pointer("/involvedObject/kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
 
-    if let Some(items) = json.get("items").and_then(|v| v.as_array()) {
-        for item in items.iter().rev().take(MAX_EVENTS_PER_FETCH) {
-            let kind = item
-                .pointer("/involvedObject/kind")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
-                .to_string();
+        let name = item
+            .pointer("/involvedObject/name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
 
-            let name = item
-                .pointer("/involvedObject/name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
-                .to_string();
+        let reason = item
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
-            let reason = item
-                .get("reason")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+        let message = item
+            .get("message")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
-            let message = item
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+        let event_type = if item.get("type").and_then(|v| v.as_str()) == Some("Warning") {
+            EventType::Warning
+        } else {
+            EventType::Normal
+        };
 
-            let event_type = if item.get("type").and_then(|v| v.as_str()) == Some("Warning") {
-                EventType::Warning
-            } else {
-                EventType::Normal
-            };
+        let count = item.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
 
-            let count = item.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+        let timestamp = event_timestamp(item).to_string();
 
-            let timestamp = item
-                .get("lastTimestamp")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            events.push(ClusterEvent {
-                kind,
-                name,
-                reason,
-                message,
-                event_type,
-                count,
-                timestamp,
-            });
-        }
+        events.push(ClusterEvent {
+            kind,
+            name,
+            reason,
+            message,
+            event_type,
+            count,
+            timestamp,
+        });
     }
 
-    Ok(events)
+    events
+}
+
+/// The [`MAX_EVENTS_PER_FETCH`] newest raw events, newest first.
+pub fn newest_events<'a>(items: impl IntoIterator<Item = &'a Value>) -> Vec<&'a Value> {
+    let mut items: Vec<&Value> = items.into_iter().collect();
+    // Parsed, not compared as strings: `eventTime` carries microseconds and
+    // `lastTimestamp` does not. Unparsable timestamps sort oldest.
+    items.sort_by_cached_key(|item| {
+        chrono::DateTime::parse_from_rfc3339(event_timestamp(item)).ok()
+    });
+    items.reverse();
+    items.truncate(MAX_EVENTS_PER_FETCH);
+    items
+}
+
+/// `lastTimestamp`, falling back to `eventTime` (set instead by components
+/// using the events.k8s.io API) and then to creation time.
+fn event_timestamp(item: &Value) -> &str {
+    [
+        "/lastTimestamp",
+        "/eventTime",
+        "/metadata/creationTimestamp",
+    ]
+    .iter()
+    .find_map(|pointer| item.pointer(pointer).and_then(Value::as_str))
+    .unwrap_or("")
 }
 
 pub async fn fetch_namespaces() -> Result<Vec<NamespaceSummary>> {
@@ -2515,7 +2579,11 @@ mod tests {
             }]
         });
 
-        let nodes = build_node_metrics("", &info_json, None);
+        let nodes = build_node_metrics(
+            "",
+            info_json["items"].as_array().into_iter().flatten(),
+            None,
+        );
 
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].name, "node-a");
@@ -2566,7 +2634,11 @@ mod tests {
             ]
         });
 
-        let nodes = build_node_metrics("", &info_json, Some("workers"));
+        let nodes = build_node_metrics(
+            "",
+            info_json["items"].as_array().into_iter().flatten(),
+            Some("workers"),
+        );
 
         assert_eq!(
             nodes
@@ -2594,7 +2666,12 @@ mod tests {
             }]
         });
 
-        assert!(build_node_metrics("", &info_json, Some("workers")).is_empty());
+        assert!(build_node_metrics(
+            "",
+            info_json["items"].as_array().into_iter().flatten(),
+            Some("workers")
+        )
+        .is_empty());
     }
 
     #[test]
@@ -2606,7 +2683,15 @@ mod tests {
             ]
         });
 
-        assert_eq!(build_node_metrics("", &info_json, None).len(), 2);
+        assert_eq!(
+            build_node_metrics(
+                "",
+                info_json["items"].as_array().into_iter().flatten(),
+                None
+            )
+            .len(),
+            2
+        );
     }
 
     #[test]

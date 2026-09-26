@@ -25,12 +25,18 @@ The dashboard includes:
 - Refreshes are aligned to clock boundaries instead of drifting over time
 - Manual refresh is supported with `r`
 - Refresh interval can be changed at runtime with `R`
+- Between refreshes, `kubectl get --watch` streams for pods, nodes, and events patch the last-known state, and a new snapshot is published after a 500 ms quiet period
+- Watches restart with backoff when the API server closes them; the next refresh heals anything missed
+- Watches are pinned to the polled context with `--context` and restarted when the context or namespace changes; watch updates older than the last list (by `resourceVersion`) are discarded, and a kind whose list failed is not patched until it lists again
+- A watch the user is not allowed to run (e.g. nodes for namespace-scoped users) stops instead of retrying
+- Usage figures, workloads, and health checks update on the refresh interval; sparklines take one sample per refresh
+- `--no-watch` or `watch = false` turns streaming off
 
 ### Read-only operation
 
 The app only allows read-only `kubectl` commands:
 
-- `kubectl get ...`
+- `kubectl get ...` (including `get --watch`)
 - `kubectl top ...`
 - `kubectl logs ...`
 - `kubectl config current-context`
@@ -141,7 +147,17 @@ The UI labels the unschedulable case as `cordoned/draining` because this code pa
 
 ### Incident queue
 
-The dashboard shows a ranked incident queue built from nodes, pods, and warning events rather than rendering raw events directly.
+The dashboard shows a ranked incident queue built from nodes, pods, warning events, and cluster-wide and custom resource checks rather than rendering raw events directly.
+
+### Cluster-wide and custom resource checks
+
+- APIServices with `Available=False` → `APIServiceUnavailable` (critical)
+- PersistentVolumes in phase `Failed` → `PersistentVolumeFailed`
+- Namespaces terminating for over 10 minutes → `NamespaceStuckTerminating`, with the controller's blocking conditions as the message
+- Warning events containing `failed calling webhook` → `WebhookFailure` (critical)
+- Custom resources listed in `crd_checks` → `<Kind>NotReady`/`Unavailable`/`Unhealthy`/`NotSynced` when that condition is `False`, or `<Kind>Degraded`/`Missing` from Argo CD health
+- Cluster-scoped checks run every 5 minutes regardless of the selected namespace and are skipped when RBAC forbids them; custom resource conditions must have been `False` for over 5 minutes; a `crd_checks` entry that cannot be listed is reported in the status bar
+- Failing objects are listed in the workload popup as `Res` rows and lower the health score (up to 15 points)
 
 Each incident bucket includes:
 
@@ -411,6 +427,8 @@ The current implementation collects:
 - Namespaces
 - Current context name
 - Workload summaries
+- APIServices, PersistentVolumes, and Namespaces (for cluster-wide checks)
+- Custom resources listed in `crd_checks`
 
 It also derives additional signals from pod and node payloads, such as:
 
