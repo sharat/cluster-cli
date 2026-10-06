@@ -238,3 +238,22 @@ fn test_empty_cluster_perfect_score() {
     assert_eq!(health.critical_pods, 0);
     assert_eq!(health.total_restarts, 0);
 }
+
+#[test]
+fn completed_job_pods_do_not_reduce_health() {
+    let pods: Vec<PodInfo> = (0..10)
+        .map(|_| create_test_pod(0, "Succeeded", false, 0, false, false))
+        .collect();
+    let health = calculate_health(&[], &pods, &[]);
+
+    assert_eq!(health.score, 100);
+    assert_eq!(health.critical_pods, 0);
+}
+
+#[test]
+fn node_with_pressure_and_not_ready_counts_once() {
+    let nodes = vec![create_test_node(95, false, 0)];
+    let health = calculate_health(&nodes, &[], &[]);
+
+    assert_eq!(health.critical_nodes, 1);
+}

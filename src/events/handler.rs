@@ -12,6 +12,20 @@ pub enum AppCommand {
     Fetch(FetchCommand),
 }
 
+/// Context names such as EKS ARNs (`arn:aws:eks:...:cluster/foo`) contain
+/// characters that are invalid in filenames or rejected by the export path check.
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
     let view = app.view.clone();
     match view {
@@ -137,7 +151,8 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                         .trim()
                         .parse::<u64>()
                         .ok()
-                        .filter(|secs| *secs > 0);
+                        .filter(|secs| *secs > 0)
+                        .map(crate::config::clamp_refresh_secs);
                     app.overlay = Overlay::None;
                     app.refresh_input.clear();
 
@@ -150,7 +165,7 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                         }));
                     }
                 }
-                KeyCode::Char(c) if c.is_ascii_digit() => {
+                KeyCode::Char(c) if c.is_ascii_digit() && app.refresh_input.len() < 6 => {
                     app.refresh_input.push(c);
                 }
                 KeyCode::Backspace => {
@@ -272,7 +287,7 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
             let ns = &app.config.namespace;
             let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
             let filename = match &cluster_name {
-                Some(cluster) => format!("{cluster}-{ns}-{timestamp}.csv"),
+                Some(cluster) => format!("{}-{ns}-{timestamp}.csv", sanitize_filename(cluster)),
                 None => format!("{ns}-{timestamp}.csv"),
             };
             app.export_input = filename;
@@ -524,7 +539,10 @@ fn handle_pod_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand
             app.detail_scroll = 0;
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            app.detail_scroll = app.detail_scroll.saturating_add(1);
+            app.detail_scroll = app
+                .detail_scroll
+                .saturating_add(1)
+                .min(app.detail_scroll_max.get());
             if app.pod_detail_section == PodDetailSection::Logs {
                 app.log_follow = false;
             }

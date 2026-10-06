@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use crossterm::{
     cursor::{SetCursorStyle, Show},
-    event::{Event, EventStream},
+    event::{Event, EventStream, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -33,6 +33,17 @@ const EVENT_CHANNEL_CAPACITY: usize = 1024;
 /// Capacity of the UI -> fetcher command channel. Commands are user-driven, so
 /// this only needs to cover a burst of held keypresses.
 const FETCH_CHANNEL_CAPACITY: usize = 64;
+
+/// Restores the terminal when dropped, so early `?` returns after raw mode is
+/// enabled don't leave the user's shell in raw mode on the alternate screen.
+struct TerminalGuard;
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "cluster")]
@@ -131,6 +142,7 @@ async fn main() -> Result<()> {
 
     // Setup terminal
     enable_raw_mode()?;
+    let _terminal_guard = TerminalGuard;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
@@ -202,11 +214,7 @@ async fn main() -> Result<()> {
     )
     .await;
 
-    // Cleanup
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-
+    // Terminal is restored by `_terminal_guard` on drop.
     result
 }
 
@@ -251,7 +259,8 @@ async fn run_app(
 
             Some(Ok(event)) = crossterm_events.next() => {
                 match event {
-                    Event::Key(key) => {
+                    // Windows reports both press and release; act on presses only.
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
                         if let Some(cmd) = events::handler::handle_key(&mut app, key) {
                             match cmd {
                                 events::handler::AppCommand::Quit => return Ok(()),

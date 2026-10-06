@@ -19,20 +19,26 @@ pub fn calculate_health(
     let mut critical_nodes = 0u32;
     let mut critical_pods = 0u32;
     let mut total_restarts = 0u32;
-    let mut unhealthy_nodes = 0u32;
     let mut failed_scheduling_events = 0u32;
     let mut warning_events = 0u32;
     let mut rollout_failures = 0u32;
 
     for node in nodes {
+        // Track unique critical nodes (avoid double-counting)
+        let mut is_critical = false;
+
         if node.memory_pct >= RESOURCE_PRESSURE_PCT {
             score = score.saturating_sub(15);
-            critical_nodes += 1;
+            is_critical = true;
         }
         if !node.ready || node.unhealthy_conditions > 0 {
-            unhealthy_nodes += 1;
             score = score.saturating_sub(10);
             score = score.saturating_sub((node.unhealthy_conditions as i32) * 4);
+            is_critical = true;
+        }
+
+        if is_critical {
+            critical_nodes += 1;
         }
     }
 
@@ -57,7 +63,9 @@ pub fn calculate_health(
             is_critical = true;
         }
 
-        if !pod.is_ready {
+        // Pending/Failed/Unknown are penalised above, and Succeeded pods
+        // (completed Jobs) are never ready by design.
+        if pod.phase == "Running" && !pod.is_ready {
             score = score.saturating_sub(8);
             is_critical = true;
         }
@@ -115,7 +123,7 @@ pub fn calculate_health(
     HealthScore {
         score,
         grade,
-        critical_nodes: critical_nodes + unhealthy_nodes,
+        critical_nodes,
         critical_pods,
         total_restarts,
     }

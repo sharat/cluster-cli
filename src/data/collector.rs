@@ -58,29 +58,42 @@ async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
     ensure_readonly_kubectl_args(program, args)
         .map_err(|err| KubectlError::new(err.to_string()))?;
 
-    let output = timeout(KUBECTL_TIMEOUT, Command::new(program).args(args).output())
-        .await
-        .map_err(|_| {
-            KubectlError::new(format!(
-                "kubectl {} timed out after {}s",
-                args.join(" "),
-                KUBECTL_TIMEOUT.as_secs()
-            ))
-        })?
-        .map_err(|err| {
-            if err.kind() == ErrorKind::NotFound {
-                KubectlError::with_issue(
-                    ConnectionIssue {
-                        kind: ConnectionIssueKind::KubectlMissing,
-                        namespace: None,
-                        detail: "kubectl was not found in PATH".to_string(),
-                    },
-                    format!("Failed to run {program} {args:?}: {err}"),
-                )
-            } else {
-                KubectlError::new(format!("Failed to run {program} {args:?}: {err}"))
-            }
-        })?;
+    // `kill_on_drop` ensures a timed-out kubectl is terminated instead of
+    // being orphaned when the `output()` future is dropped.
+    let output = timeout(
+        KUBECTL_TIMEOUT,
+        Command::new(program).args(args).kill_on_drop(true).output(),
+    )
+    .await
+    .map_err(|_| {
+        let message = format!(
+            "kubectl {} timed out after {}s",
+            args.join(" "),
+            KUBECTL_TIMEOUT.as_secs()
+        );
+        KubectlError::with_issue(
+            ConnectionIssue {
+                kind: ConnectionIssueKind::Generic,
+                namespace: None,
+                detail: message.clone(),
+            },
+            message,
+        )
+    })?
+    .map_err(|err| {
+        if err.kind() == ErrorKind::NotFound {
+            KubectlError::with_issue(
+                ConnectionIssue {
+                    kind: ConnectionIssueKind::KubectlMissing,
+                    namespace: None,
+                    detail: "kubectl was not found in PATH".to_string(),
+                },
+                format!("Failed to run {program} {args:?}: {err}"),
+            )
+        } else {
+            KubectlError::new(format!("Failed to run {program} {args:?}: {err}"))
+        }
+    })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -102,6 +115,25 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
         anyhow::bail!("Only kubectl is allowed, got {program}");
     }
 
+    // Flags that could exfiltrate credentials or redirect requests elsewhere.
+    const BLOCKED_FLAGS: &[&str] = &[
+        "--raw",
+        "--kubeconfig",
+        "--server",
+        "-s",
+        "--token",
+        "--as",
+        "--as-group",
+        "--as-uid",
+    ];
+    if let Some(flag) = args.iter().find(|arg| {
+        BLOCKED_FLAGS
+            .iter()
+            .any(|blocked| **arg == *blocked || arg.starts_with(&format!("{blocked}=")))
+    }) {
+        anyhow::bail!("Rejected kubectl flag: {flag}");
+    }
+
     match args {
         ["get", ..] | ["top", ..] | ["logs", ..] => Ok(()),
         ["config", "current-context", ..] | ["config", "view", ..] => Ok(()),
@@ -113,18 +145,28 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
     }
 }
 
-pub async fn fetch_node_metrics(node_pool_filter: Option<&str>) -> Result<Vec<NodeMetric>> {
+/// Usage metrics are best-effort: when `kubectl top` fails (e.g. metrics-server
+/// is missing) the data is still useful, so return the failure as a warning.
+fn split_top_result(result: Result<String, KubectlError>) -> (String, Option<String>) {
+    match result {
+        Ok(output) => (output, None),
+        Err(err) => (String::new(), Some(format!("metrics unavailable: {err}"))),
+    }
+}
+
+pub async fn fetch_node_metrics(
+    node_pool_filter: Option<&str>,
+) -> Result<(Vec<NodeMetric>, Option<String>)> {
     let (top_result, info_result) = tokio::join!(
         run_cmd("kubectl", &["top", "nodes", "--no-headers"]),
         run_cmd("kubectl", &["get", "nodes", "-o", "json"]),
     );
 
-    let top_output = top_result.unwrap_or_default();
     let info_json: Value = serde_json::from_str(&info_result?)?;
-    Ok(build_node_metrics(
-        &top_output,
-        &info_json,
-        node_pool_filter,
+    let (top_output, top_warning) = split_top_result(top_result);
+    Ok((
+        build_node_metrics(&top_output, &info_json, node_pool_filter),
+        top_warning,
     ))
 }
 
@@ -253,7 +295,8 @@ fn build_node_metric(item: &Value, top_metrics: Option<TopNodeMetrics>) -> Optio
         .map(parse_memory_mb)
         .unwrap_or(0);
     let cpu_capacity = item
-        .pointer("/status/capacity/cpu")
+        .pointer("/status/allocatable/cpu")
+        .or_else(|| item.pointer("/status/capacity/cpu"))
         .and_then(|v| v.as_str())
         .map(parse_cpu)
         .unwrap_or(0);
@@ -610,7 +653,7 @@ fn parse_condition_status(status: &str) -> ConditionStatus {
     }
 }
 
-pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
+pub async fn fetch_pod_info(namespace: &str) -> Result<(Vec<PodInfo>, Option<String>)> {
     let top_args = vec!["top", "pods", "-n", namespace, "--no-headers"];
     let info_args = vec!["get", "pods", "-n", namespace, "-o", "json"];
     let (top_result, info_result) = tokio::join!(
@@ -618,8 +661,8 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
         run_cmd("kubectl", &info_args),
     );
 
-    let top_output = top_result.unwrap_or_default();
     let info_json: Value = serde_json::from_str(&info_result?)?;
+    let (top_output, top_warning) = split_top_result(top_result);
 
     // Build map: pod name -> (cpu_m, mem_mb)
     let mut top_map = std::collections::HashMap::new();
@@ -779,7 +822,7 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
         }
     }
 
-    Ok(pods)
+    Ok((pods, top_warning))
 }
 
 pub struct WorkloadCollection {
@@ -1152,7 +1195,12 @@ fn collect_cronjobs(resource: &Value, namespace: &str, workloads: &mut Vec<Workl
 
 fn collect_hpas(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadSummary>) {
     for item in workload_items(resource) {
-        let minimum = status_u32(item, "/spec/minReplicas").max(1);
+        // minReplicas defaults to 1 when unset, but 0 (scale-to-zero) is valid.
+        let minimum = if item.pointer("/spec/minReplicas").is_some() {
+            status_u32(item, "/spec/minReplicas")
+        } else {
+            1
+        };
         let maximum = status_u32(item, "/spec/maxReplicas");
         let current = status_u32(item, "/status/currentReplicas");
         let desired = status_u32(item, "/status/desiredReplicas");
@@ -1564,10 +1612,15 @@ fn derive_pod_status(
     crash_looping: bool,
     oom_killed: bool,
 ) -> HealthStatus {
-    if crash_looping || oom_killed || !is_ready || matches!(phase, "Failed" | "Unknown") {
+    if phase == "Succeeded" {
+        // Completed Job/CronJob pods have no ready containers by design.
+        HealthStatus::Healthy
+    } else if crash_looping || oom_killed || matches!(phase, "Failed" | "Unknown") {
         HealthStatus::Critical
     } else if phase == "Pending" {
         HealthStatus::Warning
+    } else if !is_ready {
+        HealthStatus::Critical
     } else {
         HealthStatus::from_pct(memory_pct)
     }
@@ -1713,13 +1766,16 @@ pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
 }
 
 pub async fn fetch_namespaces() -> Result<Vec<NamespaceSummary>> {
-    let (namespace_output, pod_output) = tokio::try_join!(
+    let (namespace_result, pod_result) = tokio::join!(
         run_cmd("kubectl", &["get", "namespaces", "--no-headers"]),
         run_cmd(
             "kubectl",
             &["get", "pods", "--all-namespaces", "--no-headers"]
         ),
-    )?;
+    );
+    let namespace_output = namespace_result?;
+    // Users without cluster-wide pod access can still pick a namespace.
+    let pod_output = pod_result.unwrap_or_default();
 
     let pod_counts = namespace_pod_counts(&pod_output);
     let mut namespaces: Vec<NamespaceSummary> = namespace_output
@@ -1828,7 +1884,6 @@ fn classify_connection_issue(args: &[&str], stderr: &str) -> Option<ConnectionIs
         || stderr_lower.contains("dial tcp")
         || stderr_lower.contains("certificate")
         || stderr_lower.contains("unauthorized")
-        || stderr_lower.contains("forbidden")
     {
         return Some(ConnectionIssue {
             kind: ConnectionIssueKind::Generic,
@@ -1872,24 +1927,38 @@ pub fn parse_cpu(s: &str) -> u64 {
     }
 }
 
+/// Parse a Kubernetes memory quantity (bytes, binary or decimal suffixes,
+/// exponent notation, fractions) into MiB.
 pub fn parse_memory_mb(s: &str) -> u64 {
-    if let Some(stripped) = s.strip_suffix("Ki") {
-        let kb: u64 = stripped.parse().unwrap_or(0);
-        // Keep fractional MB by rounding up for small values
-        (kb + 512) / 1024
-    } else if let Some(stripped) = s.strip_suffix("Mi") {
-        stripped.parse().unwrap_or(0)
-    } else if let Some(stripped) = s.strip_suffix("Gi") {
-        let gb: u64 = stripped.parse().unwrap_or(0);
-        gb * 1024
-    } else if let Some(stripped) = s.strip_suffix('M') {
-        stripped.parse().unwrap_or(0)
-    } else if let Some(stripped) = s.strip_suffix('G') {
-        let gb: u64 = stripped.parse().unwrap_or(0);
-        gb * 1024
-    } else {
-        s.parse().unwrap_or(0)
+    const SUFFIXES: &[(&str, f64)] = &[
+        ("Ki", 1024.0),
+        ("Mi", 1048576.0),
+        ("Gi", 1073741824.0),
+        ("Ti", 1099511627776.0),
+        ("Pi", 1125899906842624.0),
+        ("Ei", 1152921504606846976.0),
+        ("k", 1e3),
+        ("K", 1e3),
+        ("M", 1e6),
+        ("G", 1e9),
+        ("T", 1e12),
+        ("P", 1e15),
+        ("E", 1e18),
+    ];
+
+    let s = s.trim();
+    let (number, multiplier) = SUFFIXES
+        .iter()
+        .find_map(|(suffix, mult)| s.strip_suffix(suffix).map(|n| (n, *mult)))
+        .unwrap_or((s, 1.0));
+    let Ok(value) = number.parse::<f64>() else {
+        return 0;
+    };
+    if !value.is_finite() || value <= 0.0 {
+        return 0;
     }
+    // Round to the nearest MiB; `as` saturates on overflow.
+    (value * multiplier / 1048576.0).round() as u64
 }
 
 fn metadata_name(item: &Value) -> String {
@@ -2440,6 +2509,16 @@ mod tests {
             derive_pod_status(10, "Running", true, false, false),
             HealthStatus::Healthy
         );
+        // Pending pods are never container-ready; they should still be Warning.
+        assert_eq!(
+            derive_pod_status(10, "Pending", false, false, false),
+            HealthStatus::Warning
+        );
+        // Completed Job pods have terminated (not ready) containers.
+        assert_eq!(
+            derive_pod_status(10, "Succeeded", false, false, false),
+            HealthStatus::Healthy
+        );
         assert_eq!(ConditionStatus::True.as_str(), "True");
     }
 
@@ -2457,8 +2536,15 @@ mod tests {
         assert_eq!(parse_memory_mb("512Mi"), 512);
         assert_eq!(parse_memory_mb("2Gi"), 2048);
         assert_eq!(parse_memory_mb("1024Ki"), 1);
-        assert_eq!(parse_memory_mb("512M"), 512);
-        assert_eq!(parse_memory_mb("2G"), 2048);
+        // Decimal suffixes are powers of 10, not 2.
+        assert_eq!(parse_memory_mb("512M"), 488);
+        assert_eq!(parse_memory_mb("2G"), 1907);
+        assert_eq!(parse_memory_mb("1Ti"), 1024 * 1024);
+        assert_eq!(parse_memory_mb("1.5Gi"), 1536);
+        assert_eq!(parse_memory_mb("500k"), 0);
+        assert_eq!(parse_memory_mb("129e6"), 123);
+        // A bare number is bytes.
+        assert_eq!(parse_memory_mb("134217728"), 128);
         assert_eq!(parse_memory_mb(""), 0);
         assert_eq!(parse_memory_mb("abc"), 0);
     }

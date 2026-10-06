@@ -46,8 +46,9 @@ pub enum HealthStatus {
 
 impl HealthStatus {
     pub fn from_pct(pct: u8) -> Self {
-        // Thresholds intentionally aligned with health score grade boundaries
-        if pct >= GRADE_A_THRESHOLD {
+        // Critical matches the pressure threshold used for health penalties and
+        // red usage cells; lower bands follow the grade boundaries.
+        if pct >= RESOURCE_PRESSURE_PCT {
             Self::Critical
         } else if pct >= GRADE_B_THRESHOLD {
             Self::Warning
