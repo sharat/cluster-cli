@@ -53,7 +53,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
 
 fn render_connection_blocker(f: &mut Frame, area: Rect, app: &AppState) {
     let popup_w = area.width.saturating_sub(10).clamp(60, 100);
-    let popup_h = 9u16;
+    let popup_h = 11u16;
     let x = area.x + area.width.saturating_sub(popup_w) / 2;
     let y = area.y + area.height.saturating_sub(popup_h) / 2;
     let popup_area = Rect::new(x, y, popup_w.min(area.width), popup_h.min(area.height));
@@ -71,15 +71,26 @@ fn render_connection_blocker(f: &mut Frame, area: Rect, app: &AppState) {
         .blocking_connection_message()
         .unwrap_or_else(|| "Unable to connect to the cluster.".to_string());
 
-    let lines = vec![
-        Line::from(vec![Span::styled(
+    // Pin the actions to the bottom row so a long error can't push them out.
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2), // title + spacer
+            Constraint::Fill(1),   // message
+            Constraint::Length(1), // actions
+        ])
+        .split(inner);
+
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
             "Connection required",
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-        )]),
-        Line::from(""),
-        Line::from(message),
-        Line::from(""),
-        Line::from(vec![
+        ))),
+        rows[0],
+    );
+    f.render_widget(Paragraph::new(message).wrap(Wrap { trim: true }), rows[1]);
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
             Span::styled(
                 "Actions: ",
                 Style::default()
@@ -107,10 +118,9 @@ fn render_connection_blocker(f: &mut Frame, area: Rect, app: &AppState) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" retry"),
-        ]),
-    ];
-
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+        ])),
+        rows[2],
+    );
 }
 
 fn render_workload_popup(f: &mut Frame, area: Rect, app: &AppState) {

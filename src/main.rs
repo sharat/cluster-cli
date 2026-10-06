@@ -125,7 +125,14 @@ async fn main() -> Result<()> {
 
     let mut config = Config::load(cli.config)?;
 
-    tracing_subscriber::fmt().with_writer(io::stderr).init();
+    // Logging is opt-in via RUST_LOG. stderr shares the terminal with the TUI,
+    // so unconditional logging would draw over the alternate screen.
+    if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_writer(io::stderr)
+            .init();
+    }
 
     // Restore terminal on panic
     let original_hook = std::panic::take_hook();

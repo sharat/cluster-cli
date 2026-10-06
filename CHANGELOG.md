@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Stop error logs from drawing over the TUI when kubectl fails; logging is now only enabled when `RUST_LOG` is set
+- Show a clear "no context configured" message instead of raw kubectl diagnostics when no kubectl context is set, and keep the connection popup's actions visible for long errors
 - Record curl-based installations explicitly so upgrades keep using the correct method from custom install directories
 - Prevent stale log lines from a previous container or source appearing after a stream switch
 - Surface workload kinds that could not be collected instead of silently showing incomplete data
