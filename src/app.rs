@@ -457,11 +457,9 @@ impl AppState {
         let issue = self.connection_issue.as_ref()?;
         Some(match issue.kind {
             crate::data::models::ConnectionIssueKind::KubectlMissing => {
-                format!("{} Press `r` to retry.", issue.detail)
+                with_retry_hint(&issue.detail)
             }
-            crate::data::models::ConnectionIssueKind::NoContext => {
-                format!("{} Press `r` to retry.", issue.detail)
-            }
+            crate::data::models::ConnectionIssueKind::NoContext => with_retry_hint(&issue.detail),
             crate::data::models::ConnectionIssueKind::NamespaceUnavailable => {
                 if issue.namespace.is_none() && self.config.namespace.is_empty() {
                     issue.detail.clone()
@@ -483,9 +481,7 @@ impl AppState {
                     )
                 }
             }
-            crate::data::models::ConnectionIssueKind::Generic => {
-                format!("{} Press `r` to retry.", issue.detail)
-            }
+            crate::data::models::ConnectionIssueKind::Generic => with_retry_hint(&issue.detail),
         })
     }
 
@@ -578,6 +574,16 @@ impl AppState {
 
 /// Controller-created pods are named `<workload>-<suffix>` (e.g. `api-6d4f9-x2k`,
 /// `db-0`), so match on the workload name followed by a dash rather than any substring.
+fn with_retry_hint(detail: &str) -> String {
+    let detail = detail.trim_end();
+    let separator = if detail.ends_with(['.', '!', '?']) {
+        " "
+    } else {
+        ". "
+    };
+    format!("{detail}{separator}Press `r` to retry.")
+}
+
 fn pod_belongs_to_workload(pod_name: &str, workload_name: &str) -> bool {
     pod_name == workload_name
         || pod_name

@@ -96,7 +96,7 @@ async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
     })?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = strip_klog_lines(&String::from_utf8_lossy(&output.stderr));
         let stderr_trimmed = stderr.trim();
         let issue = classify_connection_issue(args, stderr_trimmed);
         return Err(match issue {
@@ -1852,17 +1852,25 @@ pub fn classify_kubectl_error(err: &anyhow::Error) -> Option<ConnectionIssue> {
         .and_then(|kubectl_err| kubectl_err.connection_issue().cloned())
 }
 
+const NO_CONTEXT_DETAIL: &str =
+    "No active kubectl context is configured. Run `kubectl config use-context <name>` or set KUBECONFIG.";
+
 fn classify_connection_issue(args: &[&str], stderr: &str) -> Option<ConnectionIssue> {
+    let stderr = strip_klog_lines(stderr);
+    let stderr = stderr.as_str();
     let stderr_lower = stderr.to_ascii_lowercase();
 
+    // Without a context kubectl silently falls back to http://localhost:8080,
+    // so a refused connection there almost always means no context is set.
     if stderr_lower.contains("current-context is not set")
         || stderr_lower.contains("no current context")
         || stderr_lower.contains("no context")
+        || stderr_lower.contains("localhost:8080 was refused")
     {
         return Some(ConnectionIssue {
             kind: ConnectionIssueKind::NoContext,
             namespace: None,
-            detail: stderr_trim_or_default(stderr, "No active kubectl context is configured."),
+            detail: NO_CONTEXT_DETAIL.to_string(),
         });
     }
 
@@ -1906,6 +1914,25 @@ fn requested_namespace(args: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+/// Drop klog diagnostic lines (e.g. `E1006 21:59:14.025401  32805 memcache.go:265] ...`)
+/// that kubectl writes to stderr alongside the real error message.
+fn strip_klog_lines(stderr: &str) -> String {
+    stderr
+        .lines()
+        .filter(|line| !is_klog_line(line.trim_start()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn is_klog_line(line: &str) -> bool {
+    let mut chars = line.chars();
+    matches!(chars.next(), Some('I' | 'W' | 'E' | 'F'))
+        && chars.by_ref().take(4).filter(char::is_ascii_digit).count() == 4
+        && chars.next() == Some(' ')
+        && line.contains(".go:")
+        && line.contains(']')
 }
 
 fn stderr_trim_or_default(stderr: &str, default: &str) -> String {
@@ -2565,6 +2592,32 @@ mod tests {
             "error: current-context is not set",
         );
         assert_eq!(issue.unwrap().kind, ConnectionIssueKind::NoContext);
+    }
+
+    #[test]
+    fn classify_connection_issue_treats_localhost_fallback_as_no_context() {
+        let stderr = "E1006 22:05:59.691208   43870 memcache.go:265] \"Unhandled Error\" err=\"couldn't get current server API group list: Get \\\"http://localhost:8080/api?timeout=32s\\\": dial tcp [::1]:8080: connect: connection refused\"\n\
+E1006 22:05:59.691751   43870 memcache.go:265] \"Unhandled Error\" err=\"couldn't get current server API group list\"\n\
+The connection to the server localhost:8080 was refused - did you specify the right host or port?";
+
+        let issue = classify_connection_issue(&["get", "pods", "-n", "default"], stderr).unwrap();
+
+        assert_eq!(issue.kind, ConnectionIssueKind::NoContext);
+        assert!(!issue.detail.contains("memcache.go"));
+    }
+
+    #[test]
+    fn classify_connection_issue_strips_klog_noise_from_detail() {
+        let stderr = "E1006 22:05:59.691208   43870 memcache.go:265] \"Unhandled Error\" err=\"dial tcp 10.0.0.1:443: i/o timeout\"\n\
+Unable to connect to the server: dial tcp 10.0.0.1:443: i/o timeout";
+
+        let issue = classify_connection_issue(&["get", "pods"], stderr).unwrap();
+
+        assert_eq!(issue.kind, ConnectionIssueKind::Generic);
+        assert_eq!(
+            issue.detail,
+            "Unable to connect to the server: dial tcp 10.0.0.1:443: i/o timeout"
+        );
     }
 
     #[test]

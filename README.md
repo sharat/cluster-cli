@@ -335,7 +335,7 @@ Data flows:
 
 ## Logging
 
-Logs are emitted to stderr only when enabled with `RUST_LOG`. The app does not create log files or write local runtime state.
+Logs are emitted to stderr only when enabled with `RUST_LOG`. Because stderr shares the terminal with the TUI, redirect it when logging (e.g. `RUST_LOG=debug cluster 2>cluster.log`). The app does not create log files or write local runtime state.
 
 ## Development
 
