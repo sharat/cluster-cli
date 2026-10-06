@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-10-07
+
 ### Fixed
 - Stop error logs from drawing over the TUI when kubectl fails; logging is now only enabled when `RUST_LOG` is set
 - Show a clear "no context configured" message instead of raw kubectl diagnostics when no kubectl context is set, and keep the connection popup's actions visible for long errors
@@ -166,7 +168,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-update checking
 - Multi-platform support (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/sharat/cluster-cli/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/sharat/cluster-cli/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/sharat/cluster-cli/compare/v0.3.0...v0.3.4
 [0.3.0]: https://github.com/sharat/cluster-cli/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/sharat/cluster-cli/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/sharat/cluster-cli/compare/v0.2.3...v0.2.4
