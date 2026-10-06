@@ -170,7 +170,7 @@ fn canonical_event_reason(event: &ClusterEvent) -> Option<(&str, IncidentSeverit
     if message.contains("imagepullbackoff")
         || message.contains("errimagepull")
         || message.contains("pull image")
-        || message.contains("failed to pull image")
+        || message.contains("pulling image")
     {
         return Some(("ImagePullBackOff", IncidentSeverity::Critical));
     }
@@ -210,7 +210,10 @@ fn add_incident(
     let entry = buckets
         .entry(reason.to_string())
         .or_insert_with(|| IncidentAccumulator::new(reason.to_string(), severity));
-    entry.severity = entry.severity.max(severity);
+    // The derived `Ord` follows declaration order (Critical < Elevated), so compare by rank.
+    if severity.rank() > entry.severity.rank() {
+        entry.severity = severity;
+    }
     entry.occurrences += occurrences;
     entry.resources.insert(target.display_label());
     entry.targets.insert(target);
@@ -362,6 +365,24 @@ mod tests {
         assert!(buckets.iter().any(|b| b.reason == "NodeNotReady"));
         assert!(buckets.iter().any(|b| b.reason == "ImagePullBackOff"));
         assert!(buckets.iter().any(|b| b.reason == "FailedScheduling"));
+    }
+
+    #[test]
+    fn image_pull_backoff_event_is_bucketed_as_image_pull() {
+        let events = vec![ClusterEvent {
+            kind: "Pod".to_string(),
+            name: "web".to_string(),
+            reason: "BackOff".to_string(),
+            message: "Back-off pulling image \"nginx:bad\"".to_string(),
+            event_type: EventType::Warning,
+            count: 3,
+            timestamp: "2026-03-09T10:00:00Z".to_string(),
+        }];
+
+        let buckets = build_incident_buckets(&[], &[], &events);
+
+        assert_eq!(buckets[0].reason, "ImagePullBackOff");
+        assert_eq!(buckets[0].severity, IncidentSeverity::Critical);
     }
 
     #[test]

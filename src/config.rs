@@ -26,7 +26,17 @@ pub struct ConfigOverrides {
     node_pool_filter: Option<String>,
 }
 
+/// Bounds for the refresh interval. Zero would divide by zero when aligning
+/// ticks to clock boundaries, and huge values overflow `Instant` arithmetic.
+pub const MIN_REFRESH_SECS: u64 = 1;
+pub const MAX_REFRESH_SECS: u64 = 86_400;
+
+pub fn clamp_refresh_secs(secs: u64) -> u64 {
+    secs.clamp(MIN_REFRESH_SECS, MAX_REFRESH_SECS)
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
 pub struct Config {
     pub namespace: String,
     pub resource_group: Option<String>,
@@ -62,7 +72,13 @@ impl Config {
         let config_path = Self::dir_path().join("config.toml");
         let mut config = if config_path.exists() {
             let content = std::fs::read_to_string(&config_path)?;
-            toml::from_str(&content).unwrap_or_default()
+            toml::from_str(&content).unwrap_or_else(|err| {
+                eprintln!(
+                    "warning: ignoring invalid config {}: {err}",
+                    config_path.display()
+                );
+                Config::default()
+            })
         } else {
             Config::default()
         };
@@ -82,6 +98,7 @@ impl Config {
         if let Some(filter) = overrides.node_pool_filter {
             config.node_pool_filter = Some(filter);
         }
+        config.refresh_interval_secs = clamp_refresh_secs(config.refresh_interval_secs);
 
         Ok(config)
     }
@@ -120,5 +137,21 @@ mod tests {
         let config = Config::load_from_overrides(args.config).expect("config should load");
 
         assert_eq!(config.node_pool_filter.as_deref(), Some("workers"));
+    }
+
+    #[test]
+    fn zero_refresh_is_clamped() {
+        let args = TestCli::parse_from(["cluster-cli", "--refresh", "0"]);
+        let config = Config::load_from_overrides(args.config).expect("config should load");
+
+        assert_eq!(config.refresh_interval_secs, super::MIN_REFRESH_SECS);
+    }
+
+    #[test]
+    fn partial_toml_keeps_defaults_for_missing_fields() {
+        let config: Config = toml::from_str("refresh_interval_secs = 30").expect("should parse");
+
+        assert_eq!(config.refresh_interval_secs, 30);
+        assert!(config.namespace.is_empty());
     }
 }
