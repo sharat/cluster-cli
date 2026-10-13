@@ -43,12 +43,12 @@ convert_ansisvg() {
 }
 
 # Function to convert using termshot (if available)
-# termshot reads from stdin and writes to a file
+# termshot render <INPUT> writes PNG to stdout
 convert_termshot() {
     local input="$1"
     local output="$2"
     
-    termshot render < "$input" > "$output"
+    termshot render "$input" > "$output"
 }
 
 # Convert all .txt files
