@@ -43,11 +43,12 @@ convert_ansisvg() {
 }
 
 # Function to convert using termshot (if available)
+# termshot reads from stdin and writes to a file
 convert_termshot() {
     local input="$1"
     local output="$2"
     
-    termshot --file "$input" --output "$output"
+    termshot render < "$input" > "$output"
 }
 
 # Convert all .txt files
@@ -62,10 +63,11 @@ for txtfile in "$INPUT_DIR"/*.txt; do
     
     echo "Converting: $basename"
     
-    if [ "$HAS_TERMSHOT" = true ]; then
-        convert_termshot "$txtfile" "$pngfile"
-    elif [ "$HAS_ANSISVG" = true ] && [ "$HAS_RSVG" = true ]; then
+    # Prefer ansisvg + rsvg-convert (more reliable in CI)
+    if [ "$HAS_ANSISVG" = true ] && [ "$HAS_RSVG" = true ]; then
         convert_ansisvg "$txtfile" "$pngfile"
+    elif [ "$HAS_TERMSHOT" = true ]; then
+        convert_termshot "$txtfile" "$pngfile"
     else
         echo "  ERROR: No conversion tools available!"
         echo "  Install one of:"
