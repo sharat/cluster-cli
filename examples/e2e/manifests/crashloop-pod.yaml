@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: crashloop-pod
+  namespace: default
+  labels:
+    app: crashloop-test
+spec:
+  containers:
+  - name: crasher
+    image: busybox:1.37
+    command: ["sh", "-c", "echo 'Starting...'; sleep 2; echo 'Crashing!'; exit 1"]
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 20m
+        memory: 32Mi
+  restartPolicy: Always
