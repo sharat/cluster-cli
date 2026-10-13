@@ -40,8 +40,9 @@ tmux new-session -d -s cluster-e2e -x "$TERM_WIDTH" -y "$TERM_HEIGHT"
 # Fail instead of capturing the shell if cluster-cli has exited
 assert_running() {
     local running
+    # Reported as the basename on macOS but as the full argv[0] on Linux
     running=$(tmux display-message -p -t cluster-e2e '#{pane_current_command}')
-    if [ "$running" != "$(basename "$CLUSTER_BIN")" ]; then
+    if [ "$(basename -- "$running")" != "$(basename -- "$CLUSTER_BIN")" ]; then
         echo "Error: cluster-cli is not running in the tmux pane (found: $running)"
         tmux capture-pane -p -t cluster-e2e
         tmux kill-session -t cluster-e2e 2>/dev/null || true
