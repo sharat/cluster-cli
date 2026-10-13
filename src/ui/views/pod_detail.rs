@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame,
 };
 
 use crate::app::{AppState, AppView, PodDetailSection};
@@ -47,27 +47,18 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState, pod_name: &str) {
     let text = format!(" [Esc] Back  |  {pod_name}  |{status}");
 
     f.render_widget(
-        Paragraph::new(text).style(
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Paragraph::new(text).style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
         area,
     );
 }
 
 fn render_overview(f: &mut Frame, area: Rect, app: &AppState) {
     let is_focused = app.pod_detail_section == PodDetailSection::Overview;
-    let border_style = if is_focused {
-        theme::focused_border_style()
-    } else {
-        theme::normal_border_style()
-    };
+    let border_style =
+        if is_focused { theme::focused_border_style() } else { theme::normal_border_style() };
 
-    let block = Block::default()
-        .title(" Overview ")
-        .borders(Borders::ALL)
-        .border_style(border_style);
+    let block =
+        Block::default().title(" Overview ").borders(Borders::ALL).border_style(border_style);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -110,24 +101,16 @@ fn render_overview(f: &mut Frame, area: Rect, app: &AppState) {
             Line::from(""),
             Line::styled(
                 "  Containers:",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
             ),
         ];
 
         let available_lines = inner.height.saturating_sub(lines.len() as u16) as usize;
         let visible_container_count = available_lines.min(pod.containers.len());
         for container in pod.containers.iter().take(visible_container_count) {
-            let (readiness_failures, liveness_failures) = probe_failures
-                .get(&container.name)
-                .copied()
-                .unwrap_or((0, 0));
-            lines.push(container_line(
-                container,
-                readiness_failures,
-                liveness_failures,
-            ));
+            let (readiness_failures, liveness_failures) =
+                probe_failures.get(&container.name).copied().unwrap_or((0, 0));
+            lines.push(container_line(container, readiness_failures, liveness_failures));
         }
         if pod.containers.len() > visible_container_count {
             lines.push(Line::styled(
@@ -147,10 +130,7 @@ fn render_overview(f: &mut Frame, area: Rect, app: &AppState) {
 
         f.render_widget(Paragraph::new(lines), inner);
     } else {
-        f.render_widget(
-            Paragraph::new("  Pod not found in current snapshot."),
-            inner,
-        );
+        f.render_widget(Paragraph::new("  Pod not found in current snapshot."), inner);
     }
 }
 
@@ -160,11 +140,7 @@ fn container_probe_failures(app: &AppState, pod: &PodInfo) -> HashMap<String, (u
         return failures;
     };
 
-    for event in snapshot
-        .events
-        .iter()
-        .filter(|e| e.kind == "Pod" && e.name == pod.name)
-    {
+    for event in snapshot.events.iter().filter(|e| e.kind == "Pod" && e.name == pod.name) {
         if event.reason != "Unhealthy" {
             continue;
         }
@@ -206,10 +182,7 @@ fn infer_container_name(message: &str, pod: &PodInfo) -> Option<String> {
     }
 
     if pod.containers.len() == 1 {
-        return pod
-            .containers
-            .first()
-            .map(|container| container.name.clone());
+        return pod.containers.first().map(|container| container.name.clone());
     }
 
     None
@@ -225,14 +198,9 @@ fn container_line(
     } else {
         Style::default().fg(Color::Yellow)
     };
-    let last_reason = container
-        .last_termination_reason
-        .clone()
-        .unwrap_or_else(|| "-".to_string());
-    let last_exit = container
-        .last_exit_code
-        .map(|code| code.to_string())
-        .unwrap_or_else(|| "-".to_string());
+    let last_reason = container.last_termination_reason.clone().unwrap_or_else(|| "-".to_string());
+    let last_exit =
+        container.last_exit_code.map(|code| code.to_string()).unwrap_or_else(|| "-".to_string());
 
     Line::from(vec![
         Span::raw(format!("  {:<16}", truncate_label(&container.name, 16))),
@@ -241,14 +209,8 @@ fn container_line(
             readiness_style.add_modifier(Modifier::BOLD),
         ),
         Span::raw(format!("{:<22}", truncate_label(&container.state, 22))),
-        Span::styled(
-            format!("r:{}  ", container.restart_count),
-            Style::default().fg(Color::White),
-        ),
-        Span::styled(
-            format!("last:{last_reason}/{last_exit}  "),
-            Style::default().fg(Color::Gray),
-        ),
+        Span::styled(format!("r:{}  ", container.restart_count), Style::default().fg(Color::White)),
+        Span::styled(format!("last:{last_reason}/{last_exit}  "), Style::default().fg(Color::Gray)),
         Span::styled(
             format!("probe R:{readiness_failures} L:{liveness_failures}"),
             Style::default().fg(Color::DarkGray),
@@ -268,16 +230,10 @@ fn truncate_label(value: &str, width: usize) -> String {
 
 fn render_events(f: &mut Frame, area: Rect, app: &AppState, pod_name: &str) {
     let is_focused = app.pod_detail_section == PodDetailSection::Events;
-    let border_style = if is_focused {
-        theme::focused_border_style()
-    } else {
-        theme::normal_border_style()
-    };
+    let border_style =
+        if is_focused { theme::focused_border_style() } else { theme::normal_border_style() };
 
-    let block = Block::default()
-        .title(" Events ")
-        .borders(Borders::ALL)
-        .border_style(border_style);
+    let block = Block::default().title(" Events ").borders(Borders::ALL).border_style(border_style);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -290,10 +246,7 @@ fn render_events(f: &mut Frame, area: Rect, app: &AppState, pod_name: &str) {
             .collect();
 
         let lines: Vec<Line> = if pod_events.is_empty() {
-            vec![Line::styled(
-                "  No events for this pod.",
-                Style::default().fg(Color::DarkGray),
-            )]
+            vec![Line::styled("  No events for this pod.", Style::default().fg(Color::DarkGray))]
         } else {
             pod_events
                 .iter()
@@ -328,9 +281,7 @@ fn metric_line(label: &str, pct: u8, detail: String) -> Line<'static> {
         Span::raw(format!("  {label}:  ")),
         Span::styled(
             format!("{pct:>3}%  "),
-            Style::default()
-                .fg(theme::heat_color(pct))
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(theme::heat_color(pct)).add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!("{detail}  "), Style::default().fg(Color::White)),
     ];

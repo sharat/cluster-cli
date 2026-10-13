@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
-    Frame,
 };
 
 use crate::app::{AppState, Overlay};
@@ -93,30 +93,13 @@ fn render_connection_blocker(f: &mut Frame, area: Rect, app: &AppState) {
         Paragraph::new(Line::from(vec![
             Span::styled(
                 "Actions: ",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                "n",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled("n", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw(" choose namespace  "),
-            Span::styled(
-                "N",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled("N", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw(" enter namespace  "),
-            Span::styled(
-                "r",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled("r", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw(" retry"),
         ])),
         rows[2],
@@ -144,16 +127,10 @@ fn render_workload_popup(f: &mut Frame, area: Rect, app: &AppState) {
         .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
         .split(inner);
 
-    let workloads = app
-        .snapshot
-        .as_ref()
-        .map(|s| s.workloads.as_slice())
-        .unwrap_or(&[]);
+    let workloads = app.snapshot.as_ref().map(|s| s.workloads.as_slice()).unwrap_or(&[]);
 
     let items: Vec<ListItem> = workloads.iter().map(workload_list_item).collect();
-    let list = List::new(items)
-        .highlight_style(theme::selected_style())
-        .highlight_symbol("> ");
+    let list = List::new(items).highlight_style(theme::selected_style()).highlight_symbol("> ");
     let mut state = ListState::default();
     if !workloads.is_empty() {
         let bounded_cursor = app.workload_cursor.min(workloads.len().saturating_sub(1));
@@ -168,9 +145,7 @@ fn render_workload_popup(f: &mut Frame, area: Rect, app: &AppState) {
 
     let detail_block = Block::default().borders(Borders::LEFT);
     f.render_widget(
-        Paragraph::new(detail)
-            .block(detail_block)
-            .wrap(Wrap { trim: true }),
+        Paragraph::new(detail).block(detail_block).wrap(Wrap { trim: true }),
         columns[1],
     );
 }
@@ -181,17 +156,12 @@ fn workload_list_item(workload: &WorkloadSummary) -> ListItem<'static> {
         Line::from(vec![
             Span::styled(
                 format!("{:<4}", workload.kind.short_label()),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             ),
             Span::raw(" "),
             Span::styled(workload.name.clone(), status_style),
         ]),
-        Line::from(vec![Span::styled(
-            workload.summary.clone(),
-            Style::default().fg(Color::Gray),
-        )]),
+        Line::from(vec![Span::styled(workload.summary.clone(), Style::default().fg(Color::Gray))]),
     ])
 }
 
@@ -200,9 +170,7 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
         Line::from(vec![
             Span::styled(
                 format!("{} ", workload.kind.short_label()),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 workload.name.clone(),
@@ -226,9 +194,7 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
         "Recent events",
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
     )]));
 
     if workload.recent_events.is_empty() {
@@ -245,9 +211,7 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
             lines.push(Line::from(vec![
                 Span::styled(
                     format!("{:<10}", event.reason),
-                    Style::default()
-                        .fg(event_color)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(event_color).add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(format!(" x{} ", event.count)),
                 Span::styled(event.message.clone(), Style::default().fg(Color::White)),
@@ -285,10 +249,7 @@ fn render_ns_popup(f: &mut Frame, area: Rect, app: &AppState) {
 
     let inner = Rect::new(popup_area.x + 1, popup_area.y + 1, popup_area.width - 2, 1);
     let text = format!("{}_", app.ns_input);
-    f.render_widget(
-        Paragraph::new(text).style(Style::default().fg(Color::White)),
-        inner,
-    );
+    f.render_widget(Paragraph::new(text).style(Style::default().fg(Color::White)), inner);
 }
 
 fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
@@ -307,12 +268,8 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
 
     f.render_widget(block.clone(), popup_area);
 
-    let inner = Rect::new(
-        popup_area.x + 1,
-        popup_area.y + 1,
-        popup_area.width - 2,
-        popup_area.height - 2,
-    );
+    let inner =
+        Rect::new(popup_area.x + 1, popup_area.y + 1, popup_area.width - 2, popup_area.height - 2);
 
     if app.is_loading_namespaces {
         let mut spans = components::loading_spinner::spans(app.loading_animation_frame);
@@ -331,27 +288,12 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
         .map(|(i, ns)| {
             let (style, prefix) = if i == app.ns_list_cursor {
                 if ns.name == app.config.namespace {
-                    (
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                        "● ",
-                    )
+                    (Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD), "● ")
                 } else {
-                    (
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                        "  ",
-                    )
+                    (Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD), "  ")
                 }
             } else if ns.name == app.config.namespace {
-                (
-                    Style::default()
-                        .fg(Color::Magenta)
-                        .add_modifier(Modifier::BOLD),
-                    "● ",
-                )
+                (Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD), "● ")
             } else {
                 (Style::default().fg(Color::Gray), "  ")
             };
@@ -387,10 +329,7 @@ fn render_refresh_popup(f: &mut Frame, area: Rect, app: &AppState) {
 
     let inner = Rect::new(popup_area.x + 1, popup_area.y + 1, popup_area.width - 2, 1);
     let text = format!("{}_", app.refresh_input);
-    f.render_widget(
-        Paragraph::new(text).style(Style::default().fg(Color::White)),
-        inner,
-    );
+    f.render_widget(Paragraph::new(text).style(Style::default().fg(Color::White)), inner);
 }
 
 fn render_export_popup(f: &mut Frame, area: Rect, app: &AppState) {
@@ -411,10 +350,7 @@ fn render_export_popup(f: &mut Frame, area: Rect, app: &AppState) {
 
     let inner = Rect::new(popup_area.x + 1, popup_area.y + 1, popup_area.width - 2, 1);
     let text = format!("{}_", app.export_input);
-    f.render_widget(
-        Paragraph::new(text).style(Style::default().fg(Color::White)),
-        inner,
-    );
+    f.render_widget(Paragraph::new(text).style(Style::default().fg(Color::White)), inner);
 }
 
 fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
@@ -428,19 +364,14 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
             elapsed, app.config.refresh_interval_secs
         )
     } else {
-        format!(
-            "  Connecting...  Every: {}s  [R]ate",
-            app.config.refresh_interval_secs
-        )
+        format!("  Connecting...  Every: {}s  [R]ate", app.config.refresh_interval_secs)
     };
 
     let ns = &app.config.namespace;
 
     let mut spans = vec![Span::styled(
         " cluster-cli ",
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
     )];
 
     let cluster_label = app
@@ -451,28 +382,18 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
     if let Some(cluster) = cluster_label {
         spans.push(Span::styled(
             format!("{cluster}  "),
-            Style::default()
-                .fg(Color::Magenta)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
         ));
     }
 
-    spans.push(Span::styled(
-        format!("ns:{ns}"),
-        Style::default().fg(Color::Cyan),
-    ));
+    spans.push(Span::styled(format!("ns:{ns}"), Style::default().fg(Color::Cyan)));
 
     if let Some(node_pool) = app.config.node_pool_filter.as_deref() {
-        spans.push(Span::styled(
-            format!("  pool:{node_pool}"),
-            Style::default().fg(Color::Yellow),
-        ));
+        spans.push(Span::styled(format!("  pool:{node_pool}"), Style::default().fg(Color::Yellow)));
     }
 
-    spans.push(Span::styled(
-        format!("  {time}{refresh_info}  "),
-        Style::default().fg(Color::White),
-    ));
+    spans
+        .push(Span::styled(format!("  {time}{refresh_info}  "), Style::default().fg(Color::White)));
 
     let header = Paragraph::new(Line::from(spans));
     f.render_widget(header, area);

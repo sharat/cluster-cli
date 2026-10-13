@@ -16,13 +16,7 @@ pub enum AppCommand {
 /// characters that are invalid in filenames or rejected by the export path check.
 fn sanitize_filename(name: &str) -> String {
     name.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                c
-            } else {
-                '_'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' })
         .collect()
 }
 
@@ -32,6 +26,7 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
         AppView::Dashboard => handle_dashboard_key(app, key),
         AppView::PodDetail { .. } => handle_pod_detail_key(app, key),
         AppView::NodeDetail { .. } => handle_node_detail_key(app, key),
+        AppView::Timeline => handle_timeline_key(app, key),
     }
 }
 
@@ -44,19 +39,13 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                     app.clear_incident_focus();
                 }
                 KeyCode::Char('j') | KeyCode::Down => {
-                    let len = app
-                        .snapshot
-                        .as_ref()
-                        .map(|s| s.workloads.len())
-                        .unwrap_or(0);
+                    let len = app.snapshot.as_ref().map(|s| s.workloads.len()).unwrap_or(0);
                     if app.workload_cursor + 1 < len {
                         app.workload_cursor += 1;
                     }
                 }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    if app.workload_cursor > 0 {
-                        app.workload_cursor -= 1;
-                    }
+                KeyCode::Char('k') | KeyCode::Up if app.workload_cursor > 0 => {
+                    app.workload_cursor -= 1;
                 }
                 _ => {}
             }
@@ -92,10 +81,8 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                         app.ns_list_cursor += 1;
                     }
                 }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    if app.ns_list_cursor > 0 {
-                        app.ns_list_cursor -= 1;
-                    }
+                KeyCode::Char('k') | KeyCode::Up if app.ns_list_cursor > 0 => {
+                    app.ns_list_cursor -= 1;
                 }
                 _ => {}
             }
@@ -212,11 +199,7 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 KeyCode::Esc | KeyCode::Enter => {
                     app.overlay = Overlay::None;
                     let count = app.filtered_pod_count();
-                    app.pod_cursor = if count == 0 {
-                        0
-                    } else {
-                        app.pod_cursor.min(count - 1)
-                    };
+                    app.pod_cursor = if count == 0 { 0 } else { app.pod_cursor.min(count - 1) };
                 }
                 KeyCode::Char(c) => {
                     app.pod_filter.push(c);
@@ -293,6 +276,9 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
             app.export_input = filename;
             app.overlay = Overlay::ExportInput;
         }
+        KeyCode::Char('t') => {
+            app.enter_timeline_view();
+        }
         KeyCode::Esc => {
             if app.incident_focus.is_some() {
                 app.clear_incident_focus();
@@ -318,11 +304,7 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 }
             }
             Panel::Events => {
-                let len = app
-                    .snapshot
-                    .as_ref()
-                    .map(|s| s.incident_buckets.len())
-                    .unwrap_or(0);
+                let len = app.snapshot.as_ref().map(|s| s.incident_buckets.len()).unwrap_or(0);
                 if app.event_cursor + 1 < len {
                     app.event_cursor += 1;
                 }
@@ -349,8 +331,7 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
             if app.focused_panel == Panel::Pods {
                 let pod_info = {
                     let pods = app.filtered_pods();
-                    pods.get(app.pod_cursor)
-                        .map(|p| (p.name.clone(), p.namespace.clone()))
+                    pods.get(app.pod_cursor).map(|p| (p.name.clone(), p.namespace.clone()))
                 };
                 if let Some((pod_name, ns)) = pod_info {
                     app.enter_pod_detail(pod_name.clone());
@@ -374,6 +355,12 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 }
             } else if app.focused_panel == Panel::Events {
                 return handle_incident_enter(app);
+            }
+        }
+        KeyCode::Char('T') if app.focused_panel == Panel::Events => {
+            // Enter timeline view filtered to the selected incident
+            if let Some(bucket) = app.selected_incident().cloned() {
+                app.enter_timeline_for_incident(&bucket);
             }
         }
         _ => {}
@@ -452,11 +439,7 @@ fn pod_namespace(app: &AppState, pod_name: &str) -> String {
     app.snapshot
         .as_ref()
         .and_then(|snapshot| {
-            snapshot
-                .pods
-                .iter()
-                .find(|pod| pod.name == pod_name)
-                .map(|pod| pod.namespace.clone())
+            snapshot.pods.iter().find(|pod| pod.name == pod_name).map(|pod| pod.namespace.clone())
         })
         .unwrap_or_else(|| app.config.namespace.clone())
 }
@@ -539,10 +522,8 @@ fn handle_pod_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand
             app.detail_scroll = 0;
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            app.detail_scroll = app
-                .detail_scroll
-                .saturating_add(1)
-                .min(app.detail_scroll_max.get());
+            app.detail_scroll =
+                app.detail_scroll.saturating_add(1).min(app.detail_scroll_max.get());
             if app.pod_detail_section == PodDetailSection::Logs {
                 app.log_follow = false;
             }
@@ -585,14 +566,9 @@ fn handle_pod_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand
             app.log_timestamps = !app.log_timestamps;
         }
         KeyCode::Char('E') if app.pod_detail_section == PodDetailSection::Logs => {
-            let pod_name = app
-                .current_pod()
-                .map(|pod| pod.name.clone())
-                .unwrap_or_else(|| "pod".to_string());
-            let container = app
-                .log_container
-                .clone()
-                .unwrap_or_else(|| "all".to_string());
+            let pod_name =
+                app.current_pod().map(|pod| pod.name.clone()).unwrap_or_else(|| "pod".to_string());
+            let container = app.log_container.clone().unwrap_or_else(|| "all".to_string());
             let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
             app.log_input = format!("{pod_name}-{container}-{timestamp}.log");
             app.log_input_mode = LogInputMode::Export;
@@ -632,6 +608,70 @@ fn handle_node_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppComman
     None
 }
 
+fn handle_timeline_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
+    use crate::data::timeline::TimelineEntryKind;
+
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => {
+            app.exit_timeline_view();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            let entries_count = app.get_timeline_entries().len();
+            if entries_count > 0 && app.timeline_cursor + 1 < entries_count {
+                app.timeline_cursor += 1;
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if app.timeline_cursor > 0 {
+                app.timeline_cursor -= 1;
+            }
+        }
+        KeyCode::Char('s') => {
+            app.timeline_newest_first = !app.timeline_newest_first;
+            app.timeline_cursor = 0;
+        }
+        KeyCode::Char('f') => {
+            // Cycle through kind filters
+            app.timeline_kind_filter = match app.timeline_kind_filter {
+                None => Some(TimelineEntryKind::Event),
+                Some(TimelineEntryKind::Event) => Some(TimelineEntryKind::ContainerRestart),
+                Some(TimelineEntryKind::ContainerRestart) => Some(TimelineEntryKind::OOMKilled),
+                Some(TimelineEntryKind::OOMKilled) => Some(TimelineEntryKind::CrashLoop),
+                Some(TimelineEntryKind::CrashLoop) => Some(TimelineEntryKind::NodeConditionChange),
+                Some(TimelineEntryKind::NodeConditionChange) => {
+                    Some(TimelineEntryKind::SchedulingFailure)
+                }
+                Some(TimelineEntryKind::SchedulingFailure) => {
+                    Some(TimelineEntryKind::ImagePullFailure)
+                }
+                Some(TimelineEntryKind::ImagePullFailure) => Some(TimelineEntryKind::Rollout),
+                Some(TimelineEntryKind::Rollout) => None,
+            };
+            app.timeline_cursor = 0;
+        }
+        KeyCode::Char('F') => {
+            // Cycle through severity filters
+            use crate::data::models::IncidentSeverity;
+            app.timeline_severity_filter = match app.timeline_severity_filter {
+                None => Some(IncidentSeverity::Critical),
+                Some(IncidentSeverity::Critical) => Some(IncidentSeverity::Warning),
+                Some(IncidentSeverity::Warning) => Some(IncidentSeverity::Elevated),
+                Some(IncidentSeverity::Elevated) => None,
+            };
+            app.timeline_cursor = 0;
+        }
+        KeyCode::Char('c') => {
+            // Clear all filters
+            app.timeline_kind_filter = None;
+            app.timeline_namespace_filter = None;
+            app.timeline_severity_filter = None;
+            app.timeline_cursor = 0;
+        }
+        _ => {}
+    }
+    None
+}
+
 pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
     match event {
         DataEvent::Refreshed(snapshot) => {
@@ -647,22 +687,14 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
                 app.node_cursor = app.node_cursor.min(node_len - 1);
             }
 
-            let workload_len = app
-                .snapshot
-                .as_ref()
-                .map(|s| s.workloads.len())
-                .unwrap_or(0);
+            let workload_len = app.snapshot.as_ref().map(|s| s.workloads.len()).unwrap_or(0);
             if workload_len == 0 {
                 app.workload_cursor = 0;
             } else {
                 app.workload_cursor = app.workload_cursor.min(workload_len - 1);
             }
 
-            let event_len = app
-                .snapshot
-                .as_ref()
-                .map(|s| s.incident_buckets.len())
-                .unwrap_or(0);
+            let event_len = app.snapshot.as_ref().map(|s| s.incident_buckets.len()).unwrap_or(0);
             if event_len == 0 {
                 app.event_cursor = 0;
             } else {
@@ -706,10 +738,8 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
             app.ns_list = namespaces;
             app.is_loading_namespaces = false;
             if app.overlay == Overlay::NamespaceList {
-                let current_idx = app
-                    .ns_list
-                    .iter()
-                    .position(|namespace| namespace.name == app.config.namespace);
+                let current_idx =
+                    app.ns_list.iter().position(|namespace| namespace.name == app.config.namespace);
                 if let Some(idx) = current_idx {
                     app.ns_list_cursor = idx;
                 }
@@ -723,7 +753,7 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_data_event, handle_key, AppCommand};
+    use super::{AppCommand, handle_data_event, handle_key};
     use crate::app::{
         AppState, AppView, LogInputMode, LogSource, Overlay, Panel, PodDetailSection, PodSortMode,
     };
@@ -743,14 +773,8 @@ mod tests {
         app.snapshot = Some(snapshot_with_events());
         app.overlay = Overlay::NamespaceList;
         app.ns_list = vec![
-            NamespaceSummary {
-                name: "default".to_string(),
-                pod_count: 3,
-            },
-            NamespaceSummary {
-                name: "payments".to_string(),
-                pod_count: 2,
-            },
+            NamespaceSummary { name: "default".to_string(), pod_count: 3 },
+            NamespaceSummary { name: "payments".to_string(), pod_count: 2 },
         ];
         app.ns_list_cursor = 1;
 
@@ -770,10 +794,7 @@ mod tests {
     fn namespace_picker_marks_namespace_request_as_loading() {
         let mut app = AppState::new(Config::default());
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
 
         assert!(app.is_loading_namespaces);
     }
@@ -781,15 +802,9 @@ mod tests {
     #[test]
     fn namespace_picker_clears_stale_namespaces_when_loading() {
         let mut app = AppState::new(Config::default());
-        app.ns_list = vec![NamespaceSummary {
-            name: "stale".to_string(),
-            pod_count: 1,
-        }];
+        app.ns_list = vec![NamespaceSummary { name: "stale".to_string(), pod_count: 1 }];
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
 
         assert!(app.ns_list.is_empty());
     }
@@ -832,10 +847,7 @@ mod tests {
 
         handle_data_event(
             &mut app,
-            DataEvent::LogLine {
-                stream_id: stale_stream_id,
-                line: "old container".to_string(),
-            },
+            DataEvent::LogLine { stream_id: stale_stream_id, line: "old container".to_string() },
         );
         handle_data_event(
             &mut app,
@@ -846,10 +858,7 @@ mod tests {
         );
 
         assert_eq!(
-            app.log_buffer
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
+            app.log_buffer.iter().map(String::as_str).collect::<Vec<_>>(),
             vec!["active container"]
         );
     }
@@ -858,16 +867,10 @@ mod tests {
     fn w_toggles_workload_popup_on_dashboard() {
         let mut app = AppState::new(Config::default());
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
         assert!(matches!(app.overlay, Overlay::WorkloadPopup));
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
         assert!(matches!(app.overlay, Overlay::None));
     }
 
@@ -876,17 +879,11 @@ mod tests {
         let mut app = AppState::new(Config::default());
         app.pod_cursor = 3;
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
         assert_eq!(app.pod_sort_mode, PodSortMode::Restarts);
         assert_eq!(app.pod_cursor, 0);
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
         assert_eq!(app.pod_sort_mode, PodSortMode::Cpu);
     }
 
@@ -903,10 +900,7 @@ mod tests {
         snapshot.context_name = Some("prod-cluster".to_string());
         app.snapshot = Some(snapshot);
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE));
 
         assert!(matches!(app.overlay, Overlay::ExportInput));
         assert!(app.export_input.ends_with(".csv"));
@@ -949,9 +943,7 @@ mod tests {
         let mut app = AppState::new(Config::default());
         app.focused_panel = Panel::Events;
         app.snapshot = Some(snapshot_with_incident_targets(
-            vec![IncidentTarget::Pod {
-                pod_name: "api-0".to_string(),
-            }],
+            vec![IncidentTarget::Pod { pod_name: "api-0".to_string() }],
             vec![pod("api-0", "default")],
             vec![],
             vec![],
@@ -983,9 +975,7 @@ mod tests {
         let mut app = AppState::new(Config::default());
         app.focused_panel = Panel::Events;
         app.snapshot = Some(snapshot_with_incident_targets(
-            vec![IncidentTarget::Node {
-                node_name: "node-a".to_string(),
-            }],
+            vec![IncidentTarget::Node { node_name: "node-a".to_string() }],
             vec![],
             vec![node("node-a", false)],
             vec![],
@@ -1030,9 +1020,7 @@ mod tests {
     #[test]
     fn pod_detail_tab_cycles_sections() {
         let mut app = AppState::new(Config::default());
-        app.view = AppView::PodDetail {
-            pod_name: "api".to_string(),
-        };
+        app.view = AppView::PodDetail { pod_name: "api".to_string() };
         app.snapshot = Some(snapshot_with_incident_targets(
             vec![],
             vec![pod("api", "default")],
@@ -1054,66 +1042,45 @@ mod tests {
     #[test]
     fn pod_detail_esc_returns_to_dashboard_and_stops_logs() {
         let mut app = AppState::new(Config::default());
-        app.view = AppView::PodDetail {
-            pod_name: "api".to_string(),
-        };
+        app.view = AppView::PodDetail { pod_name: "api".to_string() };
         let command = handle_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(matches!(app.view, AppView::Dashboard));
-        assert!(matches!(
-            command,
-            Some(AppCommand::Fetch(FetchCommand::StopLogStream))
-        ));
+        assert!(matches!(command, Some(AppCommand::Fetch(FetchCommand::StopLogStream))));
     }
 
     #[test]
     fn pod_detail_j_k_scroll_and_disable_follow() {
         let mut app = AppState::new(Config::default());
-        app.view = AppView::PodDetail {
-            pod_name: "api".to_string(),
-        };
+        app.view = AppView::PodDetail { pod_name: "api".to_string() };
         app.pod_detail_section = PodDetailSection::Logs;
         app.log_buffer.push_back("line1".to_string());
         app.log_buffer.push_back("line2".to_string());
         app.log_follow = true;
         app.detail_scroll = 0;
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
         assert_eq!(app.detail_scroll, 1);
         assert!(!app.log_follow);
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
         assert_eq!(app.detail_scroll, 0);
     }
 
     #[test]
     fn pod_detail_f_toggles_log_follow() {
         let mut app = AppState::new(Config::default());
-        app.view = AppView::PodDetail {
-            pod_name: "api".to_string(),
-        };
+        app.view = AppView::PodDetail { pod_name: "api".to_string() };
         app.log_buffer.push_back("a".to_string());
         app.log_buffer.push_back("b".to_string());
         app.detail_scroll = 0;
         app.log_follow = false;
         app.pod_detail_section = PodDetailSection::Logs;
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
         assert!(app.log_follow);
         assert_eq!(app.detail_scroll, 1);
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
         assert!(!app.log_follow);
     }
 
@@ -1130,10 +1097,7 @@ mod tests {
         app.enter_pod_detail("api".to_string());
         app.pod_detail_section = PodDetailSection::Logs;
 
-        let command = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE),
-        );
+        let command = handle_key(&mut app, KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
 
         assert_eq!(app.log_source, LogSource::Previous);
         assert!(matches!(
@@ -1150,22 +1114,15 @@ mod tests {
     #[test]
     fn pod_detail_search_filters_live_as_query_is_typed() {
         let mut app = AppState::new(Config::default());
-        app.view = AppView::PodDetail {
-            pod_name: "api".to_string(),
-        };
+        app.view = AppView::PodDetail { pod_name: "api".to_string() };
         app.pod_detail_section = PodDetailSection::Logs;
         app.log_buffer.push_back("INFO ready".to_string());
         app.log_buffer.push_back("ERROR failed".to_string());
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
         for character in "error".chars() {
-            let _ = handle_key(
-                &mut app,
-                KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE),
-            );
+            let _ =
+                handle_key(&mut app, KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
         }
 
         assert_eq!(app.log_input_mode, LogInputMode::Search);
@@ -1175,9 +1132,7 @@ mod tests {
     #[test]
     fn pod_detail_log_export_emits_buffer_snapshot() {
         let mut app = AppState::new(Config::default());
-        app.view = AppView::PodDetail {
-            pod_name: "api".to_string(),
-        };
+        app.view = AppView::PodDetail { pod_name: "api".to_string() };
         app.pod_detail_section = PodDetailSection::Logs;
         app.log_buffer.push_back("first".to_string());
         app.log_buffer.push_back("second".to_string());
@@ -1196,9 +1151,7 @@ mod tests {
     #[test]
     fn node_detail_esc_returns_to_dashboard() {
         let mut app = AppState::new(Config::default());
-        app.view = AppView::NodeDetail {
-            node_name: "node-a".to_string(),
-        };
+        app.view = AppView::NodeDetail { node_name: "node-a".to_string() };
         let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(matches!(app.view, AppView::Dashboard));
     }
@@ -1208,23 +1161,14 @@ mod tests {
         let mut app = AppState::new(Config::default());
         app.overlay = Overlay::PodFilter;
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
         assert_eq!(app.pod_filter, "a");
         assert_eq!(app.pod_cursor, 0);
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
         assert_eq!(app.pod_filter, "ab");
 
-        let _ = handle_key(
-            &mut app,
-            KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE),
-        );
+        let _ = handle_key(&mut app, KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
         assert_eq!(app.pod_filter, "a");
         assert_eq!(app.pod_cursor, 0);
     }
@@ -1248,9 +1192,7 @@ mod tests {
 
     fn snapshot_with_events() -> ClusterSnapshot {
         snapshot_with_incident_targets(
-            vec![IncidentTarget::Pod {
-                pod_name: "api-0".to_string(),
-            }],
+            vec![IncidentTarget::Pod { pod_name: "api-0".to_string() }],
             vec![],
             vec![],
             vec![],
@@ -1350,11 +1292,7 @@ mod tests {
             unhealthy_conditions: 0,
             ready,
             conditions: NodeConditions {
-                ready: if ready {
-                    ConditionStatus::True
-                } else {
-                    ConditionStatus::False
-                },
+                ready: if ready { ConditionStatus::True } else { ConditionStatus::False },
                 memory_pressure: ConditionStatus::False,
                 disk_pressure: ConditionStatus::False,
                 pid_pressure: ConditionStatus::False,

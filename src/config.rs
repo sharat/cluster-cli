@@ -3,7 +3,7 @@ use clap::Args;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Args, Debug, Default)]
+#[derive(Args, Debug, Default, Clone)]
 pub struct ConfigOverrides {
     /// Kubernetes namespace to monitor
     #[arg(short, long)]
@@ -59,9 +59,7 @@ impl Default for Config {
 
 impl Config {
     pub fn dir_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("cluster-cli")
+        dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("cluster-cli")
     }
 
     pub fn load(overrides: ConfigOverrides) -> Result<Self> {
@@ -73,10 +71,7 @@ impl Config {
         let mut config = if config_path.exists() {
             let content = std::fs::read_to_string(&config_path)?;
             toml::from_str(&content).unwrap_or_else(|err| {
-                eprintln!(
-                    "warning: ignoring invalid config {}: {err}",
-                    config_path.display()
-                );
+                eprintln!("warning: ignoring invalid config {}: {err}", config_path.display());
                 Config::default()
             })
         } else {
