@@ -801,10 +801,8 @@ fn parse_top_pod_metrics(output: &str, all_namespaces: bool) -> HashMap<String, 
 
 pub async fn fetch_pod_info(namespace: &str) -> Result<(Vec<PodInfo>, Option<String>)> {
     let top_args = ["top", "pods", "-n", namespace, "--no-headers"];
-    let (top_result, list_result) = tokio::join!(
-        run_cmd("kubectl", &top_args),
-        list_pods(namespace)
-    );
+    let (top_result, list_result) =
+        tokio::join!(run_cmd("kubectl", &top_args), list_pods(namespace));
     let (top_output, top_warning) = split_top_result(top_result);
     let list = list_result?;
     Ok((build_pods(&list.items, &top_output, namespace), top_warning))
