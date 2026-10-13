@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 
 use crate::config::Config;
@@ -9,8 +9,8 @@ use crate::data::health::calculate_health;
 use crate::data::incidents::build_incident_buckets;
 use crate::data::models::ClusterSnapshot;
 use crate::json_output::{
-    build_health_output, build_incidents_output, build_nodes_output, build_pods_output, JsonOutput,
-    JSON_SCHEMA_VERSION,
+    JSON_SCHEMA_VERSION, JsonOutput, build_health_output, build_incidents_output,
+    build_nodes_output, build_pods_output,
 };
 
 const MCP_SERVER_NAME: &str = "cluster-cli";
@@ -207,10 +207,7 @@ impl ClusterMcpServer {
 
     async fn handle_call_tool(&self, name: &str, arguments: Value) -> Result<Value> {
         let namespace = arguments.get("namespace").and_then(|v| v.as_str());
-        let verbose = arguments
-            .get("verbose")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let verbose = arguments.get("verbose").and_then(|v| v.as_bool()).unwrap_or(false);
 
         match name {
             "get_cluster_health" => {
@@ -363,10 +360,7 @@ impl ClusterMcpServer {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("pod_name is required"))?;
                 let container = arguments.get("container").and_then(|v| v.as_str());
-                let tail = arguments
-                    .get("tail")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(100) as usize;
+                let tail = arguments.get("tail").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
 
                 let ns = namespace.unwrap_or(&self.config.namespace);
                 let tail_str = tail.to_string();
@@ -451,20 +445,14 @@ impl ClusterMcpServer {
         };
 
         match result {
-            Ok(res) => JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(res),
-                error: None,
-            },
+            Ok(res) => {
+                JsonRpcResponse { jsonrpc: "2.0".to_string(), id, result: Some(res), error: None }
+            }
             Err(err) => JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id,
                 result: None,
-                error: Some(JsonRpcError {
-                    code: -32000,
-                    message: err.to_string(),
-                }),
+                error: Some(JsonRpcError { code: -32000, message: err.to_string() }),
             },
         }
     }

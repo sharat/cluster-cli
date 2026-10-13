@@ -8,24 +8,21 @@ use crate::data::health::calculate_health;
 use crate::data::incidents::build_incident_buckets;
 use crate::data::models::ClusterSnapshot;
 use crate::json_output::{
-    build_health_output, build_incidents_output, build_nodes_output, build_pods_output, JsonOutput,
+    JsonOutput, build_health_output, build_incidents_output, build_nodes_output, build_pods_output,
 };
 
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Fetch a complete cluster snapshot for headless operations
 async fn fetch_snapshot(kubectl_opts: &KubectlOptions, config: &Config) -> Result<ClusterSnapshot> {
-    let namespace = kubectl_opts
-        .namespace
-        .clone()
-        .or_else(|| {
-            if !config.namespace.is_empty() {
-                Some(config.namespace.clone())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| "default".to_string());
+    let namespace =
+        kubectl_opts
+            .namespace
+            .clone()
+            .or_else(|| {
+                if !config.namespace.is_empty() { Some(config.namespace.clone()) } else { None }
+            })
+            .unwrap_or_else(|| "default".to_string());
 
     // Note: context parameter in kubectl_opts is currently not used because the underlying
     // collector functions don't support passing --context. Users should set their kubectl
@@ -70,10 +67,7 @@ pub async fn handle_status(
     verbose: bool,
 ) -> Result<()> {
     let snapshot = fetch_snapshot(kubectl_opts, config).await?;
-    let namespace = kubectl_opts
-        .namespace
-        .as_deref()
-        .unwrap_or(&config.namespace);
+    let namespace = kubectl_opts.namespace.as_deref().unwrap_or(&config.namespace);
 
     if json {
         let output = build_health_output(&snapshot, namespace, verbose);
@@ -87,10 +81,7 @@ pub async fn handle_status(
         }
         println!("Namespace: {}", namespace);
         println!();
-        println!(
-            "Score: {} (Grade: {})",
-            snapshot.health.score, snapshot.health.grade
-        );
+        println!("Score: {} (Grade: {})", snapshot.health.score, snapshot.health.grade);
         println!("Critical Nodes: {}", snapshot.health.critical_nodes);
         println!("Critical Pods:  {}", snapshot.health.critical_pods);
         println!("Total Restarts: {}", snapshot.health.total_restarts);
@@ -161,10 +152,7 @@ pub async fn handle_pods(
         println!("Pods");
         println!("====");
         println!();
-        println!(
-            "{:<40} {:<12} {:<8} {:<6} {:<12}",
-            "NAME", "PHASE", "RESTARTS", "READY", "NODE"
-        );
+        println!("{:<40} {:<12} {:<8} {:<6} {:<12}", "NAME", "PHASE", "RESTARTS", "READY", "NODE");
         for pod in &snapshot.pods {
             println!(
                 "{:<40} {:<12} {:<8} {:<6} {:<12}",
@@ -196,10 +184,7 @@ pub async fn handle_nodes(
         println!("Nodes");
         println!("=====");
         println!();
-        println!(
-            "{:<30} {:<8} {:<10} {:<10} {:<8}",
-            "NAME", "READY", "CPU%", "MEMORY%", "STATUS"
-        );
+        println!("{:<30} {:<8} {:<10} {:<10} {:<8}", "NAME", "READY", "CPU%", "MEMORY%", "STATUS");
         for node in &snapshot.nodes {
             println!(
                 "{:<30} {:<8} {:<10} {:<10} {:<8}",
@@ -224,10 +209,7 @@ pub async fn handle_logs(
     follow: bool,
     timestamps: bool,
 ) -> Result<()> {
-    let namespace = kubectl_opts
-        .namespace
-        .as_deref()
-        .unwrap_or(&config.namespace);
+    let namespace = kubectl_opts.namespace.as_deref().unwrap_or(&config.namespace);
 
     let tail_str = tail.to_string();
     let mut args = vec!["logs", pod, "-n", namespace, "--tail", &tail_str];

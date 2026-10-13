@@ -17,10 +17,7 @@ pub struct JsonOutput<T> {
 
 impl<T> JsonOutput<T> {
     pub fn new(data: T) -> Self {
-        Self {
-            version: JSON_SCHEMA_VERSION.to_string(),
-            data,
-        }
+        Self { version: JSON_SCHEMA_VERSION.to_string(), data }
     }
 }
 
@@ -82,25 +79,16 @@ pub struct IncidentTargetOutput {
 impl From<&IncidentTarget> for IncidentTargetOutput {
     fn from(target: &IncidentTarget) -> Self {
         match target {
-            IncidentTarget::Pod { pod_name } => Self {
-                kind: "Pod".to_string(),
-                name: pod_name.clone(),
-                container: None,
-            },
-            IncidentTarget::Node { node_name } => Self {
-                kind: "Node".to_string(),
-                name: node_name.clone(),
-                container: None,
-            },
-            IncidentTarget::Workload { kind, name } => Self {
-                kind: kind.clone(),
-                name: name.clone(),
-                container: None,
-            },
-            IncidentTarget::Container {
-                pod_name,
-                container_name,
-            } => Self {
+            IncidentTarget::Pod { pod_name } => {
+                Self { kind: "Pod".to_string(), name: pod_name.clone(), container: None }
+            }
+            IncidentTarget::Node { node_name } => {
+                Self { kind: "Node".to_string(), name: node_name.clone(), container: None }
+            }
+            IncidentTarget::Workload { kind, name } => {
+                Self { kind: kind.clone(), name: name.clone(), container: None }
+            }
+            IncidentTarget::Container { pod_name, container_name } => Self {
                 kind: "Container".to_string(),
                 name: pod_name.clone(),
                 container: Some(container_name.clone()),
@@ -302,11 +290,7 @@ pub fn build_health_output(
 pub fn build_incidents_output(snapshot: &ClusterSnapshot, verbose: bool) -> Vec<IncidentOutput> {
     let incidents: Vec<IncidentOutput> = snapshot.incident_buckets.iter().map(Into::into).collect();
 
-    if verbose {
-        incidents
-    } else {
-        incidents.into_iter().take(10).collect()
-    }
+    if verbose { incidents } else { incidents.into_iter().take(10).collect() }
 }
 
 pub fn build_pods_output(snapshot: &ClusterSnapshot, verbose: bool) -> Vec<PodOutput> {
@@ -343,10 +327,7 @@ pub fn build_nodes_output(snapshot: &ClusterSnapshot, verbose: bool) -> Vec<Node
             let mut output = NodeOutput::from(node);
             if verbose {
                 let mut conditions = HashMap::new();
-                conditions.insert(
-                    "ready".to_string(),
-                    node.conditions.ready.as_str().to_string(),
-                );
+                conditions.insert("ready".to_string(), node.conditions.ready.as_str().to_string());
                 conditions.insert(
                     "memory_pressure".to_string(),
                     node.conditions.memory_pressure.as_str().to_string(),
@@ -390,9 +371,7 @@ mod tests {
             reason: "CrashLoopBackOff".to_string(),
             severity: IncidentSeverity::Critical,
             occurrences: 3,
-            targets: vec![IncidentTarget::Pod {
-                pod_name: "test-pod".to_string(),
-            }],
+            targets: vec![IncidentTarget::Pod { pod_name: "test-pod".to_string() }],
             affected_resources: vec!["Pod/test-pod".to_string()],
             latest_timestamp: "2024-01-01T00:00:00Z".to_string(),
             sample_message: Some("Container crash loop".to_string()),
@@ -486,9 +465,7 @@ mod tests {
 
     #[test]
     fn test_incident_target_output_conversion() {
-        let pod_target = IncidentTarget::Pod {
-            pod_name: "test-pod".to_string(),
-        };
+        let pod_target = IncidentTarget::Pod { pod_name: "test-pod".to_string() };
         let output = IncidentTargetOutput::from(&pod_target);
         assert_eq!(output.kind, "Pod");
         assert_eq!(output.name, "test-pod");

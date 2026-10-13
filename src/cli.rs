@@ -154,10 +154,7 @@ mod tests {
     #[test]
     fn verify_cli_parsing() {
         let cli = Cli::try_parse_from(["cluster", "status", "--json"]).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::Status { json: true, .. })
-        ));
+        assert!(matches!(cli.command, Some(Commands::Status { json: true, .. })));
     }
 
     #[test]

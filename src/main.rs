@@ -102,42 +102,19 @@ async fn main() -> Result<()> {
         let config = Config::load(cli.config.clone())?;
 
         match command {
-            Commands::Status {
-                json,
-                verbose,
-                kubectl_opts,
-            } => {
+            Commands::Status { json, verbose, kubectl_opts } => {
                 return headless::handle_status(kubectl_opts, &config, *json, *verbose).await;
             }
-            Commands::Incidents {
-                json,
-                verbose,
-                kubectl_opts,
-            } => {
+            Commands::Incidents { json, verbose, kubectl_opts } => {
                 return headless::handle_incidents(kubectl_opts, &config, *json, *verbose).await;
             }
-            Commands::Pods {
-                json,
-                verbose,
-                kubectl_opts,
-            } => {
+            Commands::Pods { json, verbose, kubectl_opts } => {
                 return headless::handle_pods(kubectl_opts, &config, *json, *verbose).await;
             }
-            Commands::Nodes {
-                json,
-                verbose,
-                kubectl_opts,
-            } => {
+            Commands::Nodes { json, verbose, kubectl_opts } => {
                 return headless::handle_nodes(kubectl_opts, &config, *json, *verbose).await;
             }
-            Commands::Logs {
-                pod,
-                container,
-                tail,
-                follow,
-                timestamps,
-                kubectl_opts,
-            } => {
+            Commands::Logs { pod, container, tail, follow, timestamps, kubectl_opts } => {
                 return headless::handle_logs(
                     kubectl_opts,
                     &config,
