@@ -2,7 +2,7 @@
 # Convert ANSI text screenshots to PNG images
 # Uses ansisvg + rsvg-convert (librsvg) or other available tools
 
-set -euo pipefail
+set -uo pipefail
 
 INPUT_DIR="${1:-.}"
 OUTPUT_DIR="${2:-$INPUT_DIR}"
@@ -37,9 +37,14 @@ convert_ansisvg() {
     local output="$2"
     local svg="${output%.png}.svg"
     
-    ansi-to-svg < "$input" > "$svg"
-    rsvg-convert "$svg" -o "$output"
-    rm -f "$svg"
+    if ansi-to-svg < "$input" > "$svg" 2>/dev/null && \
+       rsvg-convert "$svg" -o "$output" 2>/dev/null; then
+        rm -f "$svg"
+        return 0
+    else
+        rm -f "$svg" 2>/dev/null || true
+        return 1
+    fi
 }
 
 # Function to convert using termshot (if available)
@@ -48,7 +53,11 @@ convert_termshot() {
     local input="$1"
     local output="$2"
     
-    termshot render "$input" > "$output"
+    if termshot render "$input" > "$output" 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # Convert all .txt files
@@ -64,31 +73,36 @@ for txtfile in "$INPUT_DIR"/*.txt; do
     
     echo "Converting: $basename"
     
-    # Prefer ansi-to-svg + rsvg-convert (more reliable in CI)
+    success=false
+    
+    # Try ansi-to-svg + rsvg-convert first (more reliable in CI)
     if [ "$HAS_ANSITOSVG" = true ] && [ "$HAS_RSVG" = true ]; then
-        if convert_ansisvg "$txtfile" "$pngfile" 2>&1; then
-            :
-        else
-            echo "  -> Conversion failed, trying termshot as fallback..."
-            if [ "$HAS_TERMSHOT" = true ]; then
-                convert_termshot "$txtfile" "$pngfile" 2>&1 || true
-            fi
+        if convert_ansisvg "$txtfile" "$pngfile"; then
+            success=true
         fi
-    elif [ "$HAS_TERMSHOT" = true ]; then
-        convert_termshot "$txtfile" "$pngfile" 2>&1 || true
-    else
-        echo "  ERROR: No conversion tools available!"
+    fi
+    
+    # Fall back to termshot if ansi-to-svg failed or wasn't available
+    if [ "$success" = false ] && [ "$HAS_TERMSHOT" = true ]; then
+        if convert_termshot "$txtfile" "$pngfile"; then
+            success=true
+        fi
+    fi
+    
+    if [ "$success" = false ]; then
+        echo "  ERROR: No conversion tools available or all tools failed!"
         echo "  Install one of:"
-        echo "    - termshot: cargo install termshot"
         echo "    - ansi-to-svg + librsvg: npm install -g ansi-to-svg && apt install librsvg2-bin"
-        exit 1
+        echo "    - termshot: cargo install termshot"
+        ((failed++))
+        continue
     fi
     
     if [ -f "$pngfile" ]; then
         echo "  -> $pngfile"
         ((converted++))
     else
-        echo "  -> FAILED"
+        echo "  -> FAILED (file not created)"
         ((failed++))
     fi
 done
