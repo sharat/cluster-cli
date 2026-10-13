@@ -170,4 +170,4 @@ Not currently published to crates.io. Distribution is via GitHub Release binarie
 ## Notes
 - Multi-platform releases: Linux, macOS (ARM64), Windows
 - Uses `Swatinem/rust-cache@v2` for faster builds
-- Minimum Rust version: 1.70
+- Minimum Rust version: 1.85 (edition 2024); CI and local builds use the toolchain pinned in `rust-toolchain.toml`
