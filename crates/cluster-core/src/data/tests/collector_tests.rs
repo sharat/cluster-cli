@@ -121,3 +121,12 @@ fn test_allow_get_with_various_resources() {
     assert!(ensure_readonly_kubectl_args("kubectl", &["get", "secrets"]).is_ok());
     assert!(ensure_readonly_kubectl_args("kubectl", &["get", "all"]).is_ok());
 }
+
+#[test]
+fn rejects_credential_and_redirect_flags() {
+    assert!(ensure_readonly_kubectl_args("kubectl", &["config", "view", "--raw"]).is_err());
+    assert!(ensure_readonly_kubectl_args("kubectl", &["get", "pods", "--token=abc"]).is_err());
+    assert!(ensure_readonly_kubectl_args("kubectl", &["get", "pods", "--as", "admin"]).is_err());
+    assert!(ensure_readonly_kubectl_args("kubectl", &["get", "--server", "https://evil"]).is_err());
+    assert!(ensure_readonly_kubectl_args("kubectl", &["get", "--raw", "/api"]).is_err());
+}

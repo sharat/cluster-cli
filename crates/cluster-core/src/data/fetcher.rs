@@ -171,6 +171,10 @@ impl Fetcher {
                             self.poll(&current_namespace, &mut state, &watch_tx).await;
                         }
                         FetchCommand::UpdateRefreshInterval { namespace, interval_secs: new_interval_secs } => {
+                            // Apply the interval first so it matches what the UI shows
+                            // even if namespace resolution fails below.
+                            interval_secs = crate::config::clamp_refresh_secs(new_interval_secs);
+                            interval = aligned_interval(interval_secs);
                             match self.resolve_namespace(namespace).await {
                                 Ok(resolved) => current_namespace = resolved,
                                 Err(issue) => {
@@ -178,8 +182,6 @@ impl Fetcher {
                                     continue;
                                 }
                             }
-                            interval_secs = new_interval_secs.max(1);
-                            interval = aligned_interval(interval_secs);
                             flush_at = None;
                     batch_started = None;
                             self.poll(&current_namespace, &mut state, &watch_tx).await;
@@ -302,7 +304,9 @@ impl Fetcher {
 
         store.nodes_visible = nodes_result.is_ok();
         match nodes_result {
-            Ok(list) => store.nodes.replace(list),
+            Ok(list) => {
+                store.nodes.replace(list);
+            }
             Err(e) => {
                 errors.push(format!("Nodes: {e}"));
                 connection_issue = prioritize_connection_issue(
@@ -313,8 +317,17 @@ impl Fetcher {
             }
         }
 
+        errors.extend(
+            workloads
+                .warnings
+                .iter()
+                .map(|warning| format!("Workloads/{warning}")),
+        );
+
         match pods_result {
-            Ok(list) => store.pods.replace(list),
+            Ok(list) => {
+                store.pods.replace(list);
+            }
             Err(e) => {
                 error!("Failed to fetch pods: {}", e);
                 errors.push(format!("Pods: {e}"));
@@ -444,7 +457,7 @@ impl Fetcher {
                 .unwrap_or_else(|_| "unknown".to_string()),
         };
         let message = match collector::fetch_pod_info(&namespace).await {
-            Ok(pods) => {
+            Ok((pods, _)) => {
                 let snapshot = ClusterSnapshot {
                     nodes: vec![],
                     workloads: vec![],
@@ -529,14 +542,19 @@ fn event_cache_key(context_name: Option<&str>, namespace: &str) -> String {
 }
 
 fn aligned_interval(interval_secs: u64) -> tokio::time::Interval {
+    let interval_secs = crate::config::clamp_refresh_secs(interval_secs);
     let first_tick =
         tokio::time::Instant::now() + Duration::from_secs(secs_until_next_boundary(interval_secs));
-    tokio::time::interval_at(first_tick, Duration::from_secs(interval_secs))
+    let mut interval = tokio::time::interval_at(first_tick, Duration::from_secs(interval_secs));
+    // A fetch can take up to the kubectl timeout; don't burst missed ticks afterwards.
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    interval
 }
 
 fn secs_until_next_boundary(interval_secs: u64) -> u64 {
     let now = chrono::Local::now();
     let epoch_secs = now.timestamp() as u64;
+    let interval_secs = interval_secs.max(1);
     let elapsed_in_window = epoch_secs % interval_secs;
     if elapsed_in_window == 0 {
         interval_secs

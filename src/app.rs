@@ -150,6 +150,9 @@ pub struct AppState {
     pub log_wrap: bool,
     pub log_timestamps: bool,
     pub detail_scroll: usize,
+    /// Largest useful `detail_scroll` for the content last rendered. Updated by
+    /// the render pass so key handling can stop scrolling past the end.
+    pub detail_scroll_max: std::cell::Cell<usize>,
     pub status_message: Option<(String, Instant)>,
     pub is_loading: bool,
     pub is_loading_namespaces: bool,
@@ -177,7 +180,7 @@ impl IncidentFocus {
             || self
                 .workload_names
                 .iter()
-                .any(|name| contains_case_insensitive(&pod.name, name))
+                .any(|name| pod_belongs_to_workload(&pod.name, name))
     }
 }
 
@@ -212,6 +215,7 @@ impl AppState {
             log_wrap: false,
             log_timestamps: true,
             detail_scroll: 0,
+            detail_scroll_max: std::cell::Cell::new(usize::MAX),
             status_message: None,
             is_loading: true,
             is_loading_namespaces: false,
@@ -453,11 +457,9 @@ impl AppState {
         let issue = self.connection_issue.as_ref()?;
         Some(match issue.kind {
             crate::data::models::ConnectionIssueKind::KubectlMissing => {
-                format!("{} Press `r` to retry.", issue.detail)
+                with_retry_hint(&issue.detail)
             }
-            crate::data::models::ConnectionIssueKind::NoContext => {
-                format!("{} Press `r` to retry.", issue.detail)
-            }
+            crate::data::models::ConnectionIssueKind::NoContext => with_retry_hint(&issue.detail),
             crate::data::models::ConnectionIssueKind::NamespaceUnavailable => {
                 if issue.namespace.is_none() && self.config.namespace.is_empty() {
                     issue.detail.clone()
@@ -479,9 +481,7 @@ impl AppState {
                     )
                 }
             }
-            crate::data::models::ConnectionIssueKind::Generic => {
-                format!("{} Press `r` to retry.", issue.detail)
-            }
+            crate::data::models::ConnectionIssueKind::Generic => with_retry_hint(&issue.detail),
         })
     }
 
@@ -572,6 +572,25 @@ impl AppState {
     }
 }
 
+/// Controller-created pods are named `<workload>-<suffix>` (e.g. `api-6d4f9-x2k`,
+/// `db-0`), so match on the workload name followed by a dash rather than any substring.
+fn with_retry_hint(detail: &str) -> String {
+    let detail = detail.trim_end();
+    let separator = if detail.ends_with(['.', '!', '?']) {
+        " "
+    } else {
+        ". "
+    };
+    format!("{detail}{separator}Press `r` to retry.")
+}
+
+fn pod_belongs_to_workload(pod_name: &str, workload_name: &str) -> bool {
+    pod_name == workload_name
+        || pod_name
+            .strip_prefix(workload_name)
+            .is_some_and(|rest| rest.starts_with('-'))
+}
+
 /// Case-insensitive substring search without allocating new strings
 fn contains_case_insensitive(haystack: &str, needle: &str) -> bool {
     if needle.is_empty() {
@@ -646,13 +665,14 @@ fn status_rank(status: &HealthStatus) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppState, LogSource, PodSortMode};
+    use super::{AppState, IncidentFocus, LogSource, PodSortMode};
     use crate::config::Config;
     use crate::data::models::{
         ClusterEvent, ClusterSnapshot, ConnectionIssue, ConnectionIssueKind, ContainerInfo,
         EventType, HealthScore, HealthStatus, IncidentBucket, IncidentSeverity, IncidentTarget,
         PodInfo,
     };
+    use std::collections::HashSet;
     use std::time::Instant;
 
     fn pod(name: &str, namespace: &str, cpu_pct: u8, memory_pct: u8) -> PodInfo {
@@ -1234,5 +1254,19 @@ mod tests {
         assert_eq!(app.log_source, LogSource::Previous);
         assert!(!app.log_follow);
         assert!(app.log_buffer.is_empty());
+    }
+
+    #[test]
+    fn incident_focus_matches_workload_pods_by_prefix_not_substring() {
+        let focus = IncidentFocus {
+            reason: "CrashLoopBackOff".to_string(),
+            pod_names: HashSet::new(),
+            workload_names: HashSet::from(["api".to_string()]),
+        };
+
+        assert!(focus.matches(&pod("api-6d4f9b-x2k", "default", 0, 0)));
+        assert!(focus.matches(&pod("api", "default", 0, 0)));
+        assert!(!focus.matches(&pod("my-api-worker", "default", 0, 0)));
+        assert!(!focus.matches(&pod("apiserver-0", "default", 0, 0)));
     }
 }

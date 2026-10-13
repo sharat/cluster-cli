@@ -163,7 +163,7 @@ fn container_probe_failures(app: &AppState, pod: &PodInfo) -> HashMap<String, (u
     for event in snapshot
         .events
         .iter()
-        .filter(|e| e.name == pod.name || pod.name.starts_with(&e.name))
+        .filter(|e| e.kind == "Pod" && e.name == pod.name)
     {
         if event.reason != "Unhealthy" {
             continue;
@@ -311,8 +311,11 @@ fn render_events(f: &mut Frame, area: Rect, app: &AppState, pod_name: &str) {
                 .collect()
         };
 
+        if is_focused {
+            app.detail_scroll_max.set(lines.len().saturating_sub(1));
+        }
         let scroll = if is_focused {
-            app.detail_scroll as u16
+            app.detail_scroll.min(lines.len().saturating_sub(1)) as u16
         } else {
             0
         };

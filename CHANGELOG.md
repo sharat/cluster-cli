@@ -18,12 +18,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stop counting completed Job/CronJob pods and evicted pods as unhealthy, in the score and in pod status
 - Split the kubectl collector, health scoring, incidents, config and fetcher into a shared `cluster-core` workspace crate; the TUI is unchanged
 
+## [0.3.5] - 2026-10-07
+
+### Changed
+- Updated tokio dependency
+
+## [0.3.4] - 2026-10-07
+
 ### Fixed
+- Stop error logs from drawing over the TUI when kubectl fails; logging is now only enabled when `RUST_LOG` is set
+- Show a clear "no context configured" message instead of raw kubectl diagnostics when no kubectl context is set, and keep the connection popup's actions visible for long errors
 - Record curl-based installations explicitly so upgrades keep using the correct method from custom install directories
 - Prevent stale log lines from a previous container or source appearing after a stream switch
 - Surface workload kinds that could not be collected instead of silently showing incomplete data
 - Order events that only set `eventTime` (events.k8s.io reporters) by that time instead of treating them as oldest
 - Recognize the standard Cluster API deployment label when it is propagated to Nodes
+- Prevent a crash when the refresh interval is 0 or extremely large; intervals are now clamped to 1s–24h
+- Treat completed Job/CronJob pods as healthy instead of critical, and show unready Pending pods as Warning
+- Terminate timed-out `kubectl` processes instead of leaving them running
+- Parse all Kubernetes memory quantity formats (plain bytes, decimal `M`/`G`, `Ti`, fractions, exponents)
+- Ignore key release events so each keypress registers once on Windows
+- Keep valid settings from a partial `config.toml` and warn when the file cannot be parsed
+- Restore the terminal when startup fails after entering the alternate screen
+- Show a warning when `kubectl top` metrics are unavailable instead of reporting 0% usage
+- Stop reporting RBAC "forbidden" errors as connection failures, and report kubectl timeouts as connection issues
+- Load the namespace picker even without cluster-wide pod list access
+- Avoid back-to-back refreshes after a slow fetch
+- Sanitize the default export filename for context names containing `:` or `/` (e.g. EKS ARNs)
+- Match probe failures and incident focus to the correct pods instead of pods sharing a name prefix
+- Count a node only once in critical nodes, and align health bar colours and Critical status with score thresholds
+- Classify image-pull `BackOff` events as ImagePullBackOff incidents
+- Stop detail views from scrolling past their content
+- Show `minReplicas: 0` HPAs correctly
+
+### Security
+- Reject `kubectl` flags that expose credentials or redirect requests (`--raw`, `--token`, `--server`, `--as`, `--kubeconfig`)
 
 ## [0.3.0] - 2026-08-19
 
@@ -156,7 +185,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-update checking
 - Multi-platform support (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/sharat/cluster-cli/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/sharat/cluster-cli/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/sharat/cluster-cli/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/sharat/cluster-cli/compare/v0.3.0...v0.3.4
 [0.3.0]: https://github.com/sharat/cluster-cli/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/sharat/cluster-cli/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/sharat/cluster-cli/compare/v0.2.3...v0.2.4

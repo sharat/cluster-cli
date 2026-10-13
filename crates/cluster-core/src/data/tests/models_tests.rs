@@ -3,10 +3,10 @@ use crate::data::models::*;
 
 #[test]
 fn test_health_status_from_pct() {
-    // Updated thresholds aligned with grade boundaries: A>=90, B>=75, C>=60, D>=45, F<45
+    // Critical at RESOURCE_PRESSURE_PCT (85); Warning >=75, Elevated >=60
     assert_eq!(HealthStatus::from_pct(95), HealthStatus::Critical);
-    assert_eq!(HealthStatus::from_pct(90), HealthStatus::Critical);
-    assert_eq!(HealthStatus::from_pct(89), HealthStatus::Warning);
+    assert_eq!(HealthStatus::from_pct(85), HealthStatus::Critical);
+    assert_eq!(HealthStatus::from_pct(84), HealthStatus::Warning);
     assert_eq!(HealthStatus::from_pct(75), HealthStatus::Warning);
     assert_eq!(HealthStatus::from_pct(74), HealthStatus::Elevated);
     assert_eq!(HealthStatus::from_pct(60), HealthStatus::Elevated);

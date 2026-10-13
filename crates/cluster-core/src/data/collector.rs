@@ -123,32 +123,45 @@ pub(crate) async fn run_cmd(program: &str, args: &[&str]) -> Result<String, Kube
     if let Some(context) = context_override() {
         command.args(["--context", &context]);
     }
-    let output = timeout(KUBECTL_TIMEOUT, command.args(args).output())
-        .await
-        .map_err(|_| {
-            KubectlError::new(format!(
-                "kubectl {} timed out after {}s",
-                args.join(" "),
-                KUBECTL_TIMEOUT.as_secs()
-            ))
-        })?
-        .map_err(|err| {
-            if err.kind() == ErrorKind::NotFound {
-                KubectlError::with_issue(
-                    ConnectionIssue {
-                        kind: ConnectionIssueKind::KubectlMissing,
-                        namespace: None,
-                        detail: "kubectl was not found in PATH".to_string(),
-                    },
-                    format!("Failed to run {program} {args:?}: {err}"),
-                )
-            } else {
-                KubectlError::new(format!("Failed to run {program} {args:?}: {err}"))
-            }
-        })?;
+    // `kill_on_drop` ensures a timed-out kubectl is terminated instead of
+    // being orphaned when the `output()` future is dropped.
+    let output = timeout(
+        KUBECTL_TIMEOUT,
+        command.args(args).kill_on_drop(true).output(),
+    )
+    .await
+    .map_err(|_| {
+        let message = format!(
+            "kubectl {} timed out after {}s",
+            args.join(" "),
+            KUBECTL_TIMEOUT.as_secs()
+        );
+        KubectlError::with_issue(
+            ConnectionIssue {
+                kind: ConnectionIssueKind::Generic,
+                namespace: None,
+                detail: message.clone(),
+            },
+            message,
+        )
+    })?
+    .map_err(|err| {
+        if err.kind() == ErrorKind::NotFound {
+            KubectlError::with_issue(
+                ConnectionIssue {
+                    kind: ConnectionIssueKind::KubectlMissing,
+                    namespace: None,
+                    detail: "kubectl was not found in PATH".to_string(),
+                },
+                format!("Failed to run {program} {args:?}: {err}"),
+            )
+        } else {
+            KubectlError::new(format!("Failed to run {program} {args:?}: {err}"))
+        }
+    })?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = strip_klog_lines(&String::from_utf8_lossy(&output.stderr));
         let stderr_trimmed = stderr.trim();
         let issue = classify_connection_issue(args, stderr_trimmed);
         return Err(match issue {
@@ -167,6 +180,25 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
         anyhow::bail!("Only kubectl is allowed, got {program}");
     }
 
+    // Flags that could exfiltrate credentials or redirect requests elsewhere.
+    const BLOCKED_FLAGS: &[&str] = &[
+        "--raw",
+        "--kubeconfig",
+        "--server",
+        "-s",
+        "--token",
+        "--as",
+        "--as-group",
+        "--as-uid",
+    ];
+    if let Some(flag) = args.iter().find(|arg| {
+        BLOCKED_FLAGS
+            .iter()
+            .any(|blocked| **arg == *blocked || arg.starts_with(&format!("{blocked}=")))
+    }) {
+        anyhow::bail!("Rejected kubectl flag: {flag}");
+    }
+
     match args {
         ["get", ..] | ["top", ..] | ["logs", ..] => Ok(()),
         ["config", "current-context", ..]
@@ -180,12 +212,33 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
     }
 }
 
-pub async fn fetch_node_metrics(node_pool_filter: Option<&str>) -> Result<Vec<NodeMetric>> {
-    let (top_output, list) = tokio::join!(top_nodes(), list_nodes());
-    Ok(build_node_metrics(
-        &top_output,
-        &list?.items,
-        node_pool_filter,
+/// Usage metrics are best-effort: when `kubectl top` fails (e.g. metrics-server
+/// is missing) the data is still useful, so return the failure as a warning.
+fn split_top_result(result: Result<String, KubectlError>) -> (String, Option<String>) {
+    match result {
+        Ok(output) => (output, None),
+        Err(err) => (String::new(), Some(format!("metrics unavailable: {err}"))),
+    }
+}
+
+pub async fn fetch_node_metrics(
+    node_pool_filter: Option<&str>,
+) -> Result<(Vec<NodeMetric>, Option<String>)> {
+    let (top_result, info_result) = tokio::join!(
+        run_cmd("kubectl", &["top", "nodes", "--no-headers"]),
+        run_cmd("kubectl", &["get", "nodes", "-o", "json"]),
+    );
+
+    let info_json: Value = serde_json::from_str(&info_result?)?;
+    let items = info_json
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter())
+        .unwrap_or_else(|| [].iter());
+    let (top_output, top_warning) = split_top_result(top_result);
+    Ok((
+        build_node_metrics(&top_output, items, node_pool_filter),
+        top_warning,
     ))
 }
 
@@ -370,7 +423,8 @@ fn build_node_metric(item: &Value, top_metrics: Option<TopNodeMetrics>) -> Optio
         .map(parse_memory_mb)
         .unwrap_or(0);
     let cpu_capacity = item
-        .pointer("/status/capacity/cpu")
+        .pointer("/status/allocatable/cpu")
+        .or_else(|| item.pointer("/status/capacity/cpu"))
         .and_then(|v| v.as_str())
         .map(parse_cpu)
         .unwrap_or(0);
@@ -745,9 +799,15 @@ fn parse_top_pod_metrics(output: &str, all_namespaces: bool) -> HashMap<String, 
     top_map
 }
 
-pub async fn fetch_pod_info(namespace: &str) -> Result<Vec<PodInfo>> {
-    let (top_output, list) = tokio::join!(top_pods(namespace), list_pods(namespace));
-    Ok(build_pods(&list?.items, &top_output, namespace))
+pub async fn fetch_pod_info(namespace: &str) -> Result<(Vec<PodInfo>, Option<String>)> {
+    let top_args = ["top", "pods", "-n", namespace, "--no-headers"];
+    let (top_result, list_result) = tokio::join!(
+        run_cmd("kubectl", &top_args),
+        list_pods(namespace)
+    );
+    let (top_output, top_warning) = split_top_result(top_result);
+    let list = list_result?;
+    Ok((build_pods(&list.items, &top_output, namespace), top_warning))
 }
 
 /// Builds pods from `kubectl get pods -o json` items, joining usage from the
@@ -1299,7 +1359,12 @@ fn collect_cronjobs(resource: &Value, namespace: &str, workloads: &mut Vec<Workl
 
 fn collect_hpas(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadSummary>) {
     for item in workload_items(resource) {
-        let minimum = status_u32(item, "/spec/minReplicas").max(1);
+        // minReplicas defaults to 1 when unset, but 0 (scale-to-zero) is valid.
+        let minimum = if item.pointer("/spec/minReplicas").is_some() {
+            status_u32(item, "/spec/minReplicas")
+        } else {
+            1
+        };
         let maximum = status_u32(item, "/spec/maxReplicas");
         let current = status_u32(item, "/status/currentReplicas");
         let desired = status_u32(item, "/status/desiredReplicas");
@@ -1722,6 +1787,8 @@ fn derive_pod_status(
         HealthStatus::Critical
     } else if phase == "Pending" {
         HealthStatus::Warning
+    } else if !is_ready {
+        HealthStatus::Critical
     } else {
         HealthStatus::from_pct(memory_pct)
     }
@@ -1876,13 +1943,16 @@ fn event_timestamp(item: &Value) -> &str {
 }
 
 pub async fn fetch_namespaces() -> Result<Vec<NamespaceSummary>> {
-    let (namespace_output, pod_output) = tokio::try_join!(
+    let (namespace_result, pod_result) = tokio::join!(
         run_cmd("kubectl", &["get", "namespaces", "--no-headers"]),
         run_cmd(
             "kubectl",
             &["get", "pods", "--all-namespaces", "--no-headers"]
         ),
-    )?;
+    );
+    let namespace_output = namespace_result?;
+    // Users without cluster-wide pod access can still pick a namespace.
+    let pod_output = pod_result.unwrap_or_default();
 
     let pod_counts = namespace_pod_counts(&pod_output);
     let mut namespaces: Vec<NamespaceSummary> = namespace_output
@@ -1973,17 +2043,25 @@ pub fn classify_kubectl_error(err: &anyhow::Error) -> Option<ConnectionIssue> {
         .and_then(|kubectl_err| kubectl_err.connection_issue().cloned())
 }
 
+const NO_CONTEXT_DETAIL: &str =
+    "No active kubectl context is configured. Run `kubectl config use-context <name>` or set KUBECONFIG.";
+
 fn classify_connection_issue(args: &[&str], stderr: &str) -> Option<ConnectionIssue> {
+    let stderr = strip_klog_lines(stderr);
+    let stderr = stderr.as_str();
     let stderr_lower = stderr.to_ascii_lowercase();
 
+    // Without a context kubectl silently falls back to http://localhost:8080,
+    // so a refused connection there almost always means no context is set.
     if stderr_lower.contains("current-context is not set")
         || stderr_lower.contains("no current context")
         || stderr_lower.contains("no context")
+        || stderr_lower.contains("localhost:8080 was refused")
     {
         return Some(ConnectionIssue {
             kind: ConnectionIssueKind::NoContext,
             namespace: None,
-            detail: stderr_trim_or_default(stderr, "No active kubectl context is configured."),
+            detail: NO_CONTEXT_DETAIL.to_string(),
         });
     }
 
@@ -2005,7 +2083,6 @@ fn classify_connection_issue(args: &[&str], stderr: &str) -> Option<ConnectionIs
         || stderr_lower.contains("dial tcp")
         || stderr_lower.contains("certificate")
         || stderr_lower.contains("unauthorized")
-        || stderr_lower.contains("forbidden")
     {
         return Some(ConnectionIssue {
             kind: ConnectionIssueKind::Generic,
@@ -2030,6 +2107,25 @@ fn requested_namespace(args: &[&str]) -> Option<String> {
     None
 }
 
+/// Drop klog diagnostic lines (e.g. `E1006 21:59:14.025401  32805 memcache.go:265] ...`)
+/// that kubectl writes to stderr alongside the real error message.
+fn strip_klog_lines(stderr: &str) -> String {
+    stderr
+        .lines()
+        .filter(|line| !is_klog_line(line.trim_start()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn is_klog_line(line: &str) -> bool {
+    let mut chars = line.chars();
+    matches!(chars.next(), Some('I' | 'W' | 'E' | 'F'))
+        && chars.by_ref().take(4).filter(char::is_ascii_digit).count() == 4
+        && chars.next() == Some(' ')
+        && line.contains(".go:")
+        && line.contains(']')
+}
+
 fn stderr_trim_or_default(stderr: &str, default: &str) -> String {
     let trimmed = stderr.trim();
     if trimmed.is_empty() {
@@ -2049,24 +2145,38 @@ pub fn parse_cpu(s: &str) -> u64 {
     }
 }
 
+/// Parse a Kubernetes memory quantity (bytes, binary or decimal suffixes,
+/// exponent notation, fractions) into MiB.
 pub fn parse_memory_mb(s: &str) -> u64 {
-    if let Some(stripped) = s.strip_suffix("Ki") {
-        let kb: u64 = stripped.parse().unwrap_or(0);
-        // Keep fractional MB by rounding up for small values
-        (kb + 512) / 1024
-    } else if let Some(stripped) = s.strip_suffix("Mi") {
-        stripped.parse().unwrap_or(0)
-    } else if let Some(stripped) = s.strip_suffix("Gi") {
-        let gb: u64 = stripped.parse().unwrap_or(0);
-        gb * 1024
-    } else if let Some(stripped) = s.strip_suffix('M') {
-        stripped.parse().unwrap_or(0)
-    } else if let Some(stripped) = s.strip_suffix('G') {
-        let gb: u64 = stripped.parse().unwrap_or(0);
-        gb * 1024
-    } else {
-        s.parse().unwrap_or(0)
+    const SUFFIXES: &[(&str, f64)] = &[
+        ("Ki", 1024.0),
+        ("Mi", 1048576.0),
+        ("Gi", 1073741824.0),
+        ("Ti", 1099511627776.0),
+        ("Pi", 1125899906842624.0),
+        ("Ei", 1152921504606846976.0),
+        ("k", 1e3),
+        ("K", 1e3),
+        ("M", 1e6),
+        ("G", 1e9),
+        ("T", 1e12),
+        ("P", 1e15),
+        ("E", 1e18),
+    ];
+
+    let s = s.trim();
+    let (number, multiplier) = SUFFIXES
+        .iter()
+        .find_map(|(suffix, mult)| s.strip_suffix(suffix).map(|n| (n, *mult)))
+        .unwrap_or((s, 1.0));
+    let Ok(value) = number.parse::<f64>() else {
+        return 0;
+    };
+    if !value.is_finite() || value <= 0.0 {
+        return 0;
     }
+    // Round to the nearest MiB; `as` saturates on overflow.
+    (value * multiplier / 1048576.0).round() as u64
 }
 
 fn metadata_name(item: &Value) -> String {
@@ -2709,6 +2819,16 @@ mod tests {
             derive_pod_status(10, "Running", None, true, false, false),
             HealthStatus::Healthy
         );
+        // Pending pods are never container-ready; they should still be Warning.
+        assert_eq!(
+            derive_pod_status(10, "Pending", false, false, false),
+            HealthStatus::Warning
+        );
+        // Completed Job pods have terminated (not ready) containers.
+        assert_eq!(
+            derive_pod_status(10, "Succeeded", false, false, false),
+            HealthStatus::Healthy
+        );
         assert_eq!(ConditionStatus::True.as_str(), "True");
     }
 
@@ -2726,8 +2846,15 @@ mod tests {
         assert_eq!(parse_memory_mb("512Mi"), 512);
         assert_eq!(parse_memory_mb("2Gi"), 2048);
         assert_eq!(parse_memory_mb("1024Ki"), 1);
-        assert_eq!(parse_memory_mb("512M"), 512);
-        assert_eq!(parse_memory_mb("2G"), 2048);
+        // Decimal suffixes are powers of 10, not 2.
+        assert_eq!(parse_memory_mb("512M"), 488);
+        assert_eq!(parse_memory_mb("2G"), 1907);
+        assert_eq!(parse_memory_mb("1Ti"), 1024 * 1024);
+        assert_eq!(parse_memory_mb("1.5Gi"), 1536);
+        assert_eq!(parse_memory_mb("500k"), 0);
+        assert_eq!(parse_memory_mb("129e6"), 123);
+        // A bare number is bytes.
+        assert_eq!(parse_memory_mb("134217728"), 128);
         assert_eq!(parse_memory_mb(""), 0);
         assert_eq!(parse_memory_mb("abc"), 0);
     }
@@ -2748,6 +2875,32 @@ mod tests {
             "error: current-context is not set",
         );
         assert_eq!(issue.unwrap().kind, ConnectionIssueKind::NoContext);
+    }
+
+    #[test]
+    fn classify_connection_issue_treats_localhost_fallback_as_no_context() {
+        let stderr = "E1006 22:05:59.691208   43870 memcache.go:265] \"Unhandled Error\" err=\"couldn't get current server API group list: Get \\\"http://localhost:8080/api?timeout=32s\\\": dial tcp [::1]:8080: connect: connection refused\"\n\
+E1006 22:05:59.691751   43870 memcache.go:265] \"Unhandled Error\" err=\"couldn't get current server API group list\"\n\
+The connection to the server localhost:8080 was refused - did you specify the right host or port?";
+
+        let issue = classify_connection_issue(&["get", "pods", "-n", "default"], stderr).unwrap();
+
+        assert_eq!(issue.kind, ConnectionIssueKind::NoContext);
+        assert!(!issue.detail.contains("memcache.go"));
+    }
+
+    #[test]
+    fn classify_connection_issue_strips_klog_noise_from_detail() {
+        let stderr = "E1006 22:05:59.691208   43870 memcache.go:265] \"Unhandled Error\" err=\"dial tcp 10.0.0.1:443: i/o timeout\"\n\
+Unable to connect to the server: dial tcp 10.0.0.1:443: i/o timeout";
+
+        let issue = classify_connection_issue(&["get", "pods"], stderr).unwrap();
+
+        assert_eq!(issue.kind, ConnectionIssueKind::Generic);
+        assert_eq!(
+            issue.detail,
+            "Unable to connect to the server: dial tcp 10.0.0.1:443: i/o timeout"
+        );
     }
 
     #[test]

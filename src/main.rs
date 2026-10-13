@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use crossterm::{
     cursor::{SetCursorStyle, Show},
-    event::{Event, EventStream},
+    event::{Event, EventStream, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -33,6 +33,17 @@ const EVENT_CHANNEL_CAPACITY: usize = 1024;
 /// Capacity of the UI -> fetcher command channel. Commands are user-driven, so
 /// this only needs to cover a burst of held keypresses.
 const FETCH_CHANNEL_CAPACITY: usize = 64;
+
+/// Restores the terminal when dropped, so early `?` returns after raw mode is
+/// enabled don't leave the user's shell in raw mode on the alternate screen.
+struct TerminalGuard;
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "cluster")]
@@ -114,7 +125,14 @@ async fn main() -> Result<()> {
 
     let mut config = Config::load(cli.config)?;
 
-    tracing_subscriber::fmt().with_writer(io::stderr).init();
+    // Logging is opt-in via RUST_LOG. stderr shares the terminal with the TUI,
+    // so unconditional logging would draw over the alternate screen.
+    if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_writer(io::stderr)
+            .init();
+    }
 
     // Restore terminal on panic
     let original_hook = std::panic::take_hook();
@@ -131,6 +149,7 @@ async fn main() -> Result<()> {
 
     // Setup terminal
     enable_raw_mode()?;
+    let _terminal_guard = TerminalGuard;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
@@ -202,11 +221,7 @@ async fn main() -> Result<()> {
     )
     .await;
 
-    // Cleanup
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-
+    // Terminal is restored by `_terminal_guard` on drop.
     result
 }
 
@@ -251,7 +266,8 @@ async fn run_app(
 
             Some(Ok(event)) = crossterm_events.next() => {
                 match event {
-                    Event::Key(key) => {
+                    // Windows reports both press and release; act on presses only.
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
                         if let Some(cmd) = events::handler::handle_key(&mut app, key) {
                             match cmd {
                                 events::handler::AppCommand::Quit => return Ok(()),

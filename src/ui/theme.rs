@@ -6,7 +6,8 @@ use ratatui::{
 };
 
 use crate::data::models::{
-    HealthStatus, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, RESOURCE_PRESSURE_PCT,
+    HealthStatus, GRADE_A_THRESHOLD, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD,
+    RESOURCE_PRESSURE_PCT,
 };
 
 pub fn status_style(status: &HealthStatus) -> Style {
@@ -93,13 +94,19 @@ pub fn heat_color(pct: u8) -> Color {
     }
 }
 
+/// Score colour, banded by the same thresholds as the letter grade so the bar
+/// always matches `grade_style`.
 pub fn health_color(score: u8) -> Color {
-    match score {
-        90..=100 => Color::Rgb(22, 163, 74),
-        70..=89 => Color::Rgb(132, 204, 22),
-        50..=69 => Color::Rgb(234, 179, 8),
-        30..=49 => Color::Rgb(249, 115, 22),
-        _ => Color::Rgb(220, 38, 38),
+    if score >= GRADE_A_THRESHOLD {
+        Color::Rgb(22, 163, 74)
+    } else if score >= GRADE_B_THRESHOLD {
+        Color::Rgb(132, 204, 22)
+    } else if score >= GRADE_C_THRESHOLD {
+        Color::Rgb(234, 179, 8)
+    } else if score >= GRADE_D_THRESHOLD {
+        Color::Rgb(249, 115, 22)
+    } else {
+        Color::Rgb(220, 38, 38)
     }
 }
 

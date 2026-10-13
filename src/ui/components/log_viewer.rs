@@ -79,6 +79,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     } else {
         lines.len()
     };
+    app.detail_scroll_max
+        .set(visual_line_count.saturating_sub(1));
     let scroll_offset = if app.log_follow {
         visual_line_count.saturating_sub(height) as u16
     } else {

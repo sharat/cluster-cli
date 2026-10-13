@@ -318,3 +318,11 @@ fn test_one_bad_node_in_large_fleet_is_not_fatal() {
     assert!(health.score >= 90, "score was {}", health.score);
     assert_eq!(health.critical_nodes, 1);
 }
+
+#[test]
+fn node_with_pressure_and_not_ready_counts_once() {
+    let nodes = vec![create_test_node(95, false, 0)];
+    let health = calculate_health(&ClusterSignals::new(&nodes, &[], &[]));
+
+    assert_eq!(health.critical_nodes, 1);
+}

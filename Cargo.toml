@@ -7,7 +7,7 @@ default-members = [".", "crates/cluster-core"]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.3"
+version = "0.3.5"
 edition = "2021"
 authors = ["Sarath C"]
 license = "MIT"

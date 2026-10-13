@@ -144,7 +144,7 @@ impl Updater {
             }
 
             // Check if installed via cargo
-            if exe_str.contains("/.cargo/") || exe_str.contains("cargo/") {
+            if exe_str.contains("/.cargo/") || exe_str.contains("/cargo/bin/") {
                 return InstallMethod::Cargo;
             }
 
