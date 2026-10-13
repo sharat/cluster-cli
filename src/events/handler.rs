@@ -357,12 +357,10 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 return handle_incident_enter(app);
             }
         }
-        KeyCode::Char('T') => {
+        KeyCode::Char('T') if app.focused_panel == Panel::Events => {
             // Enter timeline view filtered to the selected incident
-            if app.focused_panel == Panel::Events {
-                if let Some(bucket) = app.selected_incident().cloned() {
-                    app.enter_timeline_for_incident(&bucket);
-                }
+            if let Some(bucket) = app.selected_incident().cloned() {
+                app.enter_timeline_for_incident(&bucket);
             }
         }
         _ => {}

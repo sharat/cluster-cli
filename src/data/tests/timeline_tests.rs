@@ -211,7 +211,7 @@ fn filter_timeline_entries_by_kind() {
     let filtered =
         filter_timeline_entries(&timeline, Some(TimelineEntryKind::CrashLoop), None, None);
 
-    assert!(filtered.len() > 0);
+    assert!(!filtered.is_empty());
     assert!(filtered
         .iter()
         .all(|e| e.kind == TimelineEntryKind::CrashLoop));
@@ -225,7 +225,7 @@ fn filter_timeline_entries_by_namespace() {
     // Filter by default namespace (pods have namespace info)
     let filtered = filter_timeline_entries(&timeline, None, Some("default"), None);
 
-    assert!(filtered.len() > 0);
+    assert!(!filtered.is_empty());
     assert!(filtered
         .iter()
         .all(|e| e.namespace.as_deref() == Some("default")));
@@ -238,7 +238,7 @@ fn filter_timeline_entries_by_severity() {
 
     let filtered = filter_timeline_entries(&timeline, None, None, Some(IncidentSeverity::Critical));
 
-    assert!(filtered.len() > 0);
+    assert!(!filtered.is_empty());
     assert!(filtered
         .iter()
         .all(|e| e.severity == IncidentSeverity::Critical));
