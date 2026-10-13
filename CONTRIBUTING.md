@@ -63,7 +63,7 @@ Feature suggestions are welcome! Please:
 
 ### Prerequisites
 
-- Rust 1.70+ (install via [rustup](https://rustup.rs/))
+- Rust 1.85+ (install via [rustup](https://rustup.rs/))
 - `kubectl` configured with cluster access
 - Git
 

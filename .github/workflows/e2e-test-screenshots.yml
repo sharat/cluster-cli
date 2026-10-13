@@ -67,11 +67,30 @@ jobs:
             sleep 2
           done
           
+          # Wait for OOMKilled state
+          for i in {1..30}; do
+            oom_count=$(kubectl get pod oom-killed-pod -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null | grep -c "OOMKilled" || true)
+            echo "OOM pod OOMKilled count: ${oom_count:-0}"
+            if [ "${oom_count:-0}" -ge "1" ]; then
+              break
+            fi
+            sleep 2
+          done
+          
           echo "Current pod states:"
           kubectl get pods -o wide
           
           echo "Pod statuses:"
           kubectl get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\t"}{.status.containerStatuses[0].restartCount}{"\n"}{end}' 2>/dev/null || true
+      
+      - name: Trigger deployment rollout
+        run: |
+          echo "Triggering rollout by changing image..."
+          kubectl set image deployment/rollout-app app=nginx:1.27.3-alpine
+          kubectl rollout status deployment/rollout-app --timeout=60s || true
+          
+          echo "Rollout status:"
+          kubectl rollout status deployment/rollout-app || true
       
       - name: Build cluster-cli
         run: |
@@ -272,3 +291,41 @@ jobs:
           
           echo "=== Logs for imagepullbackoff-pod ==="
           kubectl logs imagepullbackoff-pod || true
+          
+          echo "=== Logs for oom-killed-pod ==="
+          kubectl logs oom-killed-pod --previous || true
+          kubectl logs oom-killed-pod || true
+  
+  # Optional: Test cluster-desktop if it exists (feat/desktop-gpui branch)
+  e2e-desktop:
+    name: E2E Desktop Test (Optional)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/feat/desktop-gpui' || contains(github.event.pull_request.head.ref, 'desktop')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check for desktop crate
+        id: check_desktop
+        run: |
+          if [ -d "crates/cluster-desktop" ] || grep -q "cluster-desktop" Cargo.toml; then
+            echo "has_desktop=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_desktop=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Set up Rust
+        if: steps.check_desktop.outputs.has_desktop == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Build cluster-desktop
+        if: steps.check_desktop.outputs.has_desktop == 'true'
+        run: |
+          cargo build --package cluster-desktop --release
+          echo "Desktop binary built successfully"
+      
+      - name: Skip desktop test
+        if: steps.check_desktop.outputs.has_desktop != 'true'
+        run: |
+          echo "cluster-desktop crate not found, skipping desktop tests"

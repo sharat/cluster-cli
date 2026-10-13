@@ -4,12 +4,12 @@
 
 ## 8.1 Comments vs Documentation: Know the Difference
 
-| Purpose | Use `// comment` | Use `/// doc` or `//! crate doc` |
-|-------------- |------------------------------------------- |---------------------------------------------------------------- |
-| Describe Why | ✅ Yes - explains tricky reasoning | ❌ Not for documentation |
-| Describe API | ❌ Not useful | ✅ Yes - public interfaces, usage, details, errors, panics |
-| Maintainable | 🚨 Often becomes obsolete and hard to reason | ✅ Tied to code, appears in generated docs and can run test cases |
-| Visibility | Local development only | Exported to users and tools like `cargo doc` |
+| Purpose      	| Use `// comment`                          	| Use `/// doc` or `//! crate doc`                                  |
+|--------------	|-------------------------------------------	|----------------------------------------------------------------	|
+| Describe Why 	| ✅ Yes - explains tricky reasoning            | ❌ Not for documentation                                          	|
+| Describe API 	| ❌ Not useful                                 | ✅ Yes - public interfaces, usage, details, errors, panics         	|
+| Maintainable 	| 🚨 Often becomes obsolete and hard to reason 	| ✅ Tied to code, appears in generated docs and can run test cases 	|
+| Visibility   	| Local development only                    	| Exported to users and tools like `cargo doc`                   	|
 
 ## 8.2 When to use comments
 
@@ -86,6 +86,7 @@ fn save_user(&self) -> Result<(), MyError> {
         std::fs::write(self.path(), data)?;
     }
 }
+
 ```
 **✅ Extract for clarity**:
 
@@ -102,6 +103,8 @@ fn save_auth_user(&self) -> Result<PathBuf, MyError> {
 }
 ```
 
+> ❗ Extract when the **name adds meaning** -- not to deduplicate a couple of similar-looking lines. See [Chapter 1, §1.8](./chapter_01.md#18-when-to-extract-a-function-and-when-not-to) for when duplication is the better trade-off.
+
 ## 8.6 `TODO` should become issues
 
 Don't leave `// TODO:` scattered around the codebase with no owner. Instead:
@@ -116,7 +119,7 @@ This makes `TODO`s trackable, actionable and visible to everyone.
 
 ## 8.7 When to use doc comments
 
-Use `///` doc comments to document:
+Use `///` doc comments  to document:
 * All **public functions, structs, traits, enums**.
 * Their purpose, their usage and their behaviors.
 * Anything developers need to understand how to use it correctly.
@@ -152,22 +155,22 @@ fn square(x: impl ToInt) -> u128 { ... }
 
 Rust provides **first-class documentation tooling** via rustdoc, which makes documenting your code a key part of writing idiomatic and maintainable rust. There are doc specific lints to help with documentation, like:
 
-| Lint | Description |
-|-------------- |------------------------------------------- |
-| [missing_docs](https://doc.rust-lang.org/rustdoc/lints.html#missing_docs) | Warns that a public functions, struct, const, enum has missing documentation |
-| [broken_intra_doc_links](https://doc.rust-lang.org/rustdoc/lints.html#broken_intra_doc_links) | Detects if an internal documentation link is broken. Specially useful when things are renamed. |
-| [empty_docs](https://rust-lang.github.io/rust-clippy/master/#empty_docs) | Disallow empty docs - preventing bypass of `missing_docs` |
-| [missing_panics_doc](https://rust-lang.github.io/rust-clippy/master/#missing_panics_doc) | Warns that documentation should have a `# Panics` section if function can panic |
-| [missing_errors_doc](https://rust-lang.github.io/rust-clippy/master/#missing_errors_doc) | Warns that documentation should have a `# Errors` section if function returns a `Result` explaining `Err` conditions |
-| [missing_safety_doc](https://rust-lang.github.io/rust-clippy/master/#missing_safety_doc) | Warns that documentation should have a `# Safety` section if public facing functions have visible unsafe blocks |
+| Lint      	| Description                               	|
+|--------------	|-------------------------------------------	|
+| [missing_docs](https://doc.rust-lang.org/rustdoc/lints.html#missing_docs) 	| Warns that a public functions, struct, const, enum has missing documentation           	|
+| [broken_intra_doc_links](https://doc.rust-lang.org/rustdoc/lints.html#broken_intra_doc_links) 	| Detects if an internal documentation link is broken. Especially useful when things are renamed.                                	|
+| [empty_docs](https://rust-lang.github.io/rust-clippy/master/#empty_docs) 	| Disallow empty docs - preventing bypass of `missing_docs` 	|
+| [missing_panics_doc](https://rust-lang.github.io/rust-clippy/master/#missing_panics_doc)   	| Warns that documentation should have a `# Panics` section if function can panic                    	|
+| [missing_errors_doc](https://rust-lang.github.io/rust-clippy/master/#missing_errors_doc)   	| Warns that documentation should have a `# Errors` section if function returns a `Result` explaining `Err` conditions                    	|
+| [missing_safety_doc](https://rust-lang.github.io/rust-clippy/master/#missing_safety_doc)   	| Warns that documentation should have a `# Safety` section if public facing functions have visible unsafe blocks                    	|
 
 
 ### Difference between `///` and `//!`
 
-| Style | Used for | Scope |Example |
-|---------- |------------------------------ |------------------------------------------- |---------------------------------------------------------------- |
-| `///` | Line doc comment | Public items like struct, fn, enum, consts | Documenting, giving context and usage to `fn`, `struct`, `enum`, etc |
-| `//!` | Module level doc comment | Modules or entire crates | Explaining crate/module purpose with common use cases and quickstart |
+| Style     | Used for                     	| Scope                                        	|Example                                                  	|
+|----------	|------------------------------	|-------------------------------------------	|----------------------------------------------------------------	|
+| `///` 	| Line doc comment           	| Public items like struct, fn, enum, consts   	| Documenting, giving context and usage to `fn`, `struct`, `enum`, etc   	|
+| `//!` 	| Module level doc comment     	| Modules or entire crates                  	| Explaining crate/module purpose with common use cases and quickstart   	|
 
 ### `///` Item level documentation
 
@@ -200,7 +203,7 @@ pub fn add(a: i32, b: i32) -> i32 {
 
 ### `//!` Module/Crate level Documentation
 
-Use `//!` when you want to document the **purpose of a module or a crate**. It is places at the top of a `lib.rs` or `mod.rs` file, for example `engine/mod.rs`:
+Use `//!` when you want to document the **purpose of a module or a crate**. It is placed at the top of a `lib.rs` or `mod.rs` file, for example `engine/mod.rs`:
 ```rust
 //! This module implements a custom chess engine.
 //! 
@@ -217,19 +220,16 @@ Use `//!` when you want to document the **purpose of a module or a crate**. It i
 
 📦 Crate-Level (lib.rs)
 - [ ] `//!` doc at top explains **what the crate does**, and **what problems it solves**.
-- [ ] Includes crate-level `# Examples` or pointers to modules.
-
+- [ ]  Includes crate-level `# Examples` or pointers to modules.
 📁 Modules (mod.rs or inline)
-- [ ] `//!` doc explains **what this module is for**, its **exports**, and **invariants**.
-- [ ] Avoid repeating doc comments on re-exported items unless clarification is needed.
-
+- [ ]  `//!` doc explains **what this module is for**, its **exports**, and **invariants**.
+- [ ]  Avoid repeating doc comments on re-exported items unless clarification is needed.
 🧱 Structs, Enums, Traits
 - `///` doc explains:
-    - [ ] The role this type plays.
-    - [ ] Invariants or expectations.
-    - [ ] Example construction or usage.
-- [ ] Consider using [`#[non_exhaustive]`](https://doc.rust-lang.org/reference/attributes/type_system.html#the-non_exhaustive-attribute) if external users may match on it.
-
+    - [ ]  The role this type plays.
+    - [ ]  Invariants or expectations.
+    - [ ]  Example construction or usage.
+- [ ]  Consider using [`#[non_exhaustive]`](https://doc.rust-lang.org/reference/attributes/type_system.html#the-non_exhaustive-attribute) if external users may match on it.
 🔧 Functions and Methods
 - `///` doc covers:
     - [ ] What it does.
@@ -237,18 +237,16 @@ Use `//!` when you want to document the **purpose of a module or a crate**. It i
     - [ ] Return value behavior.
     - [ ] Edge cases (`# Panics`, `# Errors`).
     - [ ] Usage example, `# Examples`.
-
 📑 Traits
 - [ ] Explain the **purpose** of the trait (marker? dynamic dispatch?).
-- [ ] Doc for each method — include **when/why** to implement it.
+- [ ] Doc for each method -- include **when/why** to implement it.
 - [ ] Document clearly default implemented methods and when to override.
-
 📦 Public Constants
 - [ ] Document what they configure and when you'd want to use them.
 
 ### 📌 Best Practices
-* ✅ Use examples generously — they double as test cases.
-* ✅ Prefer clarity over formality — it's for humans, not machines.
+* ✅ Use examples generously -- they double as test cases.
+* ✅ Prefer clarity over formality -- it's for humans, not machines.
 * ✅ Prefer doc comments to explain usage, and leave implementation details to code comments if needed.
 * ✅ Use `cargo doc --open` to check your output often.
 * ✅ Add `#![deny(missing_docs)]` and other relevant doc lints in top-level modules if you want to enforce full doc coverage.
