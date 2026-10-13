@@ -646,7 +646,8 @@ fn handle_timeline_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> 
                 Some(TimelineEntryKind::SchedulingFailure) => {
                     Some(TimelineEntryKind::ImagePullFailure)
                 }
-                Some(TimelineEntryKind::ImagePullFailure) => None,
+                Some(TimelineEntryKind::ImagePullFailure) => Some(TimelineEntryKind::Rollout),
+                Some(TimelineEntryKind::Rollout) => None,
             };
             app.timeline_cursor = 0;
         }

@@ -125,6 +125,9 @@ fn create_timeline_item(entry: &TimelineEntry, selected: bool) -> ListItem<'_> {
     let severity_label = format!("[{}]", entry.severity.label().to_uppercase());
     let kind_label = format!("[{}]", entry.kind.label());
 
+    // Add precursor indicator
+    let precursor_indicator = if entry.is_precursor { "⚡ " } else { "" };
+
     // Format timestamp (show relative time if recent, otherwise absolute)
     let timestamp_display = format_timestamp(&entry.timestamp);
 
@@ -151,11 +154,26 @@ fn create_timeline_item(entry: &TimelineEntry, selected: bool) -> ListItem<'_> {
             format!("{:<15} ", kind_label),
             Style::default().fg(Color::Cyan),
         ),
-        Span::styled(
-            format!("{:<25} ", entry.resource_name),
-            Style::default().fg(Color::White),
-        ),
     ];
+
+    // Add precursor indicator before resource name
+    if entry.is_precursor {
+        spans.push(Span::styled(
+            precursor_indicator,
+            Style::default()
+                .fg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    spans.push(Span::styled(
+        format!("{:<25} ", entry.resource_name),
+        Style::default().fg(if entry.is_precursor {
+            Color::LightYellow
+        } else {
+            Color::White
+        }),
+    ));
 
     if !namespace_display.is_empty() {
         spans.push(Span::styled(

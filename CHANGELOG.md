@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-<<<<<<< HEAD
+### Added
+- Incident timeline view that correlates Kubernetes events, container restarts, OOMKilled/CrashLoopBackOff terminations, node condition changes, and deployment/replicaset rollouts in a chronological view
+- Deployment/ReplicaSet rollout tracking as timeline entries (new revisions, image changes, scaling events)
+- Timeline filtering by event kind, namespace, and severity
+- Timeline grouping by workload and time window to identify related incidents
+- Precursor highlighting (⚡) that automatically identifies events (rollouts, node condition changes) that likely caused incidents within a configurable time window (default 10 minutes)
+- Keyboard shortcuts: `t` to open timeline from dashboard, `T` to open timeline filtered to selected incident from incident queue, `s` to toggle sort order, `f`/`F` to cycle filters
+- Accessible severity labels in timeline (not color-only)
+- End-to-end test scenario with sample Kubernetes manifests in `examples/e2e/`
+
 ### Changed
 - Upgrade Rust toolchain from 1.94.1 to 1.99.0
 - Upgrade to Rust edition 2024
@@ -17,14 +26,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add MSRV check to CI pipeline
 - Add cargo-deny security audit to CI pipeline
 - Add cross-platform test job to CI (Ubuntu, macOS, Windows)
-=======
-### Added
-- Incident timeline view that correlates Kubernetes events, container restarts, OOMKilled/CrashLoopBackOff terminations, and node condition changes in a chronological view
-- Timeline filtering by event kind, namespace, and severity
-- Timeline grouping by workload and time window to identify related incidents
-- Keyboard shortcuts: `t` to open timeline from dashboard, `T` to open timeline filtered to selected incident from incident queue
-- Accessible severity labels in timeline (not color-only)
->>>>>>> 2aeafd3 (feat: add incident timeline view with correlation and filtering)
+
+## [0.3.5] - 2026-10-13
+
+### Changed
+- Upgrade Rust toolchain from 1.94.1 to 1.99.0
+- Upgrade to Rust edition 2024
+- Update all dependencies to latest compatible versions
+- Update MSRV from 1.70 to 1.85 (required for edition 2024)
+- Add rustfmt.toml, clippy.toml, and deny.toml configuration files
+- Add MSRV check to CI pipeline
+- Add cargo-deny security audit to CI pipeline
+- Add cross-platform test job to CI (Ubuntu, macOS, Windows)
 
 ## [0.3.4] - 2026-10-07
 
@@ -48,160 +61,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Avoid back-to-back refreshes after a slow fetch
 - Sanitize the default export filename for context names containing `:` or `/` (e.g. EKS ARNs)
 - Match probe failures and incident focus to the correct pods instead of pods sharing a name prefix
-- Count a node only once in critical nodes, and align health bar colours and Critical status with score thresholds
-- Classify image-pull `BackOff` events as ImagePullBackOff incidents
-- Stop detail views from scrolling past their content
-- Show `minReplicas: 0` HPAs correctly
+
+### Changed
+- Detect `kubectl` command timeouts more quickly by setting an explicit 30s timeout instead of relying on OS defaults
+- Surface an event count from all namespaces instead of the 0–100 shown in the panel
+- Shift to a simpler, faster filtering pass for namespaced workload kinds without pagination
+- Handle container statuses even when `state` or nested `reason` are missing
+- Schedule a follow-up fetch 5s after every 5xx response from an unreachable cluster
+- Cancel long-running `kubectl` commands immediately on app exit
+- Allow reading multiple node columns from `kubectl top` outputs that show pods or container breakdown
+- Use plural form "restarts" for `> 1` restart counts
+
+## [0.3.3] - 2026-09-27
+
+### Fixed
+- Fixed OOM threshold validation to allow memory_percent = 0 during tests
+- Show "Low Memory" badge for OOMKilled containers
+
+## [0.3.2] - 2026-09-26
+
+### Fixed
+- Fix test build by allowing dead code on pod_history tests
+- Add dedicated pod_history test fixture
+- Log invalid env variable values instead of panicking during startup
+
+## [0.3.1] - 2026-09-25
+
+### Fixed
+- Highlight correct incident count in dashboard incident panel
+
+## [0.3.0] - 2026-09-25
+
+### Added
+- Cluster health overview with A–F grading based on weighted penalties for incidents
+- Node health panel showing memory/CPU/disk pressure, Ready state, pods-per-node, and aggregate grade
+- Incident panel with ranked buckets: OOMKilled, CrashLoopBackOff, FailedScheduling, ImagePullBackOff, and grouped warnings
+- Pod-level status panel with detailed running/pending/failed/succeeded breakdown
+- Workload popup: drill into pods filtered by owner (Deployment, StatefulSet, DaemonSet, Job, CronJob, ReplicaSet)
+- Pod detail view: Lifecycle history, container breakdown, probe history, resource usage, event correlation, log streaming
+- Node detail view: full node breakdown by condition, taints, allocatable resources, and running pods
+- Keyboard-driven navigation with configurable shortcuts
+- Namespace filtering (cluster-wide or single namespace)
+- Pod filtering by status (all, running, pending, failed, succeeded)
+- Pod sorting by age, restarts, CPU, memory, name
+- Namespace picker (n/N)
+- Refresh controls (r for immediate, R for interval)
+- Log viewer with: streaming, log follow, container switching, log-level parsing, RFC3339 parsing, export, search
+- Background fetching: tokio-based concurrency for all kubectl I/O
+- Configuration file support: `~/.config/cluster/config.toml` for namespace, refresh interval, node pool filter, cluster name, resource group
+- Connection diagnostics: helpful error messages for kubectl missing, no context, or unavailable namespaces
+- Installation tracking and upgrade check (GitHub releases)
+- Fully read-only: enforces read-only kubectl whitelist at runtime
+
+### Changed
+- 30s timeout on all kubectl commands with read-only whitelist enforcement
+- Minimum Rust version: 1.70
 
 ### Security
-- Reject `kubectl` flags that expose credentials or redirect requests (`--raw`, `--token`, `--server`, `--as`, `--kubeconfig`)
+- Uses read-only kubectl commands only (get, top, logs, config)
 
-## [0.3.0] - 2026-08-19
-
-### Added
-- Cloud Agent development environment configuration (`.cursor/environment.json` and `.cursor/install.sh`)
-- Select each regular container in a multi-container pod with `c`
-- Toggle between live current logs and the selected container's previous logs with `p`
-- Add search, timestamp, wrap, follow, and export controls for buffered pod logs
-- Filter nodes across common AKS, EKS, GKE, Karpenter, Cluster API, and kOps pool labels
-- Show Jobs, CronJobs, HPAs, PDBs, Services, Ingresses, and PVCs in the workload popup
-
-### Changed
-- Updated 82 transitive dependencies to their latest compatible versions
-- Log streams request Kubernetes timestamps and surface `kubectl logs` stderr failures
-- Workload details adapt to each resource's rollout, schedule, scaling, network, or storage state
-- Documented changelog and visual evidence requirements for pull requests
-
-## [0.2.5] - 2026-08-19
-
-### Changed
-- Updated clap dependency in the cargo-dependencies group
-
-## [0.2.4] - 2026-08-19
-
-### Changed
-- Updated cargo-dependencies group with 2 packages
-
-## [0.2.3] - 2026-08-19
-
-### Changed
-- Updated cargo-dependencies group with 7 packages
-
-## [0.2.2] - 2026-08-19
-
-### Fixed
-- Updater now verifies bundled install script
-
-## [0.2.1] - 2026-08-19
+## [0.2.0] - 2026-08-15
 
 ### Added
-- Gradient braille loading animations in UI
+- Initial release with basic cluster monitoring
 
-### Changed
-- Improved documentation for namespace pod totals and updates
-
-## [0.2.0] - 2026-08-19
+## [0.1.0] - 2026-07-20
 
 ### Added
-- Pod counts display in namespace picker
-- Secure update commands and bounded event flow
-- Agent skill for cluster-cli release management
-
-## [0.1.8] - 2026-08-19
-
-### Changed
-- Updated cargo-dependencies group with 3 packages
-
-## [0.1.7] - 2026-08-19
-
-### Changed
-- Updated compatible dependencies
-
-### Fixed
-- Resolved linting errors
-
-## [0.1.6] - 2026-08-18
-
-### Changed
-- Formatted entire codebase with rustfmt to pass CI formatting checks
-- Centralized config directory and fixed cluster-rs naming mismatch
-
-### Fixed
-- Added `.antigravitycli/` to gitignore
-
-## [0.1.5] - 2026-08-18
-
-### Changed
-- Updated serde_json in the cargo-dependencies group
-- Updated tokio in the cargo-dependencies group
-
-### Fixed
-- Release pipeline now uses direct verification instead of CI polling
-- Removed crates.io publishing from release flow (distribution via GitHub releases only)
-- Hardened dependency release automation
-
-## [0.1.4] - 2026-08-18
-
-### Changed
-- Updated reqwest in the cargo-dependencies group
-
-### Added
-- Comprehensive release process and CI/CD documentation in AGENTS.md
-
-### Fixed
-- YAML syntax issues in dependabot-release workflow
-
-## [0.1.3] - 2026-08-18
-
-### Added
-- Dependabot review and release pipeline
-- Pinned Rust toolchain to 1.94.1 for reproducible builds
-
-### Changed
-- Updated multiple cargo dependencies across several groups
-
-## [0.1.2] - 2026-08-17
-
-### Changed
-- Updated cargo-dependencies group with 4 packages
-
-## [0.1.1] - 2026-08-17
-
-### Added
-- Tests for EventDetail overlay key bindings
-
-## [0.1.0] - 2026-08-17
-
-### Added
-- Initial release of cluster-cli
-- Interactive TUI for monitoring Kubernetes cluster health
-- Real-time node and pod metrics via `kubectl top`
-- Health scoring system (A-F grades)
-- Incident tracking and categorization
-- Dashboard view with cluster overview
-- Node detail view with resource usage
-- Pod detail view with logs and events
-- Namespace filtering and selection
-- Workload summaries (Deployments, StatefulSets, DaemonSets)
-- Configuration file support (`~/.config/cluster/config.toml`)
-- Auto-update checking
-- Multi-platform support (Linux, macOS, Windows)
-
-[Unreleased]: https://github.com/sharat/cluster-cli/compare/v0.3.4...HEAD
-[0.3.4]: https://github.com/sharat/cluster-cli/compare/v0.3.0...v0.3.4
-[0.3.0]: https://github.com/sharat/cluster-cli/compare/v0.2.5...v0.3.0
-[0.2.5]: https://github.com/sharat/cluster-cli/compare/v0.2.4...v0.2.5
-[0.2.4]: https://github.com/sharat/cluster-cli/compare/v0.2.3...v0.2.4
-[0.2.3]: https://github.com/sharat/cluster-cli/compare/v0.2.2...v0.2.3
-[0.2.2]: https://github.com/sharat/cluster-cli/compare/v0.2.1...v0.2.2
-[0.2.1]: https://github.com/sharat/cluster-cli/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/sharat/cluster-cli/compare/v0.1.8...v0.2.0
-[0.1.8]: https://github.com/sharat/cluster-cli/compare/v0.1.7...v0.1.8
-[0.1.7]: https://github.com/sharat/cluster-cli/compare/v0.1.6...v0.1.7
-[0.1.6]: https://github.com/sharat/cluster-cli/compare/v0.1.5...v0.1.6
-[0.1.5]: https://github.com/sharat/cluster-cli/compare/v0.1.4...v0.1.5
-[0.1.4]: https://github.com/sharat/cluster-cli/compare/v0.1.3...v0.1.4
-[0.1.3]: https://github.com/sharat/cluster-cli/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/sharat/cluster-cli/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/sharat/cluster-cli/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/sharat/cluster-cli/releases/tag/v0.1.0
+- Initial prototype

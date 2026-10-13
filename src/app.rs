@@ -475,13 +475,17 @@ impl AppState {
     }
 
     pub fn get_timeline_entries(&self) -> Vec<crate::data::timeline::TimelineEntry> {
-        use crate::data::timeline::{build_timeline, filter_timeline_entries};
+        use crate::data::timeline::{build_timeline, filter_timeline_entries, mark_precursors};
 
         let Some(snapshot) = &self.snapshot else {
             return vec![];
         };
 
         let mut entries = build_timeline(snapshot);
+
+        // Mark precursors (events that likely caused incidents, e.g., rollout before crashes)
+        // Use a 10-minute window to identify precursors
+        mark_precursors(&mut entries, 600);
 
         // Apply filters
         entries = filter_timeline_entries(

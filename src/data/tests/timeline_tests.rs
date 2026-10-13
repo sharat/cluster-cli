@@ -257,6 +257,7 @@ fn group_timeline_entries_by_workload_and_time() {
             resource_name: "Pod/api-6d4f9-x2k".to_string(),
             message: "Failed to schedule".to_string(),
             details: vec![],
+            is_precursor: false,
         },
         TimelineEntry {
             timestamp: "2026-03-09T10:00:30Z".to_string(),
@@ -266,6 +267,7 @@ fn group_timeline_entries_by_workload_and_time() {
             resource_name: "Pod/api-6d4f9-x2k".to_string(),
             message: "CrashLoopBackOff".to_string(),
             details: vec![],
+            is_precursor: false,
         },
         TimelineEntry {
             timestamp: "2026-03-09T11:00:00Z".to_string(),
@@ -275,6 +277,7 @@ fn group_timeline_entries_by_workload_and_time() {
             resource_name: "Pod/worker-abc".to_string(),
             message: "Different workload".to_string(),
             details: vec![],
+            is_precursor: false,
         },
     ];
 
@@ -301,6 +304,7 @@ fn group_timeline_entries_respects_time_window() {
             resource_name: "Pod/api-1".to_string(),
             message: "First crash".to_string(),
             details: vec![],
+            is_precursor: false,
         },
         TimelineEntry {
             timestamp: "2026-03-09T10:10:00Z".to_string(),
@@ -310,6 +314,7 @@ fn group_timeline_entries_respects_time_window() {
             resource_name: "Pod/api-2".to_string(),
             message: "Second crash - beyond window".to_string(),
             details: vec![],
+            is_precursor: false,
         },
     ];
 
@@ -408,6 +413,202 @@ fn create_snapshot_with_mixed_events() -> ClusterSnapshot {
         error: None,
         context_name: Some("test".to_string()),
     }
+}
+
+#[test]
+fn build_timeline_includes_deployment_rollouts() {
+    let snapshot = ClusterSnapshot {
+        nodes: vec![],
+        workloads: vec![],
+        pods: vec![],
+        events: vec![
+            ClusterEvent {
+                kind: "Deployment".to_string(),
+                name: "api".to_string(),
+                reason: "ScalingReplicaSet".to_string(),
+                message: "Scaled up replica set api-xyz to 3".to_string(),
+                event_type: EventType::Normal,
+                count: 1,
+                timestamp: "2026-03-09T10:00:00Z".to_string(),
+            },
+            ClusterEvent {
+                kind: "Deployment".to_string(),
+                name: "api".to_string(),
+                reason: "NewRevision".to_string(),
+                message: "Created new revision api-v2".to_string(),
+                event_type: EventType::Normal,
+                count: 1,
+                timestamp: "2026-03-09T10:01:00Z".to_string(),
+            },
+        ],
+        incident_buckets: vec![],
+        health: HealthScore {
+            score: 100,
+            grade: 'A',
+            critical_nodes: 0,
+            critical_pods: 0,
+            total_restarts: 0,
+        },
+        fetched_at: Instant::now(),
+        error: None,
+        context_name: Some("test".to_string()),
+    };
+
+    let timeline = build_timeline(&snapshot);
+
+    let rollout_entries: Vec<_> = timeline
+        .iter()
+        .filter(|e| e.kind == TimelineEntryKind::Rollout)
+        .collect();
+
+    assert_eq!(rollout_entries.len(), 2);
+    assert!(rollout_entries
+        .iter()
+        .any(|e| e.message.contains("Scaled up")));
+    assert!(rollout_entries
+        .iter()
+        .any(|e| e.message.contains("new revision")));
+}
+
+#[test]
+fn mark_precursors_identifies_rollout_before_crash() {
+    use crate::data::timeline::{mark_precursors, TimelineEntry, TimelineEntryKind};
+
+    let mut entries = vec![
+        TimelineEntry {
+            timestamp: "2026-03-09T10:00:00Z".to_string(),
+            kind: TimelineEntryKind::Rollout,
+            severity: IncidentSeverity::Elevated,
+            namespace: Some("default".to_string()),
+            resource_name: "Deployment/api".to_string(),
+            message: "Scaled up replica set".to_string(),
+            details: vec![],
+            is_precursor: false,
+        },
+        TimelineEntry {
+            timestamp: "2026-03-09T10:05:00Z".to_string(),
+            kind: TimelineEntryKind::CrashLoop,
+            severity: IncidentSeverity::Critical,
+            namespace: Some("default".to_string()),
+            resource_name: "Pod/api-6d4f9".to_string(),
+            message: "CrashLoopBackOff".to_string(),
+            details: vec![],
+            is_precursor: false,
+        },
+    ];
+
+    // Mark precursors with 10 minute window
+    mark_precursors(&mut entries, 600);
+
+    // The rollout should be marked as a precursor
+    assert!(entries[0].is_precursor);
+    assert!(!entries[1].is_precursor); // The incident itself is not a precursor
+}
+
+#[test]
+fn mark_precursors_ignores_unrelated_workloads() {
+    use crate::data::timeline::{mark_precursors, TimelineEntry, TimelineEntryKind};
+
+    let mut entries = vec![
+        TimelineEntry {
+            timestamp: "2026-03-09T10:00:00Z".to_string(),
+            kind: TimelineEntryKind::Rollout,
+            severity: IncidentSeverity::Elevated,
+            namespace: Some("default".to_string()),
+            resource_name: "Deployment/worker".to_string(),
+            message: "Scaled up replica set".to_string(),
+            details: vec![],
+            is_precursor: false,
+        },
+        TimelineEntry {
+            timestamp: "2026-03-09T10:05:00Z".to_string(),
+            kind: TimelineEntryKind::CrashLoop,
+            severity: IncidentSeverity::Critical,
+            namespace: Some("default".to_string()),
+            resource_name: "Pod/api-6d4f9".to_string(),
+            message: "CrashLoopBackOff".to_string(),
+            details: vec![],
+            is_precursor: false,
+        },
+    ];
+
+    mark_precursors(&mut entries, 600);
+
+    // The rollout for worker should NOT be marked as precursor for api incident
+    assert!(!entries[0].is_precursor);
+}
+
+#[test]
+fn mark_precursors_respects_time_window() {
+    use crate::data::timeline::{mark_precursors, TimelineEntry, TimelineEntryKind};
+
+    let mut entries = vec![
+        TimelineEntry {
+            timestamp: "2026-03-09T09:00:00Z".to_string(),
+            kind: TimelineEntryKind::Rollout,
+            severity: IncidentSeverity::Elevated,
+            namespace: Some("default".to_string()),
+            resource_name: "Deployment/api".to_string(),
+            message: "Scaled up replica set".to_string(),
+            details: vec![],
+            is_precursor: false,
+        },
+        TimelineEntry {
+            timestamp: "2026-03-09T10:05:00Z".to_string(),
+            kind: TimelineEntryKind::CrashLoop,
+            severity: IncidentSeverity::Critical,
+            namespace: Some("default".to_string()),
+            resource_name: "Pod/api-6d4f9".to_string(),
+            message: "CrashLoopBackOff".to_string(),
+            details: vec![],
+            is_precursor: false,
+        },
+    ];
+
+    // Mark precursors with 10 minute window (600 seconds)
+    mark_precursors(&mut entries, 600);
+
+    // The rollout is >60 minutes before the crash, so should NOT be marked
+    assert!(!entries[0].is_precursor);
+}
+
+#[test]
+fn detect_image_change_in_rollout() {
+    let snapshot = ClusterSnapshot {
+        nodes: vec![],
+        workloads: vec![],
+        pods: vec![],
+        events: vec![ClusterEvent {
+            kind: "Deployment".to_string(),
+            name: "api".to_string(),
+            reason: "ImageUpdated".to_string(),
+            message: "Image updated from nginx:1.20 to nginx:1.21".to_string(),
+            event_type: EventType::Normal,
+            count: 1,
+            timestamp: "2026-03-09T10:00:00Z".to_string(),
+        }],
+        incident_buckets: vec![],
+        health: HealthScore {
+            score: 100,
+            grade: 'A',
+            critical_nodes: 0,
+            critical_pods: 0,
+            total_restarts: 0,
+        },
+        fetched_at: Instant::now(),
+        error: None,
+        context_name: Some("test".to_string()),
+    };
+
+    let timeline = build_timeline(&snapshot);
+
+    let rollout_entries: Vec<_> = timeline
+        .iter()
+        .filter(|e| e.kind == TimelineEntryKind::Rollout)
+        .collect();
+
+    assert_eq!(rollout_entries.len(), 1);
+    assert!(rollout_entries[0].message.contains("Image updated"));
 }
 
 fn create_snapshot_with_mixed_namespaces() -> ClusterSnapshot {

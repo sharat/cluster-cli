@@ -14,6 +14,7 @@ pub struct TimelineEntry {
     pub resource_name: String,
     pub message: String,
     pub details: Vec<(String, String)>,
+    pub is_precursor: bool,
 }
 
 /// The kind of timeline entry, used for filtering and categorization.
@@ -26,6 +27,7 @@ pub enum TimelineEntryKind {
     NodeConditionChange,
     SchedulingFailure,
     ImagePullFailure,
+    Rollout,
 }
 
 impl TimelineEntryKind {
@@ -38,6 +40,7 @@ impl TimelineEntryKind {
             Self::NodeConditionChange => "NodeCondition",
             Self::SchedulingFailure => "SchedulingFail",
             Self::ImagePullFailure => "ImagePullFail",
+            Self::Rollout => "Rollout",
         }
     }
 }
@@ -52,6 +55,90 @@ pub struct TimelineGroup {
     pub entries: Vec<TimelineEntry>,
     pub first_timestamp: String,
     pub last_timestamp: String,
+    pub is_precursor: bool,
+}
+
+/// Type of rollout detected in an event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RolloutType {
+    NewRevision,
+    ImageChange,
+    ScaledUp,
+    ScaledDown,
+    Failed,
+}
+
+/// Detect deployment/replicaset rollout events from cluster events.
+fn detect_rollout_event(event: &ClusterEvent) -> Option<(RolloutType, Vec<(String, String)>)> {
+    let reason = event.reason.as_str();
+    let message = event.message.to_ascii_lowercase();
+    let kind = event.kind.as_str();
+
+    // Only process Deployment, ReplicaSet, StatefulSet, DaemonSet events
+    if !matches!(
+        kind,
+        "Deployment" | "ReplicaSet" | "StatefulSet" | "DaemonSet"
+    ) {
+        return None;
+    }
+
+    // Detect new revision / rollout
+    if reason == "ScalingReplicaSet"
+        || message.contains("scaled up")
+        || message.contains("scaled down")
+    {
+        let rollout_type = if message.contains("scaled up") {
+            RolloutType::ScaledUp
+        } else {
+            RolloutType::ScaledDown
+        };
+
+        return Some((
+            rollout_type,
+            vec![
+                ("Reason".to_string(), event.reason.clone()),
+                ("Message".to_string(), event.message.clone()),
+            ],
+        ));
+    }
+
+    // Detect image changes (common in deployment updates)
+    if message.contains("image") && (message.contains("updated") || message.contains("changed")) {
+        return Some((
+            RolloutType::ImageChange,
+            vec![
+                ("Reason".to_string(), event.reason.clone()),
+                ("Message".to_string(), event.message.clone()),
+            ],
+        ));
+    }
+
+    // Detect new revision creation
+    if message.contains("revision") || reason == "NewRevision" || reason == "RollingUpdate" {
+        return Some((
+            RolloutType::NewRevision,
+            vec![
+                ("Reason".to_string(), event.reason.clone()),
+                ("Message".to_string(), event.message.clone()),
+            ],
+        ));
+    }
+
+    // Detect failed rollouts
+    if reason == "ProgressDeadlineExceeded"
+        || reason == "FailedCreate"
+        || message.contains("exceeded its progress deadline")
+    {
+        return Some((
+            RolloutType::Failed,
+            vec![
+                ("Reason".to_string(), event.reason.clone()),
+                ("Message".to_string(), event.message.clone()),
+            ],
+        ));
+    }
+
+    None
 }
 
 /// Build a timeline from the current cluster snapshot.
@@ -78,6 +165,7 @@ pub fn build_timeline(snapshot: &ClusterSnapshot) -> Vec<TimelineEntry> {
                 ("Reason".to_string(), event.reason.clone()),
                 ("Count".to_string(), event.count.to_string()),
             ],
+            is_precursor: false,
         });
     }
 
@@ -107,6 +195,7 @@ pub fn build_timeline(snapshot: &ClusterSnapshot) -> Vec<TimelineEntry> {
                         ("Container".to_string(), container.name.clone()),
                         ("Restarts".to_string(), container.restart_count.to_string()),
                     ],
+                    is_precursor: false,
                 });
             }
 
@@ -126,6 +215,7 @@ pub fn build_timeline(snapshot: &ClusterSnapshot) -> Vec<TimelineEntry> {
                             ("Container".to_string(), container.name.clone()),
                             ("Reason".to_string(), reason.clone()),
                         ],
+                        is_precursor: false,
                     });
                 }
             }
@@ -145,6 +235,7 @@ pub fn build_timeline(snapshot: &ClusterSnapshot) -> Vec<TimelineEntry> {
                     ("Pod".to_string(), pod.name.clone()),
                     ("Restarts".to_string(), pod.restarts.to_string()),
                 ],
+                is_precursor: false,
             });
         }
     }
@@ -152,6 +243,28 @@ pub fn build_timeline(snapshot: &ClusterSnapshot) -> Vec<TimelineEntry> {
     // Add node condition changes
     for node in &snapshot.nodes {
         add_node_condition_entries(&mut entries, node);
+    }
+
+    // Add deployment/replicaset rollout events
+    for event in &snapshot.events {
+        if let Some((rollout_type, details)) = detect_rollout_event(event) {
+            entries.push(TimelineEntry {
+                timestamp: event.timestamp.clone(),
+                kind: TimelineEntryKind::Rollout,
+                severity: match rollout_type {
+                    RolloutType::NewRevision | RolloutType::ImageChange => {
+                        IncidentSeverity::Elevated
+                    }
+                    RolloutType::ScaledUp | RolloutType::ScaledDown => IncidentSeverity::Elevated,
+                    RolloutType::Failed => IncidentSeverity::Warning,
+                },
+                namespace: Some(extract_namespace_from_event(event)),
+                resource_name: format!("{}/{}", event.kind, event.name),
+                message: event.message.clone(),
+                details,
+                is_precursor: false,
+            });
+        }
     }
 
     // Sort by timestamp (newest first)
@@ -234,6 +347,7 @@ fn add_node_condition_entries(entries: &mut Vec<TimelineEntry>, node: &NodeMetri
                     node.conditions.ready.as_str().to_string(),
                 ),
             ],
+            is_precursor: false,
         });
     }
 
@@ -252,6 +366,7 @@ fn add_node_condition_entries(entries: &mut Vec<TimelineEntry>, node: &NodeMetri
                     node.conditions.memory_pressure.as_str().to_string(),
                 ),
             ],
+            is_precursor: false,
         });
     }
 
@@ -270,6 +385,7 @@ fn add_node_condition_entries(entries: &mut Vec<TimelineEntry>, node: &NodeMetri
                     node.conditions.disk_pressure.as_str().to_string(),
                 ),
             ],
+            is_precursor: false,
         });
     }
 
@@ -288,6 +404,7 @@ fn add_node_condition_entries(entries: &mut Vec<TimelineEntry>, node: &NodeMetri
                     node.conditions.pid_pressure.as_str().to_string(),
                 ),
             ],
+            is_precursor: false,
         });
     }
 }
@@ -348,6 +465,7 @@ pub fn group_timeline_entries(
                 entries: vec![entry.clone()],
                 first_timestamp: entry.timestamp.clone(),
                 last_timestamp: entry.timestamp.clone(),
+                is_precursor: false,
             });
         }
     }
@@ -382,6 +500,98 @@ fn timestamp_within_window(ts1: &str, ts2: &str, window_secs: i64) -> bool {
         }
         _ => false,
     }
+}
+
+/// Mark entries as precursors to incidents based on timing and relevance.
+/// Precursors are events (especially rollouts) that occurred shortly before incidents.
+pub fn mark_precursors(entries: &mut [TimelineEntry], precursor_window_secs: i64) {
+    // Collect incident metadata first (without borrowing the entries slice)
+    let incidents: Vec<(String, String)> = entries
+        .iter()
+        .filter_map(|entry| {
+            if matches!(
+                entry.kind,
+                TimelineEntryKind::CrashLoop
+                    | TimelineEntryKind::OOMKilled
+                    | TimelineEntryKind::ImagePullFailure
+                    | TimelineEntryKind::SchedulingFailure
+            ) && entry.severity == IncidentSeverity::Critical
+            {
+                Some((
+                    entry.timestamp.clone(),
+                    extract_workload_key(&entry.resource_name).to_string(),
+                ))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Now mark precursors using the collected incident metadata
+    for (incident_timestamp, incident_workload) in incidents {
+        for entry in entries.iter_mut() {
+            // Skip if already marked
+            if entry.is_precursor {
+                continue;
+            }
+
+            // Check if this entry is a likely precursor
+            if is_likely_precursor(entry, &incident_timestamp, &incident_workload, precursor_window_secs)
+            {
+                entry.is_precursor = true;
+            }
+        }
+    }
+}
+
+/// Determine if an entry is likely a precursor to an incident.
+fn is_likely_precursor(
+    entry: &TimelineEntry,
+    incident_timestamp: &str,
+    incident_workload: &str,
+    window_secs: i64,
+) -> bool {
+    // Rollouts and node condition changes are the most likely precursors
+    let is_precursor_kind = matches!(
+        entry.kind,
+        TimelineEntryKind::Rollout | TimelineEntryKind::NodeConditionChange
+    );
+
+    if !is_precursor_kind {
+        return false;
+    }
+
+    // Check if the entry happened before the incident and within the time window
+    let entry_ts = match DateTime::<FixedOffset>::parse_from_rfc3339(&entry.timestamp) {
+        Ok(dt) => dt,
+        Err(_) => return false,
+    };
+
+    let incident_ts = match DateTime::<FixedOffset>::parse_from_rfc3339(incident_timestamp) {
+        Ok(dt) => dt,
+        Err(_) => return false,
+    };
+
+    // Entry must be before the incident
+    if entry_ts >= incident_ts {
+        return false;
+    }
+
+    // Entry must be within the precursor window
+    let time_diff = (incident_ts.timestamp() - entry_ts.timestamp()).abs();
+    if time_diff > window_secs {
+        return false;
+    }
+
+    // For rollouts, check if it's related to the same workload
+    if entry.kind == TimelineEntryKind::Rollout {
+        let entry_workload = extract_workload_key(&entry.resource_name);
+        if entry_workload != incident_workload {
+            return false;
+        }
+    }
+
+    true
 }
 
 /// Filter timeline entries by kind, namespace, and/or severity.
@@ -659,6 +869,7 @@ mod tests {
                 resource_name: "Pod/api-6d4f9-x2k".to_string(),
                 message: "Failed to schedule".to_string(),
                 details: vec![],
+                is_precursor: false,
             },
             TimelineEntry {
                 timestamp: "2026-03-09T10:00:30Z".to_string(),
@@ -668,6 +879,7 @@ mod tests {
                 resource_name: "Pod/api-6d4f9-x2k".to_string(),
                 message: "CrashLoopBackOff".to_string(),
                 details: vec![],
+                is_precursor: false,
             },
             TimelineEntry {
                 timestamp: "2026-03-09T11:00:00Z".to_string(),
@@ -677,6 +889,7 @@ mod tests {
                 resource_name: "Pod/worker-abc".to_string(),
                 message: "Different workload".to_string(),
                 details: vec![],
+                is_precursor: false,
             },
         ];
 
@@ -746,6 +959,7 @@ mod tests {
             resource_name: "Pod/test".to_string(),
             message: "Test message".to_string(),
             details: vec![],
+            is_precursor: false,
         }
     }
 }
