@@ -75,10 +75,7 @@ fn detect_rollout_event(event: &ClusterEvent) -> Option<(RolloutType, Vec<(Strin
     let kind = event.kind.as_str();
 
     // Only process Deployment, ReplicaSet, StatefulSet, DaemonSet events
-    if !matches!(
-        kind,
-        "Deployment" | "ReplicaSet" | "StatefulSet" | "DaemonSet"
-    ) {
+    if !matches!(kind, "Deployment" | "ReplicaSet" | "StatefulSet" | "DaemonSet") {
         return None;
     }
 
@@ -342,10 +339,7 @@ fn add_node_condition_entries(entries: &mut Vec<TimelineEntry>, node: &NodeMetri
             message: "Node is NotReady".to_string(),
             details: vec![
                 ("Node".to_string(), node.name.clone()),
-                (
-                    "Ready".to_string(),
-                    node.conditions.ready.as_str().to_string(),
-                ),
+                ("Ready".to_string(), node.conditions.ready.as_str().to_string()),
             ],
             is_precursor: false,
         });
@@ -380,10 +374,7 @@ fn add_node_condition_entries(entries: &mut Vec<TimelineEntry>, node: &NodeMetri
             message: "Node is under disk pressure".to_string(),
             details: vec![
                 ("Node".to_string(), node.name.clone()),
-                (
-                    "DiskPressure".to_string(),
-                    node.conditions.disk_pressure.as_str().to_string(),
-                ),
+                ("DiskPressure".to_string(), node.conditions.disk_pressure.as_str().to_string()),
             ],
             is_precursor: false,
         });
@@ -399,10 +390,7 @@ fn add_node_condition_entries(entries: &mut Vec<TimelineEntry>, node: &NodeMetri
             message: "Node is under PID pressure".to_string(),
             details: vec![
                 ("Node".to_string(), node.name.clone()),
-                (
-                    "PIDPressure".to_string(),
-                    node.conditions.pid_pressure.as_str().to_string(),
-                ),
+                ("PIDPressure".to_string(), node.conditions.pid_pressure.as_str().to_string()),
             ],
             is_precursor: false,
         });
@@ -477,10 +465,7 @@ pub fn group_timeline_entries(
 #[allow(dead_code)]
 fn extract_workload_key(resource_name: &str) -> &str {
     // Remove kind prefix (e.g., "Pod/", "Node/")
-    let without_kind = resource_name
-        .split_once('/')
-        .map(|(_, name)| name)
-        .unwrap_or(resource_name);
+    let without_kind = resource_name.split_once('/').map(|(_, name)| name).unwrap_or(resource_name);
 
     // For pod names like "api-6d4f9-x2k", extract "api"
     // For node names, return as-is
@@ -556,10 +541,8 @@ fn is_likely_precursor(
     window_secs: i64,
 ) -> bool {
     // Rollouts and node condition changes are the most likely precursors
-    let is_precursor_kind = matches!(
-        entry.kind,
-        TimelineEntryKind::Rollout | TimelineEntryKind::NodeConditionChange
-    );
+    let is_precursor_kind =
+        matches!(entry.kind, TimelineEntryKind::Rollout | TimelineEntryKind::NodeConditionChange);
 
     if !is_precursor_kind {
         return false;
@@ -611,18 +594,11 @@ pub fn filter_timeline_entries(
             let kind_match = kind_filter.map(|k| k == entry.kind).unwrap_or(true);
 
             let ns_match = namespace_filter
-                .map(|ns| {
-                    entry
-                        .namespace
-                        .as_ref()
-                        .map(|entry_ns| entry_ns == ns)
-                        .unwrap_or(false)
-                })
+                .map(|ns| entry.namespace.as_ref().map(|entry_ns| entry_ns == ns).unwrap_or(false))
                 .unwrap_or(true);
 
-            let severity_match = min_severity
-                .map(|min| entry.severity.rank() >= min.rank())
-                .unwrap_or(true);
+            let severity_match =
+                min_severity.map(|min| entry.severity.rank() >= min.rank()).unwrap_or(true);
 
             kind_match && ns_match && severity_match
         })
@@ -701,14 +677,9 @@ mod tests {
 
         let timeline = build_timeline(&snapshot);
 
-        let crash_loop_entry = timeline
-            .iter()
-            .find(|e| e.kind == TimelineEntryKind::CrashLoop);
+        let crash_loop_entry = timeline.iter().find(|e| e.kind == TimelineEntryKind::CrashLoop);
         assert!(crash_loop_entry.is_some());
-        assert_eq!(
-            crash_loop_entry.unwrap().severity,
-            IncidentSeverity::Critical
-        );
+        assert_eq!(crash_loop_entry.unwrap().severity, IncidentSeverity::Critical);
     }
 
     #[test]
@@ -736,9 +707,7 @@ mod tests {
 
         let timeline = build_timeline(&snapshot);
 
-        let oom_entry = timeline
-            .iter()
-            .find(|e| e.kind == TimelineEntryKind::OOMKilled);
+        let oom_entry = timeline.iter().find(|e| e.kind == TimelineEntryKind::OOMKilled);
         assert!(oom_entry.is_some());
         assert_eq!(oom_entry.unwrap().severity, IncidentSeverity::Critical);
     }
@@ -789,10 +758,8 @@ mod tests {
 
         let timeline = build_timeline(&snapshot);
 
-        let node_entries: Vec<_> = timeline
-            .iter()
-            .filter(|e| e.kind == TimelineEntryKind::NodeConditionChange)
-            .collect();
+        let node_entries: Vec<_> =
+            timeline.iter().filter(|e| e.kind == TimelineEntryKind::NodeConditionChange).collect();
         assert_eq!(node_entries.len(), 2); // NotReady + MemoryPressure
     }
 
@@ -844,11 +811,7 @@ mod tests {
     fn filter_timeline_entries_by_severity() {
         let entries = vec![
             create_test_entry(TimelineEntryKind::Event, IncidentSeverity::Elevated, None),
-            create_test_entry(
-                TimelineEntryKind::CrashLoop,
-                IncidentSeverity::Critical,
-                None,
-            ),
+            create_test_entry(TimelineEntryKind::CrashLoop, IncidentSeverity::Critical, None),
             create_test_entry(
                 TimelineEntryKind::SchedulingFailure,
                 IncidentSeverity::Warning,

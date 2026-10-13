@@ -3,7 +3,7 @@ use crate::data::models::{
     HealthStatus, IncidentSeverity, NodeConditions, NodeMetric, PodInfo,
 };
 use crate::data::timeline::{
-    build_timeline, filter_timeline_entries, group_timeline_entries, TimelineEntryKind,
+    TimelineEntryKind, build_timeline, filter_timeline_entries, group_timeline_entries,
 };
 use std::time::Instant;
 
@@ -76,14 +76,9 @@ fn build_timeline_includes_crash_looping_pods() {
 
     let timeline = build_timeline(&snapshot);
 
-    let crash_loop_entry = timeline
-        .iter()
-        .find(|e| e.kind == TimelineEntryKind::CrashLoop);
+    let crash_loop_entry = timeline.iter().find(|e| e.kind == TimelineEntryKind::CrashLoop);
     assert!(crash_loop_entry.is_some());
-    assert_eq!(
-        crash_loop_entry.unwrap().severity,
-        IncidentSeverity::Critical
-    );
+    assert_eq!(crash_loop_entry.unwrap().severity, IncidentSeverity::Critical);
 }
 
 #[test]
@@ -111,9 +106,7 @@ fn build_timeline_includes_oom_killed_containers() {
 
     let timeline = build_timeline(&snapshot);
 
-    let oom_entry = timeline
-        .iter()
-        .find(|e| e.kind == TimelineEntryKind::OOMKilled);
+    let oom_entry = timeline.iter().find(|e| e.kind == TimelineEntryKind::OOMKilled);
     assert!(oom_entry.is_some());
     assert_eq!(oom_entry.unwrap().severity, IncidentSeverity::Critical);
 }
@@ -143,9 +136,7 @@ fn build_timeline_includes_container_restarts() {
 
     let timeline = build_timeline(&snapshot);
 
-    let restart_entry = timeline
-        .iter()
-        .find(|e| e.kind == TimelineEntryKind::ContainerRestart);
+    let restart_entry = timeline.iter().find(|e| e.kind == TimelineEntryKind::ContainerRestart);
     assert!(restart_entry.is_some());
     assert!(restart_entry.unwrap().message.contains("restarted 3 times"));
 }
@@ -196,10 +187,8 @@ fn build_timeline_includes_node_conditions() {
 
     let timeline = build_timeline(&snapshot);
 
-    let node_entries: Vec<_> = timeline
-        .iter()
-        .filter(|e| e.kind == TimelineEntryKind::NodeConditionChange)
-        .collect();
+    let node_entries: Vec<_> =
+        timeline.iter().filter(|e| e.kind == TimelineEntryKind::NodeConditionChange).collect();
     assert_eq!(node_entries.len(), 2); // NotReady + MemoryPressure
 }
 
@@ -212,9 +201,7 @@ fn filter_timeline_entries_by_kind() {
         filter_timeline_entries(&timeline, Some(TimelineEntryKind::CrashLoop), None, None);
 
     assert!(!filtered.is_empty());
-    assert!(filtered
-        .iter()
-        .all(|e| e.kind == TimelineEntryKind::CrashLoop));
+    assert!(filtered.iter().all(|e| e.kind == TimelineEntryKind::CrashLoop));
 }
 
 #[test]
@@ -226,9 +213,7 @@ fn filter_timeline_entries_by_namespace() {
     let filtered = filter_timeline_entries(&timeline, None, Some("default"), None);
 
     assert!(!filtered.is_empty());
-    assert!(filtered
-        .iter()
-        .all(|e| e.namespace.as_deref() == Some("default")));
+    assert!(filtered.iter().all(|e| e.namespace.as_deref() == Some("default")));
 }
 
 #[test]
@@ -239,9 +224,7 @@ fn filter_timeline_entries_by_severity() {
     let filtered = filter_timeline_entries(&timeline, None, None, Some(IncidentSeverity::Critical));
 
     assert!(!filtered.is_empty());
-    assert!(filtered
-        .iter()
-        .all(|e| e.severity == IncidentSeverity::Critical));
+    assert!(filtered.iter().all(|e| e.severity == IncidentSeverity::Critical));
 }
 
 #[test]
@@ -456,23 +439,17 @@ fn build_timeline_includes_deployment_rollouts() {
 
     let timeline = build_timeline(&snapshot);
 
-    let rollout_entries: Vec<_> = timeline
-        .iter()
-        .filter(|e| e.kind == TimelineEntryKind::Rollout)
-        .collect();
+    let rollout_entries: Vec<_> =
+        timeline.iter().filter(|e| e.kind == TimelineEntryKind::Rollout).collect();
 
     assert_eq!(rollout_entries.len(), 2);
-    assert!(rollout_entries
-        .iter()
-        .any(|e| e.message.contains("Scaled up")));
-    assert!(rollout_entries
-        .iter()
-        .any(|e| e.message.contains("new revision")));
+    assert!(rollout_entries.iter().any(|e| e.message.contains("Scaled up")));
+    assert!(rollout_entries.iter().any(|e| e.message.contains("new revision")));
 }
 
 #[test]
 fn mark_precursors_identifies_rollout_before_crash() {
-    use crate::data::timeline::{mark_precursors, TimelineEntry, TimelineEntryKind};
+    use crate::data::timeline::{TimelineEntry, TimelineEntryKind, mark_precursors};
 
     let mut entries = vec![
         TimelineEntry {
@@ -507,7 +484,7 @@ fn mark_precursors_identifies_rollout_before_crash() {
 
 #[test]
 fn mark_precursors_ignores_unrelated_workloads() {
-    use crate::data::timeline::{mark_precursors, TimelineEntry, TimelineEntryKind};
+    use crate::data::timeline::{TimelineEntry, TimelineEntryKind, mark_precursors};
 
     let mut entries = vec![
         TimelineEntry {
@@ -540,7 +517,7 @@ fn mark_precursors_ignores_unrelated_workloads() {
 
 #[test]
 fn mark_precursors_respects_time_window() {
-    use crate::data::timeline::{mark_precursors, TimelineEntry, TimelineEntryKind};
+    use crate::data::timeline::{TimelineEntry, TimelineEntryKind, mark_precursors};
 
     let mut entries = vec![
         TimelineEntry {
@@ -602,10 +579,8 @@ fn detect_image_change_in_rollout() {
 
     let timeline = build_timeline(&snapshot);
 
-    let rollout_entries: Vec<_> = timeline
-        .iter()
-        .filter(|e| e.kind == TimelineEntryKind::Rollout)
-        .collect();
+    let rollout_entries: Vec<_> =
+        timeline.iter().filter(|e| e.kind == TimelineEntryKind::Rollout).collect();
 
     assert_eq!(rollout_entries.len(), 1);
     assert!(rollout_entries[0].message.contains("Image updated"));

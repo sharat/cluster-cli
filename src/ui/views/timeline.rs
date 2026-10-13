@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
-    Frame,
 };
 
 use crate::app::AppState;
@@ -41,11 +41,8 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
     f.render_widget(block, area);
 
     let filter_info = build_filter_info(app);
-    let sort_info = if app.timeline_newest_first {
-        "Sort: Newest First"
-    } else {
-        "Sort: Oldest First"
-    };
+    let sort_info =
+        if app.timeline_newest_first { "Sort: Newest First" } else { "Sort: Oldest First" };
 
     let info = format!("{}  |  {}", filter_info, sort_info);
     let info_widget = Paragraph::new(info).style(Style::default().fg(Color::Gray));
@@ -132,47 +129,30 @@ fn create_timeline_item(entry: &TimelineEntry, selected: bool) -> ListItem<'_> {
     let timestamp_display = format_timestamp(&entry.timestamp);
 
     // Namespace display (if present)
-    let namespace_display = entry
-        .namespace
-        .as_ref()
-        .map(|ns| format!("({})", ns))
-        .unwrap_or_default();
+    let namespace_display =
+        entry.namespace.as_ref().map(|ns| format!("({})", ns)).unwrap_or_default();
 
     // Build the display line
     let mut spans = vec![
-        Span::styled(
-            format!("{:<10} ", timestamp_display),
-            Style::default().fg(Color::Gray),
-        ),
+        Span::styled(format!("{:<10} ", timestamp_display), Style::default().fg(Color::Gray)),
         Span::styled(
             format!("{:<10} ", severity_label),
-            Style::default()
-                .fg(severity_color)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(severity_color).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            format!("{:<15} ", kind_label),
-            Style::default().fg(Color::Cyan),
-        ),
+        Span::styled(format!("{:<15} ", kind_label), Style::default().fg(Color::Cyan)),
     ];
 
     // Add precursor indicator before resource name
     if entry.is_precursor {
         spans.push(Span::styled(
             precursor_indicator,
-            Style::default()
-                .fg(Color::LightYellow)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
         ));
     }
 
     spans.push(Span::styled(
         format!("{:<25} ", entry.resource_name),
-        Style::default().fg(if entry.is_precursor {
-            Color::LightYellow
-        } else {
-            Color::White
-        }),
+        Style::default().fg(if entry.is_precursor { Color::LightYellow } else { Color::White }),
     ));
 
     if !namespace_display.is_empty() {
@@ -182,19 +162,12 @@ fn create_timeline_item(entry: &TimelineEntry, selected: bool) -> ListItem<'_> {
         ));
     }
 
-    spans.push(Span::styled(
-        &entry.message,
-        Style::default().fg(Color::Gray),
-    ));
+    spans.push(Span::styled(&entry.message, Style::default().fg(Color::Gray)));
 
     let mut line = Line::from(spans);
 
     if selected {
-        line = line.style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        );
+        line = line.style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD));
     }
 
     ListItem::new(line)
@@ -233,10 +206,7 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &AppState) {
     };
 
     let help_text = vec![
-        Span::styled(
-            format!(" {} | ", cursor_display),
-            Style::default().fg(Color::Cyan),
-        ),
+        Span::styled(format!(" {} | ", cursor_display), Style::default().fg(Color::Cyan)),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(" Back | "),
         Span::styled("↑/k", Style::default().fg(Color::Yellow)),
@@ -253,9 +223,8 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &AppState) {
         Span::raw(" Clear Filters "),
     ];
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray));
+    let block =
+        Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray));
 
     let inner = block.inner(area);
     f.render_widget(block, area);
