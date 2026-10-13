@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# Script to drive cluster-cli TUI through various views and capture screenshots
+# Usage: test-views.sh <cluster-binary> <output-dir> [view-list]
+
+set -euo pipefail
+
+CLUSTER_BIN="${1:-./target/release/cluster}"
+OUTPUT_DIR="${2:-./screenshots}"
+VIEW_LIST="${3:-dashboard,pod-detail,node-detail,incidents}"
+
+# Create output directory
+mkdir -p "$OUTPUT_DIR"
+
+# Check dependencies
+if ! command -v tmux &> /dev/null; then
+    echo "Error: tmux is required but not installed"
+    exit 1
+fi
+
+# Terminal size for screenshots (80x24 is classic, but modern TUIs need more space)
+TERM_WIDTH=120
+TERM_HEIGHT=40
+
+# Wait time for UI to render and data to load
+WAIT_RENDER=2
+WAIT_DATA=5
+
+echo "Starting cluster-cli e2e screenshot capture..."
+echo "Binary: $CLUSTER_BIN"
+echo "Output: $OUTPUT_DIR"
+echo "Views: $VIEW_LIST"
+echo "Terminal size: ${TERM_WIDTH}x${TERM_HEIGHT}"
+
+# Kill any existing tmux session
+tmux kill-session -t cluster-e2e 2>/dev/null || true
+
+# Create a new tmux session with fixed size
+tmux new-session -d -s cluster-e2e -x "$TERM_WIDTH" -y "$TERM_HEIGHT"
+
+# Function to capture screenshot
+capture_screenshot() {
+    local name="$1"
+    local output_file="$OUTPUT_DIR/${name}.txt"
+    
+    echo "Capturing: $name"
+    
+    # Wait for render
+    sleep "$WAIT_RENDER"
+    
+    # Capture pane content with ANSI codes
+    tmux capture-pane -e -p -t cluster-e2e > "$output_file"
+    
+    echo "  -> Saved to $output_file"
+}
+
+# Function to send keys and wait
+send_keys() {
+    local keys="$1"
+    echo "  Sending keys: $keys"
+    tmux send-keys -t cluster-e2e "$keys"
+}
+
+# Start cluster-cli in the tmux session
+echo "Launching cluster-cli..."
+tmux send-keys -t cluster-e2e "$CLUSTER_BIN" C-m
+
+# Wait for initial data load
+echo "Waiting for data to load..."
+sleep "$WAIT_DATA"
+
+# Parse view list and capture each view
+IFS=',' read -ra VIEWS <<< "$VIEW_LIST"
+
+for view in "${VIEWS[@]}"; do
+    case "$view" in
+        dashboard)
+            echo "Capturing dashboard view..."
+            capture_screenshot "01-dashboard"
+            ;;
+            
+        pod-detail)
+            echo "Navigating to pod detail view..."
+            # Press Enter on the currently selected pod
+            send_keys "C-m"
+            sleep "$WAIT_RENDER"
+            capture_screenshot "02-pod-detail"
+            # Go back to dashboard
+            send_keys "q"
+            sleep 1
+            ;;
+            
+        node-detail)
+            echo "Navigating to node detail view..."
+            # Switch to nodes panel (Tab key)
+            send_keys "Tab"
+            sleep "$WAIT_RENDER"
+            # Press Enter on the selected node
+            send_keys "C-m"
+            sleep "$WAIT_RENDER"
+            capture_screenshot "03-node-detail"
+            # Go back to dashboard
+            send_keys "q"
+            sleep 1
+            # Switch back to pods panel
+            send_keys "Tab"
+            sleep 1
+            ;;
+            
+        incidents)
+            echo "Opening incidents/events view..."
+            # Press 'e' to open events panel (if it exists)
+            # Or capture the events section from dashboard
+            send_keys "Tab Tab"
+            sleep "$WAIT_RENDER"
+            capture_screenshot "04-incidents"
+            # Return to pods panel
+            send_keys "Tab"
+            sleep 1
+            ;;
+            
+        timeline)
+            echo "Opening timeline view (if available)..."
+            # Press 't' for timeline (if the feature exists on this branch)
+            send_keys "t"
+            sleep "$WAIT_RENDER"
+            capture_screenshot "05-timeline"
+            # Exit timeline
+            send_keys "q"
+            sleep 1
+            ;;
+            
+        *)
+            echo "Warning: Unknown view '$view', skipping..."
+            ;;
+    esac
+done
+
+# Quit cluster-cli
+echo "Exiting cluster-cli..."
+send_keys "q"
+sleep 1
+
+# Kill tmux session
+tmux kill-session -t cluster-e2e 2>/dev/null || true
+
+echo ""
+echo "Screenshot capture complete!"
+echo "Output files in: $OUTPUT_DIR"
+ls -lh "$OUTPUT_DIR"/*.txt 2>/dev/null || echo "  (no screenshots captured)"

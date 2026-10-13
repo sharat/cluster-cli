@@ -1,0 +1,316 @@
+name: E2E Screenshots
+
+on:
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  e2e-test:
+    name: E2E Test with Screenshots
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: cluster-cli-e2e
+          wait: 60s
+      
+      - name: Verify cluster
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+          kubectl version
+      
+      - name: Deploy test workloads
+        run: |
+          echo "Deploying test workloads..."
+          kubectl apply -f examples/e2e/manifests/
+          
+          echo "Waiting for healthy deployment..."
+          kubectl wait --for=condition=available --timeout=120s deployment/healthy-app || true
+          
+          echo "Waiting for failure states to appear..."
+          # Wait for crash loops (at least 2 restarts)
+          for i in {1..30}; do
+            restarts=$(kubectl get pod crashloop-pod -o jsonpath='{.status.containerStatuses[0].restartCount}' 2>/dev/null || echo "0")
+            echo "Crashloop pod restarts: $restarts"
+            if [ "$restarts" -ge "2" ]; then
+              break
+            fi
+            sleep 2
+          done
+          
+          # Wait for OOMKilled state
+          for i in {1..30}; do
+            oom_count=$(kubectl get pod oom-killed-pod -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' 2>/dev/null | grep -c "OOMKilled" || echo "0")
+            echo "OOM pod OOMKilled count: $oom_count"
+            if [ "$oom_count" -ge "1" ]; then
+              break
+            fi
+            sleep 2
+          done
+          
+          echo "Current pod states:"
+          kubectl get pods -o wide
+          
+          echo "Pod statuses:"
+          kubectl get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\t"}{.status.containerStatuses[0].restartCount}{"\n"}{end}'
+      
+      - name: Trigger deployment rollout
+        run: |
+          echo "Triggering rollout by changing image..."
+          kubectl set image deployment/rollout-app app=nginx:1.27.3-alpine
+          kubectl rollout status deployment/rollout-app --timeout=60s || true
+          
+          echo "Rollout status:"
+          kubectl rollout status deployment/rollout-app || true
+      
+      - name: Build cluster-cli
+        run: |
+          cargo build --release --verbose
+          ls -lh target/release/cluster
+      
+      - name: Install screenshot dependencies
+        run: |
+          # Install tmux for terminal emulation
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          
+          # Install ANSI to PNG conversion tools
+          # Option 1: termshot (Rust-based, most reliable)
+          cargo install termshot || echo "termshot install failed, will try alternatives"
+          
+          # Option 2: ansisvg + librsvg (fallback)
+          sudo apt-get install -y librsvg2-bin || true
+          npm install -g ansisvg || echo "ansisvg install failed"
+      
+      - name: Wait for cluster metrics
+        run: |
+          echo "Waiting for metrics to stabilize..."
+          sleep 10
+          
+          echo "Final pod states before screenshot:"
+          kubectl get pods -o wide
+          kubectl top nodes || echo "Node metrics not available yet"
+          kubectl top pods || echo "Pod metrics not available yet"
+      
+      - name: Capture TUI screenshots
+        run: |
+          mkdir -p screenshots
+          
+          # Run the test views script
+          ./examples/e2e/test-views.sh ./target/release/cluster ./screenshots dashboard,pod-detail,node-detail,incidents
+          
+          echo "Captured screenshots:"
+          ls -lh screenshots/
+      
+      - name: Convert ANSI to PNG
+        run: |
+          # Convert all ANSI text files to PNG
+          ./examples/e2e/convert-screenshots.sh ./screenshots ./screenshots
+          
+          echo "Converted screenshots:"
+          ls -lh screenshots/*.png || echo "No PNG files generated"
+      
+      - name: Upload screenshots as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: screenshots/*.png
+          retention-days: 30
+      
+      - name: Upload ANSI captures as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-ansi-captures
+          path: screenshots/*.txt
+          retention-days: 30
+      
+      - name: Push screenshots to orphan branch
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          BRANCH_NAME="e2e-screenshots"
+          TARGET_DIR="pr-${PR_NUMBER}"
+          
+          # Configure git
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          # Create or checkout orphan branch
+          git fetch origin "${BRANCH_NAME}" || true
+          if git rev-parse "origin/${BRANCH_NAME}" >/dev/null 2>&1; then
+            git checkout "${BRANCH_NAME}"
+            git pull origin "${BRANCH_NAME}" || true
+          else
+            git checkout --orphan "${BRANCH_NAME}"
+            git rm -rf . || true
+          fi
+          
+          # Copy screenshots
+          mkdir -p "${TARGET_DIR}"
+          cp screenshots/*.png "${TARGET_DIR}/" || echo "No PNG files to copy"
+          
+          # Commit and push
+          git add "${TARGET_DIR}/"
+          git commit -m "Add screenshots for PR #${PR_NUMBER}" || echo "No changes to commit"
+          git push origin "${BRANCH_NAME}" || echo "Push failed"
+      
+      - name: Post PR comment with screenshots
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const pr_number = context.payload.pull_request.number;
+            const repo_owner = context.repo.owner;
+            const repo_name = context.repo.repo;
+            const branch_name = 'e2e-screenshots';
+            const target_dir = `pr-${pr_number}`;
+            
+            // List PNG files
+            const screenshotDir = './screenshots';
+            let pngFiles = [];
+            try {
+              pngFiles = fs.readdirSync(screenshotDir)
+                .filter(f => f.endsWith('.png'))
+                .sort();
+            } catch (e) {
+              console.log('No screenshots directory or PNG files found');
+            }
+            
+            // Build comment body
+            let body = '## 📸 E2E Test Screenshots\n\n';
+            body += `Automated end-to-end test screenshots from kind cluster with sample workloads.\n\n`;
+            
+            if (pngFiles.length === 0) {
+              body += '⚠️ No PNG screenshots were generated. Check the workflow logs for errors.\n\n';
+              body += 'ANSI text captures may be available in the workflow artifacts.\n';
+            } else {
+              body += '### Views Captured\n\n';
+              
+              for (const file of pngFiles) {
+                const baseName = file.replace('.png', '');
+                const displayName = baseName
+                  .replace(/^\d+-/, '')
+                  .replace(/-/g, ' ')
+                  .replace(/\b\w/g, l => l.toUpperCase());
+                
+                const imageUrl = `https://raw.githubusercontent.com/${repo_owner}/${repo_name}/${branch_name}/${target_dir}/${file}`;
+                
+                body += `#### ${displayName}\n`;
+                body += `![${displayName}](${imageUrl})\n\n`;
+              }
+              
+              body += '\n---\n';
+              body += `*Screenshots automatically generated from commit ${context.sha.substring(0, 7)}*\n`;
+            }
+            
+            body += '\n<sub>🤖 This comment is automatically updated on each push.</sub>';
+            
+            // Find existing comment
+            const comments = await github.rest.issues.listComments({
+              owner: repo_owner,
+              repo: repo_name,
+              issue_number: pr_number,
+            });
+            
+            const botComment = comments.data.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('E2E Test Screenshots')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: repo_owner,
+                repo: repo_name,
+                comment_id: botComment.id,
+                body: body,
+              });
+              console.log(`Updated comment ${botComment.id}`);
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: repo_owner,
+                repo: repo_name,
+                issue_number: pr_number,
+                body: body,
+              });
+              console.log('Created new comment');
+            }
+      
+      - name: Collect cluster state for debugging
+        if: failure()
+        run: |
+          echo "=== Cluster Info ==="
+          kubectl cluster-info
+          
+          echo "=== Nodes ==="
+          kubectl get nodes -o wide
+          
+          echo "=== All Pods ==="
+          kubectl get pods -A -o wide
+          
+          echo "=== Events ==="
+          kubectl get events --sort-by='.lastTimestamp'
+          
+          echo "=== Pod Descriptions ==="
+          kubectl describe pods
+          
+          echo "=== Logs for crashloop-pod ==="
+          kubectl logs crashloop-pod --previous || true
+          kubectl logs crashloop-pod || true
+          
+          echo "=== Logs for oom-killed-pod ==="
+          kubectl logs oom-killed-pod --previous || true
+          kubectl logs oom-killed-pod || true
+  
+  # Optional: Test cluster-desktop if it exists (feat/desktop-gpui branch)
+  e2e-desktop:
+    name: E2E Desktop Test (Optional)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/feat/desktop-gpui' || contains(github.event.pull_request.head.ref, 'desktop')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check for desktop crate
+        id: check_desktop
+        run: |
+          if [ -d "crates/cluster-desktop" ] || grep -q "cluster-desktop" Cargo.toml; then
+            echo "has_desktop=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_desktop=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Set up Rust
+        if: steps.check_desktop.outputs.has_desktop == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Build cluster-desktop
+        if: steps.check_desktop.outputs.has_desktop == 'true'
+        run: |
+          cargo build --package cluster-desktop --release
+          echo "Desktop binary built successfully"
+      
+      - name: Skip desktop test
+        if: steps.check_desktop.outputs.has_desktop != 'true'
+        run: |
+          echo "cluster-desktop crate not found, skipping desktop tests"

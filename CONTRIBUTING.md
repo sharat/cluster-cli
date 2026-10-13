@@ -94,6 +94,22 @@ cargo test -- --nocapture
 cargo test test_name
 ```
 
+### End-to-End Testing
+
+For comprehensive testing with a real Kubernetes cluster and TUI screenshots:
+
+```bash
+# See examples/e2e/README.md for full instructions
+
+# Quick start:
+kind create cluster --name cluster-cli-e2e
+kubectl apply -f examples/e2e/manifests/
+cargo build --release
+./examples/e2e/test-views.sh ./target/release/cluster ./screenshots
+```
+
+The E2E tests run automatically on all pull requests and post screenshots as PR comments. See `examples/e2e/README.md` for detailed documentation on running locally, customizing views, and troubleshooting.
+
 ### Code Quality
 
 ```bash
