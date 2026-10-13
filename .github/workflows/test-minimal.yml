@@ -1,0 +1,12 @@
+name: Test Minimal
+
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo
+        run: echo "Minimal test workflow"
