@@ -141,6 +141,93 @@ cluster --info
 
 Don't have a Kubernetes cluster with workloads yet? You can try `cluster-cli` with example applications from the [Kubernetes Examples repository](https://github.com/kubernetes/examples). Deploy any example (like the guestbook or nginx apps) to your cluster, then run `cluster-cli` to see the dashboard in action.
 
+## AI Agents & Scripts (JSON API & MCP Server)
+
+cluster-cli can be used programmatically by AI agents and scripts through stable JSON output and an MCP (Model Context Protocol) server.
+
+### JSON Commands
+
+All data-fetching subcommands support `--json` for machine-readable output:
+
+```bash
+# Get cluster health with score, grade, and critical resource counts
+cluster status --json
+cluster status --json --verbose  # Include detailed findings
+
+# List incidents ranked by severity
+cluster incidents --json
+cluster incidents --json --verbose  # All incidents (not just top 10)
+
+# List pods with status and resource usage
+cluster pods --json
+cluster pods --json --verbose  # Include container details
+
+# List nodes with metrics and conditions
+cluster nodes --json
+cluster nodes --json --verbose  # Include full condition details
+
+# Stream logs from a pod
+cluster logs <pod-name> --tail 100
+cluster logs <pod-name> -c <container> --follow
+```
+
+All JSON responses include a `version` field with the schema version (`1.0.0`). The schema is documented in `src/json_output.rs`.
+
+### MCP Server
+
+cluster-cli includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) server for AI agents like Claude Desktop and Cursor:
+
+```bash
+cluster mcp
+```
+
+The server exposes read-only tools over stdio:
+
+- **get_cluster_health** - Health score, grade, findings
+- **list_incidents** - Ranked incidents by severity
+- **list_pods** - Pod list with status and resources
+- **describe_pod** - Detailed pod information
+- **explain_pod** - Likely cause analysis for pod issues
+- **get_logs** - Fetch pod logs
+- **list_nodes** - Node metrics and conditions
+- **list_contexts** - Available kubectl contexts
+
+#### Cursor Configuration
+
+Add to `.cursor/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "cluster-cli": {
+      "command": "cluster",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+#### Claude Desktop Configuration
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "cluster-cli": {
+      "command": "/path/to/cluster",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Note:** The MCP server uses the current kubectl context. Switch contexts with `kubectl config use-context` before starting the AI agent, or configure separate MCP servers for different clusters.
+
+### E2E Testing
+
+See [`examples/e2e/`](examples/e2e/) for end-to-end tests with a kind cluster and sample workloads (healthy, crash-looping, OOMKilled, ImagePullBackOff, Pending).
+
 ## Configuration
 
 ### Configuration File
