@@ -536,8 +536,12 @@ pub fn mark_precursors(entries: &mut [TimelineEntry], precursor_window_secs: i64
             }
 
             // Check if this entry is a likely precursor
-            if is_likely_precursor(entry, &incident_timestamp, &incident_workload, precursor_window_secs)
-            {
+            if is_likely_precursor(
+                entry,
+                &incident_timestamp,
+                &incident_workload,
+                precursor_window_secs,
+            ) {
                 entry.is_precursor = true;
             }
         }
