@@ -77,11 +77,9 @@ pub async fn run_custom_resource_checks(
     let mut results = CheckResults::default();
     for (resource, result) in custom {
         match result {
-            Ok(items) => results.problems.extend(
-                items
-                    .iter()
-                    .filter_map(|item| check_custom_resource(item, resource, now)),
-            ),
+            Ok(items) => results
+                .problems
+                .extend(items.iter().filter_map(|item| check_custom_resource(item, resource, now))),
             Err(err) => results.warnings.push(format!("Checks/{resource}: {err}")),
         }
     }
@@ -89,10 +87,7 @@ pub async fn run_custom_resource_checks(
 }
 
 async fn list(args: &[&str]) -> Result<Vec<Value>, String> {
-    list_items(args)
-        .await
-        .map(|list| list.items)
-        .map_err(|err| err.to_string())
+    list_items(args).await.map(|list| list.items).map_err(|err| err.to_string())
 }
 
 /// An aggregated API that is down breaks discovery for everything, and for
@@ -130,9 +125,7 @@ fn check_persistent_volume(item: &Value) -> Option<ResourceProblem> {
 }
 
 fn check_namespace(item: &Value, now: chrono::DateTime<chrono::Utc>) -> Option<ResourceProblem> {
-    let deleted_at = item
-        .pointer("/metadata/deletionTimestamp")
-        .and_then(Value::as_str)?;
+    let deleted_at = item.pointer("/metadata/deletionTimestamp").and_then(Value::as_str)?;
     let deleted_at = chrono::DateTime::parse_from_rfc3339(deleted_at).ok()?;
     if now.signed_duration_since(deleted_at).num_seconds() < STUCK_TERMINATING_SECS {
         return None;
@@ -163,11 +156,7 @@ fn check_custom_resource(
     resource: &str,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Option<ResourceProblem> {
-    let kind = item
-        .get("kind")
-        .and_then(Value::as_str)
-        .unwrap_or(resource)
-        .to_string();
+    let kind = item.get("kind").and_then(Value::as_str).unwrap_or(resource).to_string();
 
     for (condition_type, suffix) in READINESS_CONDITIONS {
         if let Some(condition) = find_condition(item, condition_type) {
@@ -186,9 +175,7 @@ fn check_custom_resource(
     }
 
     // Argo CD Applications report health outside of conditions.
-    let health = item
-        .pointer("/status/health/status")
-        .and_then(Value::as_str);
+    let health = item.pointer("/status/health/status").and_then(Value::as_str);
     if let Some(health @ ("Degraded" | "Missing")) = health {
         let message = item
             .pointer("/status/health/message")
@@ -221,10 +208,7 @@ fn problem(
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
-        namespace: item
-            .pointer("/metadata/namespace")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        namespace: item.pointer("/metadata/namespace").and_then(Value::as_str).map(str::to_string),
         reason: reason.to_string(),
         severity,
         message,
@@ -232,10 +216,7 @@ fn problem(
 }
 
 fn conditions(item: &Value) -> impl Iterator<Item = &Value> {
-    item.pointer("/status/conditions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+    item.pointer("/status/conditions").and_then(Value::as_array).into_iter().flatten()
 }
 
 fn find_condition<'a>(item: &'a Value, condition_type: &str) -> Option<&'a Value> {
@@ -259,12 +240,8 @@ fn condition_status(condition: &Value) -> Option<&str> {
 
 /// `reason: message`, or whichever of the two is present.
 fn condition_message(condition: &Value) -> String {
-    let field = |name| {
-        condition
-            .get(name)
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-    };
+    let field =
+        |name| condition.get(name).and_then(Value::as_str).filter(|value| !value.is_empty());
     match (field("reason"), field("message")) {
         (Some(reason), Some(message)) => format!("{reason}: {message}"),
         (Some(value), None) | (None, Some(value)) => value.to_string(),
@@ -333,10 +310,7 @@ mod tests {
     fn only_failed_persistent_volumes_are_reported() {
         let failed = json!({"metadata": {"name": "pv-1"}, "status": {"phase": "Failed"}});
         let released = json!({"metadata": {"name": "pv-2"}, "status": {"phase": "Released"}});
-        assert_eq!(
-            check_persistent_volume(&failed).unwrap().reason,
-            "PersistentVolumeFailed"
-        );
+        assert_eq!(check_persistent_volume(&failed).unwrap().reason, "PersistentVolumeFailed");
         assert!(check_persistent_volume(&released).is_none());
     }
 
@@ -355,10 +329,7 @@ mod tests {
         });
         let problem = check_namespace(&stuck, now()).expect("problem");
         assert_eq!(problem.reason, "NamespaceStuckTerminating");
-        assert_eq!(
-            problem.message,
-            "SomeFinalizersRemain: example.com/finalizer in 1 resource"
-        );
+        assert_eq!(problem.message, "SomeFinalizersRemain: example.com/finalizer in 1 resource");
         assert!(check_namespace(&recent, now()).is_none());
         assert!(check_namespace(&json!({"metadata": {"name": "live"}}), now()).is_none());
     }

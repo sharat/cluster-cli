@@ -4,10 +4,10 @@ use crossterm::{
     cursor::{SetCursorStyle, Show},
     event::{Event, EventStream, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use futures::StreamExt;
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{io, time::Duration};
 use tokio::{sync::mpsc, time::interval};
 
@@ -128,22 +128,15 @@ async fn main() -> Result<()> {
     // Logging is opt-in via RUST_LOG. stderr shares the terminal with the TUI,
     // so unconditional logging would draw over the alternate screen.
     if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_writer(io::stderr)
-            .init();
+        tracing_subscriber::fmt().with_env_filter(filter).with_writer(io::stderr).init();
     }
 
     // Restore terminal on panic
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = disable_raw_mode();
-        let _ = execute!(
-            io::stdout(),
-            SetCursorStyle::DefaultUserShape,
-            Show,
-            LeaveAlternateScreen
-        );
+        let _ =
+            execute!(io::stdout(), SetCursorStyle::DefaultUserShape, Show, LeaveAlternateScreen);
         original_hook(info);
     }));
 
@@ -204,22 +197,11 @@ async fn main() -> Result<()> {
 
     // Trigger initial data fetch only when the namespace is usable.
     if !config.namespace.is_empty() {
-        fetch_tx
-            .send(FetchCommand::RefreshAll {
-                namespace: config.namespace.clone(),
-            })
-            .await?;
+        fetch_tx.send(FetchCommand::RefreshAll { namespace: config.namespace.clone() }).await?;
     }
 
     // Run app
-    let result = run_app(
-        &mut terminal,
-        event_rx,
-        fetch_tx,
-        config,
-        initial_connection_issue,
-    )
-    .await;
+    let result = run_app(&mut terminal, event_rx, fetch_tx, config, initial_connection_issue).await;
 
     // Terminal is restored by `_terminal_guard` on drop.
     result

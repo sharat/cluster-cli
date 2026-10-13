@@ -5,12 +5,7 @@ use crate::data::models::{
 };
 
 pub fn build_incident_buckets(signals: &ClusterSignals) -> Vec<IncidentBucket> {
-    let ClusterSignals {
-        nodes,
-        pods,
-        events,
-        resource_problems,
-    } = *signals;
+    let ClusterSignals { nodes, pods, events, resource_problems } = *signals;
     let mut buckets: HashMap<String, IncidentAccumulator> = HashMap::new();
 
     for node in nodes {
@@ -19,9 +14,7 @@ pub fn build_incident_buckets(signals: &ClusterSignals) -> Vec<IncidentBucket> {
                 &mut buckets,
                 "NodeNotReady",
                 IncidentSeverity::Critical,
-                IncidentTarget::Node {
-                    node_name: node.name.clone(),
-                },
+                IncidentTarget::Node { node_name: node.name.clone() },
                 1,
                 String::new(),
                 Some("node is reporting NotReady".to_string()),
@@ -35,9 +28,7 @@ pub fn build_incident_buckets(signals: &ClusterSignals) -> Vec<IncidentBucket> {
                 &mut buckets,
                 "CrashLoopBackOff",
                 IncidentSeverity::Critical,
-                IncidentTarget::Pod {
-                    pod_name: pod.name.clone(),
-                },
+                IncidentTarget::Pod { pod_name: pod.name.clone() },
                 1,
                 String::new(),
                 Some("pod is crash looping".to_string()),
@@ -49,9 +40,7 @@ pub fn build_incident_buckets(signals: &ClusterSignals) -> Vec<IncidentBucket> {
                 &mut buckets,
                 "OOMKilled",
                 IncidentSeverity::Critical,
-                IncidentTarget::Pod {
-                    pod_name: pod.name.clone(),
-                },
+                IncidentTarget::Pod { pod_name: pod.name.clone() },
                 1,
                 String::new(),
                 Some("container was terminated by the kernel OOM killer".to_string()),
@@ -136,19 +125,12 @@ pub fn build_incident_buckets(signals: &ClusterSignals) -> Vec<IncidentBucket> {
                 event_target(event),
                 event.count.max(1),
                 event.timestamp.clone(),
-                if event.message.is_empty() {
-                    None
-                } else {
-                    Some(event.message.clone())
-                },
+                if event.message.is_empty() { None } else { Some(event.message.clone()) },
             );
         }
     }
 
-    let mut buckets: Vec<_> = buckets
-        .into_values()
-        .map(IncidentAccumulator::into_bucket)
-        .collect();
+    let mut buckets: Vec<_> = buckets.into_values().map(IncidentAccumulator::into_bucket).collect();
     buckets.sort_by(|a, b| {
         b.severity
             .rank()
@@ -203,11 +185,7 @@ fn canonical_event_reason(event: &ClusterEvent) -> Option<(&str, IncidentSeverit
         return Some(("WebhookFailure", IncidentSeverity::Critical));
     }
 
-    if reason.is_empty() {
-        None
-    } else {
-        Some((reason, severity_for_reason(reason)))
-    }
+    if reason.is_empty() { None } else { Some((reason, severity_for_reason(reason))) }
 }
 
 fn severity_for_reason(reason: &str) -> IncidentSeverity {
@@ -306,16 +284,9 @@ impl IncidentAccumulator {
 
 fn event_target(event: &ClusterEvent) -> IncidentTarget {
     match event.kind.as_str() {
-        "Node" => IncidentTarget::Node {
-            node_name: event.name.clone(),
-        },
-        "Pod" => IncidentTarget::Pod {
-            pod_name: event.name.clone(),
-        },
-        kind => IncidentTarget::Workload {
-            kind: kind.to_string(),
-            name: event.name.clone(),
-        },
+        "Node" => IncidentTarget::Node { node_name: event.name.clone() },
+        "Pod" => IncidentTarget::Pod { pod_name: event.name.clone() },
+        kind => IncidentTarget::Workload { kind: kind.to_string(), name: event.name.clone() },
     }
 }
 
@@ -382,10 +353,11 @@ mod tests {
         assert_eq!(buckets[0].reason, "CrashLoopBackOff");
         assert_eq!(buckets[0].severity, IncidentSeverity::Critical);
         assert_eq!(buckets[0].occurrences, 5);
-        assert!(buckets[0]
-            .targets
-            .iter()
-            .any(|target| matches!(target, IncidentTarget::Pod { pod_name } if pod_name == "api")));
+        assert!(
+            buckets[0].targets.iter().any(
+                |target| matches!(target, IncidentTarget::Pod { pod_name } if pod_name == "api")
+            )
+        );
         assert!(buckets.iter().any(|b| b.reason == "NodeNotReady"));
         assert!(buckets.iter().any(|b| b.reason == "ImagePullBackOff"));
         assert!(buckets.iter().any(|b| b.reason == "FailedScheduling"));
@@ -403,7 +375,8 @@ mod tests {
             timestamp: "2026-03-09T10:00:00Z".to_string(),
         }];
 
-        let buckets = build_incident_buckets(&[], &[], &events);
+        let signals = ClusterSignals::new(&[], &[], &events);
+        let buckets = build_incident_buckets(&signals);
 
         assert_eq!(buckets[0].reason, "ImagePullBackOff");
         assert_eq!(buckets[0].severity, IncidentSeverity::Critical);
@@ -510,10 +483,7 @@ mod tests {
         assert_eq!(buckets.len(), 1);
         assert_eq!(buckets[0].reason, "APIServiceUnavailable");
         assert_eq!(buckets[0].severity, IncidentSeverity::Critical);
-        assert_eq!(
-            buckets[0].sample_message.as_deref(),
-            Some("FailedDiscoveryCheck")
-        );
+        assert_eq!(buckets[0].sample_message.as_deref(), Some("FailedDiscoveryCheck"));
         assert_eq!(
             buckets[0].targets,
             vec![IncidentTarget::Resource {

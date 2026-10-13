@@ -68,17 +68,11 @@ pub struct KubectlError {
 
 impl KubectlError {
     fn new(message: impl Into<String>) -> Self {
-        Self {
-            issue: None,
-            message: message.into(),
-        }
+        Self { issue: None, message: message.into() }
     }
 
     fn with_issue(issue: ConnectionIssue, message: impl Into<String>) -> Self {
-        Self {
-            issue: Some(issue),
-            message: message.into(),
-        }
+        Self { issue: Some(issue), message: message.into() }
     }
 
     pub fn connection_issue(&self) -> Option<&ConnectionIssue> {
@@ -125,40 +119,37 @@ pub(crate) async fn run_cmd(program: &str, args: &[&str]) -> Result<String, Kube
     }
     // `kill_on_drop` ensures a timed-out kubectl is terminated instead of
     // being orphaned when the `output()` future is dropped.
-    let output = timeout(
-        KUBECTL_TIMEOUT,
-        command.args(args).kill_on_drop(true).output(),
-    )
-    .await
-    .map_err(|_| {
-        let message = format!(
-            "kubectl {} timed out after {}s",
-            args.join(" "),
-            KUBECTL_TIMEOUT.as_secs()
-        );
-        KubectlError::with_issue(
-            ConnectionIssue {
-                kind: ConnectionIssueKind::Generic,
-                namespace: None,
-                detail: message.clone(),
-            },
-            message,
-        )
-    })?
-    .map_err(|err| {
-        if err.kind() == ErrorKind::NotFound {
+    let output = timeout(KUBECTL_TIMEOUT, command.args(args).kill_on_drop(true).output())
+        .await
+        .map_err(|_| {
+            let message = format!(
+                "kubectl {} timed out after {}s",
+                args.join(" "),
+                KUBECTL_TIMEOUT.as_secs()
+            );
             KubectlError::with_issue(
                 ConnectionIssue {
-                    kind: ConnectionIssueKind::KubectlMissing,
+                    kind: ConnectionIssueKind::Generic,
                     namespace: None,
-                    detail: "kubectl was not found in PATH".to_string(),
+                    detail: message.clone(),
                 },
-                format!("Failed to run {program} {args:?}: {err}"),
+                message,
             )
-        } else {
-            KubectlError::new(format!("Failed to run {program} {args:?}: {err}"))
-        }
-    })?;
+        })?
+        .map_err(|err| {
+            if err.kind() == ErrorKind::NotFound {
+                KubectlError::with_issue(
+                    ConnectionIssue {
+                        kind: ConnectionIssueKind::KubectlMissing,
+                        namespace: None,
+                        detail: "kubectl was not found in PATH".to_string(),
+                    },
+                    format!("Failed to run {program} {args:?}: {err}"),
+                )
+            } else {
+                KubectlError::new(format!("Failed to run {program} {args:?}: {err}"))
+            }
+        })?;
 
     if !output.status.success() {
         let stderr = strip_klog_lines(&String::from_utf8_lossy(&output.stderr));
@@ -181,16 +172,8 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
     }
 
     // Flags that could exfiltrate credentials or redirect requests elsewhere.
-    const BLOCKED_FLAGS: &[&str] = &[
-        "--raw",
-        "--kubeconfig",
-        "--server",
-        "-s",
-        "--token",
-        "--as",
-        "--as-group",
-        "--as-uid",
-    ];
+    const BLOCKED_FLAGS: &[&str] =
+        &["--raw", "--kubeconfig", "--server", "-s", "--token", "--as", "--as-group", "--as-uid"];
     if let Some(flag) = args.iter().find(|arg| {
         BLOCKED_FLAGS
             .iter()
@@ -205,10 +188,7 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
         | ["config", "view", ..]
         | ["config", "get-contexts", ..] => Ok(()),
         [] => anyhow::bail!("kubectl command is empty"),
-        _ => anyhow::bail!(
-            "Rejected non-read-only kubectl command: kubectl {}",
-            args.join(" ")
-        ),
+        _ => anyhow::bail!("Rejected non-read-only kubectl command: kubectl {}", args.join(" ")),
     }
 }
 
@@ -236,10 +216,7 @@ pub async fn fetch_node_metrics(
         .map(|arr| arr.iter())
         .unwrap_or_else(|| [].iter());
     let (top_output, top_warning) = split_top_result(top_result);
-    Ok((
-        build_node_metrics(&top_output, items, node_pool_filter),
-        top_warning,
-    ))
+    Ok((build_node_metrics(&top_output, items, node_pool_filter), top_warning))
 }
 
 /// A `kubectl get <resource> -o json` list.
@@ -258,10 +235,7 @@ pub(crate) async fn list_items(args: &[&str]) -> Result<ResourceList> {
         Some(Value::Array(items)) => items,
         _ => Vec::new(),
     };
-    Ok(ResourceList {
-        items,
-        resource_version,
-    })
+    Ok(ResourceList { items, resource_version })
 }
 
 /// `metadata.resourceVersion` as a number. The API documents it as opaque,
@@ -288,16 +262,12 @@ pub async fn list_events(namespace: &str) -> Result<ResourceList> {
 
 /// `kubectl top nodes` output; empty when metrics-server is unavailable.
 pub async fn top_nodes() -> String {
-    run_cmd("kubectl", &["top", "nodes", "--no-headers"])
-        .await
-        .unwrap_or_default()
+    run_cmd("kubectl", &["top", "nodes", "--no-headers"]).await.unwrap_or_default()
 }
 
 /// `kubectl top pods` output; empty when metrics-server is unavailable.
 pub async fn top_pods(namespace: &str) -> String {
-    run_cmd("kubectl", &["top", "pods", "-n", namespace, "--no-headers"])
-        .await
-        .unwrap_or_default()
+    run_cmd("kubectl", &["top", "pods", "-n", namespace, "--no-headers"]).await.unwrap_or_default()
 }
 
 #[derive(Clone, Copy)]
@@ -486,10 +456,7 @@ fn get_node_allocatable_memory(nodes_json: &Value, node_name: &str) -> u64 {
         .unwrap_or_default();
 
     for item in items {
-        let name = item
-            .pointer("/metadata/name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let name = item.pointer("/metadata/name").and_then(|v| v.as_str()).unwrap_or("");
 
         if name == node_name {
             let mem_str = item
@@ -511,10 +478,7 @@ fn get_node_cpu_capacity(nodes_json: &Value, node_name: &str) -> u64 {
         .unwrap_or_default();
 
     for item in items {
-        let name = item
-            .pointer("/metadata/name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let name = item.pointer("/metadata/name").and_then(|v| v.as_str()).unwrap_or("");
 
         if name == node_name {
             return item
@@ -536,16 +500,11 @@ fn get_node_memory_capacity(nodes_json: &Value, node_name: &str) -> u64 {
         .unwrap_or_default();
 
     for item in items {
-        let name = item
-            .pointer("/metadata/name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let name = item.pointer("/metadata/name").and_then(|v| v.as_str()).unwrap_or("");
 
         if name == node_name {
-            let mem_str = item
-                .pointer("/status/capacity/memory")
-                .and_then(|v| v.as_str())
-                .unwrap_or("0Ki");
+            let mem_str =
+                item.pointer("/status/capacity/memory").and_then(|v| v.as_str()).unwrap_or("0Ki");
             return parse_memory_mb(mem_str);
         }
     }
@@ -560,10 +519,7 @@ fn get_node_info(nodes_json: &Value, node_name: &str) -> Option<NodeInfo> {
         .map(|a| a.as_slice())
         .unwrap_or_default();
 
-    items
-        .iter()
-        .find(|item| metadata_name(item) == node_name)
-        .and_then(get_node_info_for_item)
+    items.iter().find(|item| metadata_name(item) == node_name).and_then(get_node_info_for_item)
 }
 
 fn get_node_info_for_item(item: &Value) -> Option<NodeInfo> {
@@ -575,11 +531,7 @@ fn get_node_info_for_item(item: &Value) -> Option<NodeInfo> {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        os_image: node_info
-            .get("osImage")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
+        os_image: node_info.get("osImage").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         container_runtime: node_info
             .get("containerRuntimeVersion")
             .and_then(|v| v.as_str())
@@ -600,11 +552,7 @@ fn get_node_info_for_item(item: &Value) -> Option<NodeInfo> {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        kernel: node_info
-            .get("kernel")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
+        kernel: node_info.get("kernel").and_then(|v| v.as_str()).unwrap_or("").to_string(),
     })
 }
 
@@ -617,10 +565,7 @@ fn get_node_health_state(nodes_json: &Value, node_name: &str) -> (NodeConditions
         .unwrap_or_default();
 
     for item in items {
-        let name = item
-            .pointer("/metadata/name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let name = item.pointer("/metadata/name").and_then(|v| v.as_str()).unwrap_or("");
 
         if name != node_name {
             continue;
@@ -634,23 +579,17 @@ fn get_node_health_state(nodes_json: &Value, node_name: &str) -> (NodeConditions
             network_unavailable: ConditionStatus::Unknown,
         };
         let mut unhealthy_conditions = 0u8;
-        let cordoned = item
-            .pointer("/spec/unschedulable")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let cordoned =
+            item.pointer("/spec/unschedulable").and_then(|v| v.as_bool()).unwrap_or(false);
         let draining = false;
 
-        if let Some(condition_entries) = item
-            .pointer("/status/conditions")
-            .and_then(|v| v.as_array())
+        if let Some(condition_entries) =
+            item.pointer("/status/conditions").and_then(|v| v.as_array())
         {
             for condition in condition_entries {
                 let condition_type = condition.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 let status = parse_condition_status(
-                    condition
-                        .get("status")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown"),
+                    condition.get("status").and_then(|v| v.as_str()).unwrap_or("Unknown"),
                 );
 
                 match condition_type {
@@ -715,23 +654,14 @@ fn get_node_health_state_for_item(item: &Value) -> (NodeConditions, u8, bool, bo
         network_unavailable: ConditionStatus::Unknown,
     };
     let mut unhealthy_conditions = 0u8;
-    let cordoned = item
-        .pointer("/spec/unschedulable")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let cordoned = item.pointer("/spec/unschedulable").and_then(|v| v.as_bool()).unwrap_or(false);
     let draining = false;
 
-    if let Some(condition_entries) = item
-        .pointer("/status/conditions")
-        .and_then(|v| v.as_array())
-    {
+    if let Some(condition_entries) = item.pointer("/status/conditions").and_then(|v| v.as_array()) {
         for condition in condition_entries {
             let condition_type = condition.get("type").and_then(|v| v.as_str()).unwrap_or("");
             let status = parse_condition_status(
-                condition
-                    .get("status")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown"),
+                condition.get("status").and_then(|v| v.as_str()).unwrap_or("Unknown"),
             );
 
             match condition_type {
@@ -821,32 +751,20 @@ pub fn build_pods<'a>(
     let mut pods = Vec::new();
 
     for item in items {
-        let name = item
-            .pointer("/metadata/name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let uid = item
-            .pointer("/metadata/uid")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let name =
+            item.pointer("/metadata/name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let uid = item.pointer("/metadata/uid").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let pod_namespace = item
             .pointer("/metadata/namespace")
             .and_then(|v| v.as_str())
             .unwrap_or(namespace)
             .to_string();
 
-        let phase = item
-            .pointer("/status/phase")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Unknown")
-            .to_string();
+        let phase =
+            item.pointer("/status/phase").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
 
-        let node_name = item
-            .pointer("/spec/nodeName")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        let node_name =
+            item.pointer("/spec/nodeName").and_then(|v| v.as_str()).map(|s| s.to_string());
 
         let restarts: u32 = item
             .pointer("/status/containerStatuses")
@@ -865,32 +783,20 @@ pub fn build_pods<'a>(
             .unwrap_or_else(|| "?".to_string());
 
         let spec_containers = item.pointer("/spec/containers").and_then(|v| v.as_array());
-        let init_containers = item
-            .pointer("/spec/initContainers")
-            .and_then(|v| v.as_array());
+        let init_containers = item.pointer("/spec/initContainers").and_then(|v| v.as_array());
 
         let (cpu_request_millicores, cpu_limit_millicores) =
             effective_pod_cpu_resources(spec_containers, init_containers);
         let (memory_request_mb, memory_limit_mb) =
             effective_pod_memory_resources(spec_containers, init_containers);
 
-        let top_key = if all_namespaces {
-            format!("{pod_namespace}/{name}")
-        } else {
-            name.clone()
-        };
+        let top_key = if all_namespaces { format!("{pod_namespace}/{name}") } else { name.clone() };
         let (cpu_millicores, memory_mb) = top_map.get(&top_key).copied().unwrap_or((0, 0));
 
-        let memory_pct = if memory_limit_mb > 0 {
-            percent_of(memory_mb, memory_limit_mb)
-        } else {
-            0
-        };
-        let memory_request_pct = if memory_request_mb > 0 {
-            percent_of(memory_mb, memory_request_mb)
-        } else {
-            0
-        };
+        let memory_pct =
+            if memory_limit_mb > 0 { percent_of(memory_mb, memory_limit_mb) } else { 0 };
+        let memory_request_pct =
+            if memory_request_mb > 0 { percent_of(memory_mb, memory_request_mb) } else { 0 };
 
         let cpu_pct = if cpu_limit_millicores > 0 {
             percent_of(cpu_millicores, cpu_limit_millicores)
@@ -903,9 +809,8 @@ pub fn build_pods<'a>(
             0
         };
 
-        let container_statuses = item
-            .pointer("/status/containerStatuses")
-            .and_then(|v| v.as_array());
+        let container_statuses =
+            item.pointer("/status/containerStatuses").and_then(|v| v.as_array());
         let containers = extract_container_info(container_statuses);
         let total_containers = container_statuses.map(|arr| arr.len() as u32).unwrap_or(0);
         let ready_containers = container_statuses
@@ -927,19 +832,15 @@ pub fn build_pods<'a>(
         let oom_killed = container_statuses
             .map(|arr| {
                 arr.iter().any(|c| {
-                    c.pointer("/lastState/terminated/reason")
-                        .and_then(|v| v.as_str())
+                    c.pointer("/lastState/terminated/reason").and_then(|v| v.as_str())
                         == Some("OOMKilled")
-                        || c.pointer("/state/terminated/reason")
-                            .and_then(|v| v.as_str())
+                        || c.pointer("/state/terminated/reason").and_then(|v| v.as_str())
                             == Some("OOMKilled")
                 })
             })
             .unwrap_or(false);
-        let status_reason = item
-            .pointer("/status/reason")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
+        let status_reason =
+            item.pointer("/status/reason").and_then(|v| v.as_str()).map(str::to_string);
         let status = derive_pod_status(
             memory_pct,
             &phase,
@@ -994,25 +895,11 @@ pub async fn fetch_workload_summaries(namespace: &str) -> WorkloadCollection {
     let replicaset_args = ["get", "replicasets", "-n", namespace, "-o", "json"];
     let job_args = ["get", "jobs", "-n", namespace, "-o", "json"];
     let cronjob_args = ["get", "cronjobs", "-n", namespace, "-o", "json"];
-    let hpa_args = [
-        "get",
-        "horizontalpodautoscalers",
-        "-n",
-        namespace,
-        "-o",
-        "json",
-    ];
+    let hpa_args = ["get", "horizontalpodautoscalers", "-n", namespace, "-o", "json"];
     let pdb_args = ["get", "poddisruptionbudgets", "-n", namespace, "-o", "json"];
     let service_args = ["get", "services", "-n", namespace, "-o", "json"];
     let ingress_args = ["get", "ingresses", "-n", namespace, "-o", "json"];
-    let pvc_args = [
-        "get",
-        "persistentvolumeclaims",
-        "-n",
-        namespace,
-        "-o",
-        "json",
-    ];
+    let pvc_args = ["get", "persistentvolumeclaims", "-n", namespace, "-o", "json"];
 
     let (
         deployments_result,
@@ -1064,10 +951,19 @@ pub async fn fetch_workload_summaries(namespace: &str) -> WorkloadCollection {
             }
         }
     }
-    let [deployment_json, statefulset_json, daemonset_json, replicasets_json, jobs_json, cronjobs_json, hpas_json, pdbs_json, services_json, ingresses_json, pvcs_json] =
-        parsed_resources
-            .try_into()
-            .expect("resource result count matches workload query count");
+    let [
+        deployment_json,
+        statefulset_json,
+        daemonset_json,
+        replicasets_json,
+        jobs_json,
+        cronjobs_json,
+        hpas_json,
+        pdbs_json,
+        services_json,
+        ingresses_json,
+        pvcs_json,
+    ] = parsed_resources.try_into().expect("resource result count matches workload query count");
 
     let deployment_rs_map = build_deployment_replicaset_map(&replicasets_json);
     let mut workloads = Vec::new();
@@ -1140,14 +1036,10 @@ pub async fn fetch_workload_summaries(namespace: &str) -> WorkloadCollection {
             let updated = status_u32(item, "/status/updatedReplicas");
             let current = status_u32(item, "/status/currentReplicas");
             let unavailable = desired.saturating_sub(ready);
-            let update_revision = item
-                .pointer("/status/updateRevision")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let current_revision = item
-                .pointer("/status/currentRevision")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let update_revision =
+                item.pointer("/status/updateRevision").and_then(|v| v.as_str()).unwrap_or("");
+            let current_revision =
+                item.pointer("/status/currentRevision").and_then(|v| v.as_str()).unwrap_or("");
             let status = workload_health(unavailable, None, Some(ConditionStatus::True));
             let rollout_status = statefulset_rollout_status(
                 desired,
@@ -1231,10 +1123,7 @@ pub async fn fetch_workload_summaries(namespace: &str) -> WorkloadCollection {
 
     sort_workloads(&mut workloads);
 
-    WorkloadCollection {
-        summaries: workloads,
-        warnings,
-    }
+    WorkloadCollection { summaries: workloads, warnings }
 }
 
 /// Worst status first, then by kind and name.
@@ -1256,11 +1145,7 @@ fn parse_workload_resource_result<E: std::fmt::Display>(
 }
 
 fn workload_items(resource: &Value) -> &[Value] {
-    resource
-        .get("items")
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .unwrap_or_default()
+    resource.get("items").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default()
 }
 
 fn push_workload(
@@ -1327,15 +1212,9 @@ fn collect_jobs(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadS
 fn collect_cronjobs(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadSummary>) {
     for item in workload_items(resource) {
         let schedule = string_at(item, "/spec/schedule", "-");
-        let suspended = item
-            .pointer("/spec/suspend")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let active = item
-            .pointer("/status/active")
-            .and_then(Value::as_array)
-            .map(Vec::len)
-            .unwrap_or(0);
+        let suspended = item.pointer("/spec/suspend").and_then(Value::as_bool).unwrap_or(false);
+        let active =
+            item.pointer("/status/active").and_then(Value::as_array).map(Vec::len).unwrap_or(0);
         let last_schedule = string_at(item, "/status/lastScheduleTime", "never");
         let state = if suspended { "suspended" } else { "scheduled" };
         push_workload(
@@ -1386,10 +1265,7 @@ fn collect_hpas(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadS
             format!("replicas {current}→{desired}  range {minimum}-{maximum}"),
             vec![
                 ("Target".to_string(), format!("{target_kind}/{target_name}")),
-                (
-                    "Replicas".to_string(),
-                    format!("current {current} desired {desired}"),
-                ),
+                ("Replicas".to_string(), format!("current {current} desired {desired}")),
                 ("Range".to_string(), format!("{minimum}-{maximum}")),
                 (
                     "Scaling".to_string(),
@@ -1414,11 +1290,7 @@ fn collect_pdbs(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadS
         let desired = status_u32(item, "/status/desiredHealthy");
         let expected = status_u32(item, "/status/expectedPods");
         let disruptions = status_u32(item, "/status/disruptionsAllowed");
-        let status = if healthy < desired {
-            HealthStatus::Warning
-        } else {
-            HealthStatus::Healthy
-        };
+        let status = if healthy < desired { HealthStatus::Warning } else { HealthStatus::Healthy };
         push_workload(
             workloads,
             WorkloadKind::PodDisruptionBudget,
@@ -1499,11 +1371,8 @@ fn collect_ingresses(resource: &Value, namespace: &str, workloads: &mut Vec<Work
             })
             .unwrap_or_default();
         let addresses = load_balancer_addresses(item);
-        let status = if addresses.is_empty() {
-            HealthStatus::Elevated
-        } else {
-            HealthStatus::Healthy
-        };
+        let status =
+            if addresses.is_empty() { HealthStatus::Elevated } else { HealthStatus::Healthy };
         push_workload(
             workloads,
             WorkloadKind::Ingress,
@@ -1514,19 +1383,11 @@ fn collect_ingresses(resource: &Value, namespace: &str, workloads: &mut Vec<Work
                 ("Class".to_string(), class.to_string()),
                 (
                     "Hosts".to_string(),
-                    if hosts.is_empty() {
-                        "*".to_string()
-                    } else {
-                        hosts.join(", ")
-                    },
+                    if hosts.is_empty() { "*".to_string() } else { hosts.join(", ") },
                 ),
                 (
                     "Addresses".to_string(),
-                    if addresses.is_empty() {
-                        "pending".to_string()
-                    } else {
-                        addresses.join(", ")
-                    },
+                    if addresses.is_empty() { "pending".to_string() } else { addresses.join(", ") },
                 ),
             ],
             status,
@@ -1544,13 +1405,7 @@ fn collect_pvcs(resource: &Value, namespace: &str, workloads: &mut Vec<WorkloadS
         let access_modes = item
             .pointer("/spec/accessModes")
             .and_then(Value::as_array)
-            .map(|modes| {
-                modes
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
+            .map(|modes| modes.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
             .filter(|modes| !modes.is_empty())
             .unwrap_or_else(|| "-".to_string());
         let status = match phase {
@@ -1582,9 +1437,7 @@ fn condition_is(item: &Value, condition_type: &str, expected: ConditionStatus) -
 }
 
 fn string_at<'a>(item: &'a Value, pointer: &str, fallback: &'a str) -> &'a str {
-    item.pointer(pointer)
-        .and_then(Value::as_str)
-        .unwrap_or(fallback)
+    item.pointer(pointer).and_then(Value::as_str).unwrap_or(fallback)
 }
 
 fn value_at(item: &Value, pointer: &str, fallback: &str) -> String {
@@ -1657,15 +1510,12 @@ fn sum_container_cpu_resources(containers: Option<&Vec<Value>>) -> (u64, u64) {
 
     if let Some(containers) = containers {
         for container in containers {
-            if let Some(value) = container
-                .pointer("/resources/requests/cpu")
-                .and_then(|v| v.as_str())
+            if let Some(value) =
+                container.pointer("/resources/requests/cpu").and_then(|v| v.as_str())
             {
                 requests += parse_cpu(value);
             }
-            if let Some(value) = container
-                .pointer("/resources/limits/cpu")
-                .and_then(|v| v.as_str())
+            if let Some(value) = container.pointer("/resources/limits/cpu").and_then(|v| v.as_str())
             {
                 limits += parse_cpu(value);
             }
@@ -1681,15 +1531,13 @@ fn sum_container_memory_resources(containers: Option<&Vec<Value>>) -> (u64, u64)
 
     if let Some(containers) = containers {
         for container in containers {
-            if let Some(value) = container
-                .pointer("/resources/requests/memory")
-                .and_then(|v| v.as_str())
+            if let Some(value) =
+                container.pointer("/resources/requests/memory").and_then(|v| v.as_str())
             {
                 requests += parse_memory_mb(value);
             }
-            if let Some(value) = container
-                .pointer("/resources/limits/memory")
-                .and_then(|v| v.as_str())
+            if let Some(value) =
+                container.pointer("/resources/limits/memory").and_then(|v| v.as_str())
             {
                 limits += parse_memory_mb(value);
             }
@@ -1705,15 +1553,12 @@ fn max_container_cpu_resources(containers: Option<&Vec<Value>>) -> (u64, u64) {
 
     if let Some(containers) = containers {
         for container in containers {
-            if let Some(value) = container
-                .pointer("/resources/requests/cpu")
-                .and_then(|v| v.as_str())
+            if let Some(value) =
+                container.pointer("/resources/requests/cpu").and_then(|v| v.as_str())
             {
                 max_requests = max_requests.max(parse_cpu(value));
             }
-            if let Some(value) = container
-                .pointer("/resources/limits/cpu")
-                .and_then(|v| v.as_str())
+            if let Some(value) = container.pointer("/resources/limits/cpu").and_then(|v| v.as_str())
             {
                 max_limits = max_limits.max(parse_cpu(value));
             }
@@ -1729,15 +1574,13 @@ fn max_container_memory_resources(containers: Option<&Vec<Value>>) -> (u64, u64)
 
     if let Some(containers) = containers {
         for container in containers {
-            if let Some(value) = container
-                .pointer("/resources/requests/memory")
-                .and_then(|v| v.as_str())
+            if let Some(value) =
+                container.pointer("/resources/requests/memory").and_then(|v| v.as_str())
             {
                 max_requests = max_requests.max(parse_memory_mb(value));
             }
-            if let Some(value) = container
-                .pointer("/resources/limits/memory")
-                .and_then(|v| v.as_str())
+            if let Some(value) =
+                container.pointer("/resources/limits/memory").and_then(|v| v.as_str())
             {
                 max_limits = max_limits.max(parse_memory_mb(value));
             }
@@ -1781,7 +1624,7 @@ fn derive_pod_status(
         HealthStatus::Healthy
     } else if phase == "Failed" && status_reason == Some("Evicted") {
         HealthStatus::Warning
-    } else if crash_looping || oom_killed || !is_ready || matches!(phase, "Failed" | "Unknown") {
+    } else if crash_looping || oom_killed || matches!(phase, "Failed" | "Unknown") {
         HealthStatus::Critical
     } else if phase == "Pending" {
         HealthStatus::Warning
@@ -1803,31 +1646,22 @@ fn extract_container_info(container_statuses: Option<&Vec<Value>>) -> Vec<Contai
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown")
                         .to_string(),
-                    ready: status
-                        .get("ready")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                    restart_count: status
-                        .get("restartCount")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32,
+                    ready: status.get("ready").and_then(|v| v.as_bool()).unwrap_or(false),
+                    restart_count: status.get("restartCount").and_then(|v| v.as_u64()).unwrap_or(0)
+                        as u32,
                     state: summarize_container_state(status),
                     last_termination_reason: status
                         .pointer("/lastState/terminated/reason")
                         .and_then(|v| v.as_str())
                         .or_else(|| {
-                            status
-                                .pointer("/state/terminated/reason")
-                                .and_then(|v| v.as_str())
+                            status.pointer("/state/terminated/reason").and_then(|v| v.as_str())
                         })
                         .map(|reason| reason.to_string()),
                     last_exit_code: status
                         .pointer("/lastState/terminated/exitCode")
                         .and_then(|v| v.as_i64())
                         .or_else(|| {
-                            status
-                                .pointer("/state/terminated/exitCode")
-                                .and_then(|v| v.as_i64())
+                            status.pointer("/state/terminated/exitCode").and_then(|v| v.as_i64())
                         })
                         .map(|code| code as i32),
                 })
@@ -1837,10 +1671,7 @@ fn extract_container_info(container_statuses: Option<&Vec<Value>>) -> Vec<Contai
 }
 
 fn summarize_container_state(status: &Value) -> String {
-    if let Some(reason) = status
-        .pointer("/state/waiting/reason")
-        .and_then(|v| v.as_str())
-    {
+    if let Some(reason) = status.pointer("/state/waiting/reason").and_then(|v| v.as_str()) {
         return format!("Waiting ({reason})");
     }
 
@@ -1848,10 +1679,7 @@ fn summarize_container_state(status: &Value) -> String {
         return "Running".to_string();
     }
 
-    if let Some(reason) = status
-        .pointer("/state/terminated/reason")
-        .and_then(|v| v.as_str())
-    {
+    if let Some(reason) = status.pointer("/state/terminated/reason").and_then(|v| v.as_str()) {
         return format!("Terminated ({reason})");
     }
 
@@ -1878,17 +1706,9 @@ pub fn build_events<'a>(items: impl IntoIterator<Item = &'a Value>) -> Vec<Clust
             .unwrap_or("Unknown")
             .to_string();
 
-        let reason = item
-            .get("reason")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let reason = item.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-        let message = item
-            .get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let message = item.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
         let event_type = if item.get("type").and_then(|v| v.as_str()) == Some("Warning") {
             EventType::Warning
@@ -1900,15 +1720,7 @@ pub fn build_events<'a>(items: impl IntoIterator<Item = &'a Value>) -> Vec<Clust
 
         let timestamp = event_timestamp(item).to_string();
 
-        events.push(ClusterEvent {
-            kind,
-            name,
-            reason,
-            message,
-            event_type,
-            count,
-            timestamp,
-        });
+        events.push(ClusterEvent { kind, name, reason, message, event_type, count, timestamp });
     }
 
     events
@@ -1930,23 +1742,16 @@ pub fn newest_events<'a>(items: impl IntoIterator<Item = &'a Value>) -> Vec<&'a 
 /// `lastTimestamp`, falling back to `eventTime` (set instead by components
 /// using the events.k8s.io API) and then to creation time.
 fn event_timestamp(item: &Value) -> &str {
-    [
-        "/lastTimestamp",
-        "/eventTime",
-        "/metadata/creationTimestamp",
-    ]
-    .iter()
-    .find_map(|pointer| item.pointer(pointer).and_then(Value::as_str))
-    .unwrap_or("")
+    ["/lastTimestamp", "/eventTime", "/metadata/creationTimestamp"]
+        .iter()
+        .find_map(|pointer| item.pointer(pointer).and_then(Value::as_str))
+        .unwrap_or("")
 }
 
 pub async fn fetch_namespaces() -> Result<Vec<NamespaceSummary>> {
     let (namespace_result, pod_result) = tokio::join!(
         run_cmd("kubectl", &["get", "namespaces", "--no-headers"]),
-        run_cmd(
-            "kubectl",
-            &["get", "pods", "--all-namespaces", "--no-headers"]
-        ),
+        run_cmd("kubectl", &["get", "pods", "--all-namespaces", "--no-headers"]),
     );
     let namespace_output = namespace_result?;
     // Users without cluster-wide pod access can still pick a namespace.
@@ -2000,24 +1805,13 @@ pub async fn fetch_current_context() -> Result<String> {
 /// Names of every context in the kubeconfig, in kubeconfig order.
 pub async fn fetch_context_names() -> Result<Vec<String>> {
     let output = run_cmd("kubectl", &["config", "get-contexts", "-o", "name"]).await?;
-    Ok(output
-        .lines()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .collect())
+    Ok(output.lines().map(str::trim).filter(|name| !name.is_empty()).map(str::to_string).collect())
 }
 
 pub async fn fetch_current_namespace() -> Result<String> {
     let output = run_cmd(
         "kubectl",
-        &[
-            "config",
-            "view",
-            "--minify",
-            "-o",
-            "jsonpath={.contexts[0].context.namespace}",
-        ],
+        &["config", "view", "--minify", "-o", "jsonpath={.contexts[0].context.namespace}"],
     )
     .await?;
     let ns = output.trim().to_string();
@@ -2041,8 +1835,7 @@ pub fn classify_kubectl_error(err: &anyhow::Error) -> Option<ConnectionIssue> {
         .and_then(|kubectl_err| kubectl_err.connection_issue().cloned())
 }
 
-const NO_CONTEXT_DETAIL: &str =
-    "No active kubectl context is configured. Run `kubectl config use-context <name>` or set KUBECONFIG.";
+const NO_CONTEXT_DETAIL: &str = "No active kubectl context is configured. Run `kubectl config use-context <name>` or set KUBECONFIG.";
 
 fn classify_connection_issue(args: &[&str], stderr: &str) -> Option<ConnectionIssue> {
     let stderr = strip_klog_lines(stderr);
@@ -2108,11 +1901,7 @@ fn requested_namespace(args: &[&str]) -> Option<String> {
 /// Drop klog diagnostic lines (e.g. `E1006 21:59:14.025401  32805 memcache.go:265] ...`)
 /// that kubectl writes to stderr alongside the real error message.
 fn strip_klog_lines(stderr: &str) -> String {
-    stderr
-        .lines()
-        .filter(|line| !is_klog_line(line.trim_start()))
-        .collect::<Vec<_>>()
-        .join("\n")
+    stderr.lines().filter(|line| !is_klog_line(line.trim_start())).collect::<Vec<_>>().join("\n")
 }
 
 fn is_klog_line(line: &str) -> bool {
@@ -2126,11 +1915,7 @@ fn is_klog_line(line: &str) -> bool {
 
 fn stderr_trim_or_default(stderr: &str, default: &str) -> String {
     let trimmed = stderr.trim();
-    if trimmed.is_empty() {
-        default.to_string()
-    } else {
-        trimmed.to_string()
-    }
+    if trimmed.is_empty() { default.to_string() } else { trimmed.to_string() }
 }
 
 pub fn parse_cpu(s: &str) -> u64 {
@@ -2178,10 +1963,7 @@ pub fn parse_memory_mb(s: &str) -> u64 {
 }
 
 fn metadata_name(item: &Value) -> String {
-    item.pointer("/metadata/name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
+    item.pointer("/metadata/name").and_then(|v| v.as_str()).unwrap_or("").to_string()
 }
 
 fn status_u32(item: &Value, pointer: &str) -> u32 {
@@ -2189,39 +1971,29 @@ fn status_u32(item: &Value, pointer: &str) -> u32 {
 }
 
 fn find_condition_reason(item: &Value, condition_type: &str) -> Option<String> {
-    item.pointer("/status/conditions")
-        .and_then(|v| v.as_array())
-        .and_then(|conditions| {
-            conditions.iter().find_map(|condition| {
-                if condition.get("type").and_then(|v| v.as_str()) == Some(condition_type) {
-                    condition
-                        .get("reason")
-                        .and_then(|v| v.as_str())
-                        .map(ToString::to_string)
-                } else {
-                    None
-                }
-            })
+    item.pointer("/status/conditions").and_then(|v| v.as_array()).and_then(|conditions| {
+        conditions.iter().find_map(|condition| {
+            if condition.get("type").and_then(|v| v.as_str()) == Some(condition_type) {
+                condition.get("reason").and_then(|v| v.as_str()).map(ToString::to_string)
+            } else {
+                None
+            }
         })
+    })
 }
 
 fn find_condition_status(item: &Value, condition_type: &str) -> Option<ConditionStatus> {
-    item.pointer("/status/conditions")
-        .and_then(|v| v.as_array())
-        .and_then(|conditions| {
-            conditions.iter().find_map(|condition| {
-                if condition.get("type").and_then(|v| v.as_str()) == Some(condition_type) {
-                    Some(parse_condition_status(
-                        condition
-                            .get("status")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown"),
-                    ))
-                } else {
-                    None
-                }
-            })
+    item.pointer("/status/conditions").and_then(|v| v.as_array()).and_then(|conditions| {
+        conditions.iter().find_map(|condition| {
+            if condition.get("type").and_then(|v| v.as_str()) == Some(condition_type) {
+                Some(parse_condition_status(
+                    condition.get("status").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                ))
+            } else {
+                None
+            }
         })
+    })
 }
 
 fn build_deployment_replicaset_map(replicasets_json: &Value) -> HashMap<String, Vec<String>> {
@@ -2234,9 +2006,8 @@ fn build_deployment_replicaset_map(replicasets_json: &Value) -> HashMap<String, 
                 continue;
             }
 
-            if let Some(owner_refs) = item
-                .pointer("/metadata/ownerReferences")
-                .and_then(|v| v.as_array())
+            if let Some(owner_refs) =
+                item.pointer("/metadata/ownerReferences").and_then(|v| v.as_array())
             {
                 for owner in owner_refs {
                     if owner.get("kind").and_then(|v| v.as_str()) == Some("Deployment") {
@@ -2405,9 +2176,7 @@ mod tests {
         let inside = with_context("prod-eastus".to_string(), async {
             (
                 context_override(),
-                fetch_current_context()
-                    .await
-                    .expect("override short-circuits kubectl"),
+                fetch_current_context().await.expect("override short-circuits kubectl"),
             )
         })
         .await;
@@ -2590,10 +2359,7 @@ mod tests {
         );
 
         assert_eq!(
-            workloads
-                .iter()
-                .map(|workload| workload.kind)
-                .collect::<Vec<_>>(),
+            workloads.iter().map(|workload| workload.kind).collect::<Vec<_>>(),
             vec![
                 WorkloadKind::Job,
                 WorkloadKind::CronJob,
@@ -2626,15 +2392,8 @@ mod tests {
         );
 
         assert_eq!(
-            workloads
-                .iter()
-                .map(|workload| workload.status.clone())
-                .collect::<Vec<_>>(),
-            vec![
-                HealthStatus::Critical,
-                HealthStatus::Warning,
-                HealthStatus::Critical,
-            ]
+            workloads.iter().map(|workload| workload.status.clone()).collect::<Vec<_>>(),
+            vec![HealthStatus::Critical, HealthStatus::Warning, HealthStatus::Critical,]
         );
     }
 
@@ -2687,11 +2446,8 @@ mod tests {
             }]
         });
 
-        let nodes = build_node_metrics(
-            "",
-            info_json["items"].as_array().into_iter().flatten(),
-            None,
-        );
+        let nodes =
+            build_node_metrics("", info_json["items"].as_array().into_iter().flatten(), None);
 
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].name, "node-a");
@@ -2749,17 +2505,8 @@ mod tests {
         );
 
         assert_eq!(
-            nodes
-                .iter()
-                .map(|node| node.name.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "gke-node",
-                "eks-node",
-                "karpenter-node",
-                "capi-node",
-                "kops-node"
-            ]
+            nodes.iter().map(|node| node.name.as_str()).collect::<Vec<_>>(),
+            vec!["gke-node", "eks-node", "karpenter-node", "capi-node", "kops-node"]
         );
     }
 
@@ -2774,12 +2521,14 @@ mod tests {
             }]
         });
 
-        assert!(build_node_metrics(
-            "",
-            info_json["items"].as_array().into_iter().flatten(),
-            Some("workers")
-        )
-        .is_empty());
+        assert!(
+            build_node_metrics(
+                "",
+                info_json["items"].as_array().into_iter().flatten(),
+                Some("workers")
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -2792,12 +2541,7 @@ mod tests {
         });
 
         assert_eq!(
-            build_node_metrics(
-                "",
-                info_json["items"].as_array().into_iter().flatten(),
-                None
-            )
-            .len(),
+            build_node_metrics("", info_json["items"].as_array().into_iter().flatten(), None).len(),
             2
         );
     }
@@ -2819,12 +2563,12 @@ mod tests {
         );
         // Pending pods are never container-ready; they should still be Warning.
         assert_eq!(
-            derive_pod_status(10, "Pending", false, false, false),
+            derive_pod_status(10, "Pending", None, false, false, false),
             HealthStatus::Warning
         );
         // Completed Job pods have terminated (not ready) containers.
         assert_eq!(
-            derive_pod_status(10, "Succeeded", false, false, false),
+            derive_pod_status(10, "Succeeded", None, false, false, false),
             HealthStatus::Healthy
         );
         assert_eq!(ConditionStatus::True.as_str(), "True");

@@ -1,9 +1,9 @@
 use chrono::{DateTime, Local};
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Style},
     widgets::{Block, Borders, List, ListItem, ListState},
-    Frame,
 };
 
 use crate::app::{AppState, Panel};
@@ -13,17 +13,10 @@ use crate::ui::{format, theme};
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let is_focused = app.focused_panel == Panel::Events;
 
-    let border_style = if is_focused {
-        theme::focused_border_style()
-    } else {
-        theme::normal_border_style()
-    };
+    let border_style =
+        if is_focused { theme::focused_border_style() } else { theme::normal_border_style() };
 
-    let incident_count = app
-        .snapshot
-        .as_ref()
-        .map(|s| s.incident_buckets.len())
-        .unwrap_or(0);
+    let incident_count = app.snapshot.as_ref().map(|s| s.incident_buckets.len()).unwrap_or(0);
 
     let block = Block::default()
         .title(format!(" Incident Queue ({incident_count}) "))
@@ -46,11 +39,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
                 let target_labels: Vec<String> = if bucket.targets.is_empty() {
                     bucket.affected_resources.clone()
                 } else {
-                    bucket
-                        .targets
-                        .iter()
-                        .map(|target| target.display_label())
-                        .collect()
+                    bucket.targets.iter().map(|target| target.display_label()).collect()
                 };
                 let target_hint = if target_labels.is_empty() {
                     bucket
@@ -81,9 +70,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             })
             .collect();
 
-        let list = List::new(items)
-            .highlight_style(theme::selected_style())
-            .highlight_symbol("> ");
+        let list = List::new(items).highlight_style(theme::selected_style()).highlight_symbol("> ");
 
         let mut state = ListState::default();
         if is_focused && incident_count > 0 {
@@ -104,11 +91,7 @@ fn format_incident_timestamp(timestamp: &str) -> String {
         .unwrap_or_else(|_| {
             // On parse failure, show truncated timestamp with ellipsis indicator
             let truncated = format::truncate_no_ellipsis(timestamp, 7);
-            if timestamp.len() > 7 {
-                format!("{truncated}...")
-            } else {
-                truncated
-            }
+            if timestamp.len() > 7 { format!("{truncated}...") } else { truncated }
         })
 }
 

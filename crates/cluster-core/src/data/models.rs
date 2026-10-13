@@ -266,11 +266,7 @@ pub struct PodHistory {
 #[allow(dead_code)]
 impl PodHistory {
     pub fn new(name: String, namespace: String) -> Self {
-        Self {
-            name,
-            namespace,
-            memory_samples: std::collections::VecDeque::new(),
-        }
+        Self { name, namespace, memory_samples: std::collections::VecDeque::new() }
     }
 
     pub fn add_sample(&mut self, memory_pct: u8, max_samples: usize) {
@@ -356,20 +352,13 @@ impl IncidentTarget {
             Self::Pod { pod_name } => format!("Pod/{pod_name}"),
             Self::Node { node_name } => format!("Node/{node_name}"),
             Self::Workload { kind, name } => format!("{kind}/{name}"),
-            Self::Container {
-                pod_name,
-                container_name,
-            } => format!("Pod/{pod_name}/{container_name}"),
-            Self::Resource {
-                kind,
-                name,
-                namespace: Some(namespace),
-            } => format!("{kind}/{namespace}/{name}"),
-            Self::Resource {
-                kind,
-                name,
-                namespace: None,
-            } => format!("{kind}/{name}"),
+            Self::Container { pod_name, container_name } => {
+                format!("Pod/{pod_name}/{container_name}")
+            }
+            Self::Resource { kind, name, namespace: Some(namespace) } => {
+                format!("{kind}/{namespace}/{name}")
+            }
+            Self::Resource { kind, name, namespace: None } => format!("{kind}/{name}"),
         }
     }
 
@@ -397,11 +386,7 @@ impl IncidentTarget {
     /// `(kind, name, namespace)` of a [`Self::Resource`] target.
     pub fn resource_key(&self) -> Option<(&str, &str, Option<&str>)> {
         match self {
-            Self::Resource {
-                kind,
-                name,
-                namespace,
-            } => Some((kind, name, namespace.as_deref())),
+            Self::Resource { kind, name, namespace } => Some((kind, name, namespace.as_deref())),
             _ => None,
         }
     }
@@ -443,19 +428,11 @@ pub struct ClusterSignals<'a> {
 
 impl<'a> ClusterSignals<'a> {
     pub fn new(nodes: &'a [NodeMetric], pods: &'a [PodInfo], events: &'a [ClusterEvent]) -> Self {
-        Self {
-            nodes,
-            pods,
-            events,
-            resource_problems: &[],
-        }
+        Self { nodes, pods, events, resource_problems: &[] }
     }
 
     pub fn with_problems(self, resource_problems: &'a [ResourceProblem]) -> Self {
-        Self {
-            resource_problems,
-            ..self
-        }
+        Self { resource_problems, ..self }
     }
 }
 
@@ -495,10 +472,7 @@ pub struct DataCoverage {
 
 impl Default for DataCoverage {
     fn default() -> Self {
-        Self {
-            metrics_available: true,
-            nodes_visible: true,
-        }
+        Self { metrics_available: true, nodes_visible: true }
     }
 }
 

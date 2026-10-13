@@ -7,7 +7,7 @@
 use std::process::Stdio;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::process::Command;
@@ -57,18 +57,10 @@ pub fn spawn_watches(
     generation: u64,
     tx: &mpsc::Sender<WatchUpdate>,
 ) {
-    let context = context
-        .map(str::to_string)
-        .or_else(collector::context_override);
+    let context = context.map(str::to_string).or_else(collector::context_override);
     for kind in [WatchKind::Nodes, WatchKind::Pods, WatchKind::Events] {
         let args = watch_args(kind, namespace);
-        set.spawn(watch_loop(
-            kind,
-            context.clone(),
-            args,
-            generation,
-            tx.clone(),
-        ));
+        set.spawn(watch_loop(kind, context.clone(), args, generation, tx.clone()));
     }
 }
 
@@ -167,12 +159,7 @@ async fn run_watch(
             let Some((action, object)) = parse_watch_event(value)? else {
                 continue;
             };
-            let update = WatchUpdate {
-                generation,
-                kind,
-                action,
-                object,
-            };
+            let update = WatchUpdate { generation, kind, action, object };
             if tx.send(update).await.is_err() {
                 return Ok(());
             }
@@ -216,21 +203,14 @@ fn drain_json_values(buf: &mut Vec<u8>) -> Result<Vec<Value>> {
 /// An `ERROR` event (e.g. `410 Gone` for an expired resource version) ends
 /// the watch so it restarts from the current state.
 fn parse_watch_event(mut value: Value) -> Result<Option<(WatchAction, Value)>> {
-    let event_type = value
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let event_type = value.get("type").and_then(Value::as_str).unwrap_or_default().to_string();
     let object = value.get_mut("object").map(Value::take).unwrap_or_default();
     Ok(match event_type.as_str() {
         "ADDED" | "MODIFIED" => Some((WatchAction::Upsert, object)),
         "DELETED" => Some((WatchAction::Delete, object)),
         "ERROR" => bail!(
             "watch error: {}",
-            object
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown")
+            object.get("message").and_then(Value::as_str).unwrap_or("unknown")
         ),
         _ => None,
     })
@@ -275,10 +255,7 @@ mod tests {
         let (action, parsed) = parse_watch_event(event("MODIFIED")).unwrap().unwrap();
         assert_eq!(action, WatchAction::Upsert);
         assert_eq!(parsed, object);
-        assert_eq!(
-            parse_watch_event(event("DELETED")).unwrap().unwrap().0,
-            WatchAction::Delete
-        );
+        assert_eq!(parse_watch_event(event("DELETED")).unwrap().unwrap().0, WatchAction::Delete);
         assert!(parse_watch_event(event("BOOKMARK")).unwrap().is_none());
         assert!(
             parse_watch_event(json!({"type": "ERROR", "object": {"message": "Gone"}})).is_err()
@@ -290,9 +267,7 @@ mod tests {
         assert!(is_permanent_watch_error(
             "kubectl exited with exit status: 1: Error from server (Forbidden): nodes is forbidden"
         ));
-        assert!(is_permanent_watch_error(
-            "error: You must be logged in (Unauthorized)"
-        ));
+        assert!(is_permanent_watch_error("error: You must be logged in (Unauthorized)"));
         assert!(!is_permanent_watch_error(
             "kubectl exited with exit status: 1: Unable to connect to the server: dial tcp: i/o timeout"
         ));

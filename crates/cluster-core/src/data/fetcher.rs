@@ -7,7 +7,7 @@ use tracing::error;
 
 use crate::config::Config;
 use crate::data::models::{
-    ClusterSnapshot, ConnectionIssue, ConnectionIssueKind, ResourceProblem, MAX_EVENT_CACHE_ENTRIES,
+    ClusterSnapshot, ConnectionIssue, ConnectionIssueKind, MAX_EVENT_CACHE_ENTRIES, ResourceProblem,
 };
 use crate::data::store::{ClusterStore, ResourceSet};
 use crate::data::watch::{self, WatchUpdate};
@@ -237,12 +237,7 @@ impl Fetcher {
         state: &mut PollState,
         watch_tx: &mpsc::Sender<WatchUpdate>,
     ) {
-        let PollState {
-            store,
-            event_cache,
-            watches,
-            cluster_checks,
-        } = state;
+        let PollState { store, event_cache, watches, cluster_checks } = state;
         let run_cluster_checks = cluster_checks.is_due();
         let (
             nodes_result,
@@ -264,11 +259,7 @@ impl Fetcher {
             collector::fetch_current_context(),
             checks::run_custom_resource_checks(namespace, &self.config.crd_checks),
             async {
-                if run_cluster_checks {
-                    Some(checks::run_cluster_checks().await)
-                } else {
-                    None
-                }
+                if run_cluster_checks { Some(checks::run_cluster_checks().await) } else { None }
             },
         );
         let checks_ran = cluster_problems.is_some();
@@ -317,12 +308,7 @@ impl Fetcher {
             }
         }
 
-        errors.extend(
-            workloads
-                .warnings
-                .iter()
-                .map(|warning| format!("Workloads/{warning}")),
-        );
+        errors.extend(workloads.warnings.iter().map(|warning| format!("Workloads/{warning}")));
 
         match pods_result {
             Ok(list) => {
@@ -343,10 +329,8 @@ impl Fetcher {
             Ok(list) => {
                 store.events.replace(list);
                 let newest = collector::newest_events(store.events.values());
-                event_cache.insert(
-                    cache_key.clone(),
-                    ResourceSet::unlisted(newest.into_iter().cloned()),
-                );
+                event_cache
+                    .insert(cache_key.clone(), ResourceSet::unlisted(newest.into_iter().cloned()));
             }
             Err(e) => {
                 error!("Failed to fetch events: {}", e);
@@ -376,22 +360,14 @@ impl Fetcher {
         connection_issue = prioritize_connection_issue(connection_issue, context_issue);
         if connection_issue.is_some() && !store.has_data() {
             watches.stop();
-            let _ = self
-                .tx
-                .send(AppEvent::Data(DataEvent::ConnectionState(connection_issue)))
-                .await;
+            let _ =
+                self.tx.send(AppEvent::Data(DataEvent::ConnectionState(connection_issue))).await;
             return;
         }
 
-        let _ = self
-            .tx
-            .send(AppEvent::Data(DataEvent::ConnectionState(connection_issue)))
-            .await;
+        let _ = self.tx.send(AppEvent::Data(DataEvent::ConnectionState(connection_issue))).await;
         let snapshot = store.snapshot(self.config.node_pool_filter.as_deref(), true);
-        let _ = self
-            .tx
-            .send(AppEvent::Data(DataEvent::Refreshed(snapshot)))
-            .await;
+        let _ = self.tx.send(AppEvent::Data(DataEvent::Refreshed(snapshot))).await;
 
         if self.config.watch {
             watches.ensure(store.context_name.as_deref(), namespace, watch_tx);
@@ -401,18 +377,12 @@ impl Fetcher {
     async fn fetch_namespaces(&self) {
         match collector::fetch_namespaces().await {
             Ok(namespaces) => {
-                let _ = self
-                    .tx
-                    .send(AppEvent::Data(DataEvent::Namespaces(namespaces)))
-                    .await;
+                let _ = self.tx.send(AppEvent::Data(DataEvent::Namespaces(namespaces))).await;
             }
             Err(e) => {
                 error!("Failed to fetch namespaces: {}", e);
                 let issue = collector::classify_kubectl_error(&e);
-                let _ = self
-                    .tx
-                    .send(AppEvent::Data(DataEvent::ConnectionState(issue)))
-                    .await;
+                let _ = self.tx.send(AppEvent::Data(DataEvent::ConnectionState(issue))).await;
                 let _ = self
                     .tx
                     .send(AppEvent::Data(DataEvent::Error(format!("Namespaces: {e}"))))
@@ -452,9 +422,9 @@ impl Fetcher {
     async fn export_pods(&self, cluster_name: Option<String>, namespace: String, path: String) {
         let cluster_label = match cluster_name {
             Some(cluster_name) => cluster_name,
-            None => collector::fetch_current_context()
-                .await
-                .unwrap_or_else(|_| "unknown".to_string()),
+            None => {
+                collector::fetch_current_context().await.unwrap_or_else(|_| "unknown".to_string())
+            }
         };
         let message = match collector::fetch_pod_info(&namespace).await {
             Ok((pods, _)) => {
@@ -487,10 +457,7 @@ impl Fetcher {
             }
             Err(e) => format!("Export failed: {e}"),
         };
-        let _ = self
-            .tx
-            .send(AppEvent::Data(DataEvent::ExportResult { message }))
-            .await;
+        let _ = self.tx.send(AppEvent::Data(DataEvent::ExportResult { message })).await;
     }
 }
 
@@ -556,11 +523,7 @@ fn secs_until_next_boundary(interval_secs: u64) -> u64 {
     let epoch_secs = now.timestamp() as u64;
     let interval_secs = interval_secs.max(1);
     let elapsed_in_window = epoch_secs % interval_secs;
-    if elapsed_in_window == 0 {
-        interval_secs
-    } else {
-        interval_secs - elapsed_in_window
-    }
+    if elapsed_in_window == 0 { interval_secs } else { interval_secs - elapsed_in_window }
 }
 
 fn export_path(path: &str) -> Result<&std::path::Path, String> {
@@ -679,12 +642,8 @@ fn write_log_file(lines: &[String], path: &str) -> Result<usize, String> {
 }
 
 fn log_args(pod: &str, namespace: &str, container: Option<&str>, previous: bool) -> Vec<String> {
-    let mut args = vec![
-        "logs".to_string(),
-        "-n".to_string(),
-        namespace.to_string(),
-        pod.to_string(),
-    ];
+    let mut args =
+        vec!["logs".to_string(), "-n".to_string(), namespace.to_string(), pod.to_string()];
     if let Some(container) = container {
         args.push("-c".to_string());
         args.push(container.to_string());
@@ -793,12 +752,7 @@ async fn stream_logs(
         } else {
             format!("kubectl logs: {detail}")
         };
-        let _ = tx
-            .send(AppEvent::Data(DataEvent::LogStreamError {
-                stream_id,
-                message,
-            }))
-            .await;
+        let _ = tx.send(AppEvent::Data(DataEvent::LogStreamError { stream_id, message })).await;
     }
 }
 

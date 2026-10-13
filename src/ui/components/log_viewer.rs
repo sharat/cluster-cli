@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::Line,
     widgets::{Block, Borders, Paragraph, Wrap},
-    Frame,
 };
 
 use crate::app::{AppState, LogSource, PodDetailSection};
@@ -18,12 +18,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let search = if app.log_search.is_empty() {
         String::new()
     } else {
-        format!(
-            " search:\"{}\" {}/{}",
-            app.log_search,
-            filtered_lines.len(),
-            app.log_buffer.len()
-        )
+        format!(" search:\"{}\" {}/{}", app.log_search, filtered_lines.len(), app.log_buffer.len())
     };
     let title = format!(
         " Logs ({}) c:{container} [c]ontainer [p]revious [/]search [w]rap:{wrap} [t]ime:{timestamps} [E]xport [f]ollow{follow_indicator}{search} ",
@@ -35,10 +30,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         theme::normal_border_style()
     };
 
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(border_style);
+    let block = Block::default().title(title).borders(Borders::ALL).border_style(border_style);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -60,11 +52,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         filtered_lines
             .iter()
             .map(|raw_line| {
-                let line = if app.log_timestamps {
-                    *raw_line
-                } else {
-                    strip_kubectl_timestamp(raw_line)
-                };
+                let line =
+                    if app.log_timestamps { *raw_line } else { strip_kubectl_timestamp(raw_line) };
                 let mut style = theme::log_level_style(line);
                 if !app.log_search.is_empty() {
                     style = style.add_modifier(Modifier::BOLD);
@@ -74,13 +63,9 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             .collect()
     };
 
-    let visual_line_count = if app.log_wrap {
-        wrapped_line_count(&lines, inner.width as usize)
-    } else {
-        lines.len()
-    };
-    app.detail_scroll_max
-        .set(visual_line_count.saturating_sub(1));
+    let visual_line_count =
+        if app.log_wrap { wrapped_line_count(&lines, inner.width as usize) } else { lines.len() };
+    app.detail_scroll_max.set(visual_line_count.saturating_sub(1));
     let scroll_offset = if app.log_follow {
         visual_line_count.saturating_sub(height) as u16
     } else {
@@ -98,11 +83,7 @@ fn strip_kubectl_timestamp(line: &str) -> &str {
     let Some((timestamp, content)) = line.split_once(' ') else {
         return line;
     };
-    if chrono::DateTime::parse_from_rfc3339(timestamp).is_ok() {
-        content
-    } else {
-        line
-    }
+    if chrono::DateTime::parse_from_rfc3339(timestamp).is_ok() { content } else { line }
 }
 
 fn wrapped_line_count(lines: &[Line<'_>], available_width: usize) -> usize {

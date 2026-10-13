@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 description = "GPU-accelerated desktop companion to cluster-cli (GPUI)"
 publish = false
 

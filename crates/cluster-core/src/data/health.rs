@@ -1,6 +1,6 @@
 use crate::data::models::{
-    ClusterEvent, ClusterSignals, EventType, HealthScore, IncidentSeverity, PodInfo,
-    GRADE_A_THRESHOLD, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD,
+    ClusterEvent, ClusterSignals, EventType, GRADE_A_THRESHOLD, GRADE_B_THRESHOLD,
+    GRADE_C_THRESHOLD, GRADE_D_THRESHOLD, HealthScore, IncidentSeverity, PodInfo,
     RESOURCE_PRESSURE_PCT,
 };
 const ROLLOUT_FAILURE_REASONS: &[&str] = &[
@@ -40,16 +40,9 @@ fn share_penalty(affected: usize, total: usize, cap: f32, saturation: f32, floor
 /// Completed Job/CronJob pods and evicted pods are not counted: both are
 /// normal leftovers, not current problems.
 pub fn calculate_health(signals: &ClusterSignals) -> HealthScore {
-    let ClusterSignals {
-        nodes,
-        pods,
-        events,
-        resource_problems,
-    } = *signals;
-    let active: Vec<&PodInfo> = pods
-        .iter()
-        .filter(|pod| !pod.is_completed() && !pod.is_evicted())
-        .collect();
+    let ClusterSignals { nodes, pods, events, resource_problems } = *signals;
+    let active: Vec<&PodInfo> =
+        pods.iter().filter(|pod| !pod.is_completed() && !pod.is_evicted()).collect();
 
     let mut failing_pods = 0usize;
     let mut unready_pods = 0usize;
@@ -71,14 +64,10 @@ pub fn calculate_health(signals: &ClusterSignals) -> HealthScore {
         }
     }
 
-    let unhealthy_nodes = nodes
-        .iter()
-        .filter(|node| !node.ready || node.unhealthy_conditions > 0)
-        .count();
-    let pressured_nodes = nodes
-        .iter()
-        .filter(|node| node.memory_pct >= RESOURCE_PRESSURE_PCT)
-        .count();
+    let unhealthy_nodes =
+        nodes.iter().filter(|node| !node.ready || node.unhealthy_conditions > 0).count();
+    let pressured_nodes =
+        nodes.iter().filter(|node| node.memory_pct >= RESOURCE_PRESSURE_PCT).count();
     let critical_nodes = nodes
         .iter()
         .filter(|node| {
@@ -140,13 +129,7 @@ pub fn calculate_health(signals: &ClusterSignals) -> HealthScore {
         'F'
     };
 
-    HealthScore {
-        score,
-        grade,
-        critical_nodes,
-        critical_pods,
-        total_restarts,
-    }
+    HealthScore { score, grade, critical_nodes, critical_pods, total_restarts }
 }
 
 fn is_rollout_failure(event: &ClusterEvent) -> bool {

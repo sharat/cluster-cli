@@ -9,7 +9,7 @@ use std::time::Instant;
 use serde_json::Value;
 
 use crate::data::checks::problem_workload;
-use crate::data::collector::{self, resource_version, ResourceList, WorkloadCollection};
+use crate::data::collector::{self, ResourceList, WorkloadCollection, resource_version};
 use crate::data::health;
 use crate::data::incidents;
 use crate::data::models::{ClusterSignals, ClusterSnapshot, DataCoverage, ResourceProblem};
@@ -32,11 +32,7 @@ pub struct ResourceSet {
 
 impl ResourceSet {
     pub fn replace(&mut self, list: ResourceList) {
-        self.items = list
-            .items
-            .into_iter()
-            .map(|item| (object_key(&item), item))
-            .collect();
+        self.items = list.items.into_iter().map(|item| (object_key(&item), item)).collect();
         self.listed = true;
         self.listed_version = list.resource_version;
     }
@@ -45,10 +41,7 @@ impl ResourceSet {
     /// by watches until the next successful list.
     pub fn unlisted(items: impl IntoIterator<Item = Value>) -> Self {
         Self {
-            items: items
-                .into_iter()
-                .map(|item| (object_key(&item), item))
-                .collect(),
+            items: items.into_iter().map(|item| (object_key(&item), item)).collect(),
             listed: false,
             listed_version: None,
         }
@@ -103,24 +96,12 @@ fn is_not_newer(version: Option<u64>, than: Option<u64>) -> bool {
 }
 
 fn object_key(object: &Value) -> String {
-    let field = |pointer| {
-        object
-            .pointer(pointer)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-    };
-    format!(
-        "{}/{}",
-        field("/metadata/namespace"),
-        field("/metadata/name")
-    )
+    let field = |pointer| object.pointer(pointer).and_then(Value::as_str).unwrap_or("");
+    format!("{}/{}", field("/metadata/namespace"), field("/metadata/name"))
 }
 
 fn uid(object: &Value) -> &str {
-    object
-        .pointer("/metadata/uid")
-        .and_then(Value::as_str)
-        .unwrap_or("")
+    object.pointer("/metadata/uid").and_then(Value::as_str).unwrap_or("")
 }
 
 #[derive(Debug, Clone, Default)]
@@ -147,11 +128,7 @@ pub struct ClusterStore {
 
 impl ClusterStore {
     pub fn new(namespace: &str) -> Self {
-        Self {
-            namespace: namespace.to_string(),
-            nodes_visible: true,
-            ..Self::default()
-        }
+        Self { namespace: namespace.to_string(), nodes_visible: true, ..Self::default() }
     }
 
     pub fn has_data(&self) -> bool {
@@ -190,21 +167,14 @@ impl ClusterStore {
         // Without metrics-server every usage figure is zero; a cluster with any
         // workload never reads exactly zero across the board.
         let metrics_available = (nodes.is_empty() && pods.is_empty())
-            || nodes
-                .iter()
-                .any(|n| n.cpu_millicores > 0 || n.memory_mb > 0)
+            || nodes.iter().any(|n| n.cpu_millicores > 0 || n.memory_mb > 0)
             || pods.iter().any(|p| p.cpu_millicores > 0 || p.memory_mb > 0);
         let signals = ClusterSignals::new(&nodes, &pods, &events).with_problems(&self.problems);
         let health = health::calculate_health(&signals);
         let incident_buckets = incidents::build_incident_buckets(&signals);
 
         let mut errors = self.errors.clone();
-        errors.extend(
-            self.workloads
-                .warnings
-                .iter()
-                .map(|warning| format!("Workloads/{warning}")),
-        );
+        errors.extend(self.workloads.warnings.iter().map(|warning| format!("Workloads/{warning}")));
 
         ClusterSnapshot {
             nodes,
@@ -216,10 +186,7 @@ impl ClusterStore {
             fetched_at: self.polled_at.unwrap_or_else(Instant::now),
             error: (!errors.is_empty()).then(|| errors.join(" | ")),
             context_name: self.context_name.clone(),
-            coverage: DataCoverage {
-                metrics_available,
-                nodes_visible: self.nodes_visible,
-            },
+            coverage: DataCoverage { metrics_available, nodes_visible: self.nodes_visible },
             resource_problems: self.problems.clone(),
             metrics_sampled,
         }
@@ -247,10 +214,7 @@ mod tests {
     }
 
     fn list(items: Vec<Value>, resource_version: Option<u64>) -> ResourceList {
-        ResourceList {
-            items,
-            resource_version,
-        }
+        ResourceList { items, resource_version }
     }
 
     fn versioned(mut object: Value, version: u64) -> Value {
@@ -265,10 +229,7 @@ mod tests {
 
         // Queued while the poll ran: a pre-list MODIFIED and a pod deleted
         // before the list must not roll back or resurrect anything.
-        set.apply(
-            WatchAction::Upsert,
-            versioned(pod("a", "a1", Some("ContainerCreating")), 80),
-        );
+        set.apply(WatchAction::Upsert, versioned(pod("a", "a1", Some("ContainerCreating")), 80));
         set.apply(WatchAction::Upsert, versioned(pod("gone", "g1", None), 95));
         assert_eq!(set.len(), 1);
         assert!(
@@ -277,10 +238,7 @@ mod tests {
                 .is_some()
         );
 
-        set.apply(
-            WatchAction::Upsert,
-            versioned(pod("a", "a1", Some("CrashLoopBackOff")), 120),
-        );
+        set.apply(WatchAction::Upsert, versioned(pod("a", "a1", Some("CrashLoopBackOff")), 120));
         // An out-of-order older update after a newer one is ignored too.
         set.apply(WatchAction::Upsert, versioned(pod("a", "a1", None), 110));
         let state = &set.values().next().unwrap()["status"]["containerStatuses"][0]["state"];
@@ -299,36 +257,21 @@ mod tests {
     }
 
     fn update(kind: WatchKind, action: WatchAction, object: Value) -> WatchUpdate {
-        WatchUpdate {
-            generation: 0,
-            kind,
-            action,
-            object,
-        }
+        WatchUpdate { generation: 0, kind, action, object }
     }
 
     #[test]
     fn watch_updates_patch_the_polled_state() {
         let mut store = ClusterStore::new("default");
-        store
-            .pods
-            .replace(list(vec![pod("b", "b1", None), pod("a", "a1", None)], None));
+        store.pods.replace(list(vec![pod("b", "b1", None), pod("a", "a1", None)], None));
 
         store.apply(update(
             WatchKind::Pods,
             WatchAction::Upsert,
             pod("a", "a1", Some("CrashLoopBackOff")),
         ));
-        store.apply(update(
-            WatchKind::Pods,
-            WatchAction::Upsert,
-            pod("c", "c1", None),
-        ));
-        store.apply(update(
-            WatchKind::Pods,
-            WatchAction::Delete,
-            pod("b", "b1", None),
-        ));
+        store.apply(update(WatchKind::Pods, WatchAction::Upsert, pod("c", "c1", None)));
+        store.apply(update(WatchKind::Pods, WatchAction::Delete, pod("b", "b1", None)));
 
         let snapshot = store.snapshot(None, false);
         let names: Vec<&str> = snapshot.pods.iter().map(|p| p.name.as_str()).collect();

@@ -12,11 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stream pod, node, and event changes between refreshes with read-only `kubectl get --watch`, so crash loops and new pods appear within a second instead of at the next refresh; disable with `--no-watch` or `watch = false`
 - Add cluster-wide health checks to the incident queue and score: unavailable APIServices, failed PersistentVolumes, namespaces stuck terminating, and admission webhooks that cannot be reached
 - Add `crd_checks` to flag custom resources (e.g. cert-manager Certificates, Flux Kustomizations, Argo CD Applications) whose Ready/Available/Healthy/Synced condition has been `False` for over 5 minutes or whose Argo health is Degraded/Missing
+- Add rustfmt.toml, clippy.toml, and deny.toml configuration files
+- Add MSRV check to CI pipeline
+- Add cargo-deny security audit to CI pipeline
+- Add cross-platform test job to CI (Ubuntu, macOS, Windows)
 
 ### Changed
 - Scale the health score to cluster size: penalties now depend on the share of pods and nodes affected, so large clusters are no longer stuck at F by a handful of failures
 - Stop counting completed Job/CronJob pods and evicted pods as unhealthy, in the score and in pod status
 - Split the kubectl collector, health scoring, incidents, config and fetcher into a shared `cluster-core` workspace crate; the TUI is unchanged
+- Upgrade Rust toolchain from 1.94.1 to 1.99.0
+- Upgrade to Rust edition 2024
+- Update all dependencies to latest compatible versions
+- Update MSRV from 1.70 to 1.85 (required for edition 2024)
 
 ## [0.3.5] - 2026-10-07
 

@@ -7,15 +7,15 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use cluster_core::data::models::{
-    ClusterSnapshot, ConnectionIssue, EventType, IncidentBucket, IncidentSeverity,
-    NamespaceSummary, NodeMetric, PodInfo, ALL_NAMESPACES, GRADE_A_THRESHOLD, GRADE_B_THRESHOLD,
-    GRADE_C_THRESHOLD, GRADE_D_THRESHOLD,
+    ALL_NAMESPACES, ClusterSnapshot, ConnectionIssue, EventType, GRADE_A_THRESHOLD,
+    GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD, IncidentBucket, IncidentSeverity,
+    NamespaceSummary, NodeMetric, PodInfo,
 };
 use cluster_core::events::{DataEvent, FetchCommand};
 use gpui::{
-    canvas, div, point, prelude::*, px, uniform_list, AnyElement, ClickEvent, Context, Div,
-    FocusHandle, FontWeight, KeyDownEvent, MouseButton, PathBuilder, Pixels, Rgba, ScrollHandle,
-    SharedString, Stateful, Window,
+    AnyElement, ClickEvent, Context, Div, FocusHandle, FontWeight, KeyDownEvent, MouseButton,
+    PathBuilder, Pixels, Rgba, ScrollHandle, SharedString, Stateful, Window, canvas, div, point,
+    prelude::*, px, uniform_list,
 };
 use tokio::sync::mpsc;
 
@@ -104,9 +104,7 @@ impl ClusterState {
         self.namespace
             .clone()
             .or_else(|| {
-                self.snapshot
-                    .as_ref()
-                    .and_then(|s| s.pods.first().map(|p| p.namespace.clone()))
+                self.snapshot.as_ref().and_then(|s| s.pods.first().map(|p| p.namespace.clone()))
             })
             .unwrap_or_else(|| "context default".to_string())
     }
@@ -219,10 +217,12 @@ impl DesktopApp {
         .detach();
 
         // Keeps "refreshed Ns ago" labels current.
-        cx.spawn(async move |this, cx| loop {
-            cx.background_executor().timer(Duration::from_secs(1)).await;
-            if this.update(cx, |_, cx| cx.notify()).is_err() {
-                break;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
             }
         })
         .detach();
@@ -417,9 +417,7 @@ impl DesktopApp {
         cluster.namespace = namespace.clone();
         cluster.snapshot = None;
         cluster.history.clear();
-        cluster.send(FetchCommand::RefreshAll {
-            namespace: namespace.unwrap_or_default(),
-        });
+        cluster.send(FetchCommand::RefreshAll { namespace: namespace.unwrap_or_default() });
         self.picker = Picker::None;
         cx.notify();
     }
@@ -462,7 +460,7 @@ impl DesktopApp {
                 "m" => self.alerts_enabled = !self.alerts_enabled,
                 key => match key.parse::<usize>() {
                     Ok(digit @ 1..=9) if digit <= self.clusters.len() => {
-                        return self.open_cluster(digit - 1, cx)
+                        return self.open_cluster(digit - 1, cx);
                     }
                     _ => return,
                 },
@@ -511,9 +509,7 @@ impl Render for DesktopApp {
                     .py(px(28.))
                     .child(main),
             )
-            .when(self.picker != Picker::None, |root| {
-                root.child(self.render_picker(cx))
-            })
+            .when(self.picker != Picker::None, |root| root.child(self.render_picker(cx)))
     }
 }
 
@@ -625,11 +621,7 @@ impl DesktopApp {
                             .hover(|s| s.bg(theme::selected()))
                             .child(div().size(px(8.)).rounded_full().bg(fg))
                             .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .child(cluster.context.clone()),
+                                div().flex_1().min_w_0().truncate().child(cluster.context.clone()),
                             )
                             .child(
                                 div()
@@ -668,9 +660,7 @@ impl DesktopApp {
                                     .child("On")
                             })
                             .when(!self.alerts_enabled, |d| {
-                                d.bg(theme::selected())
-                                    .text_color(theme::faint())
-                                    .child("Muted")
+                                d.bg(theme::selected()).text_color(theme::faint()).child("Muted")
                             }),
                     )
                     .on_click(cx.listener(|app, _: &ClickEvent, _, cx| {
@@ -713,10 +703,7 @@ impl DesktopApp {
             .flat_map(|(ctx, s)| s.incident_buckets.iter().map(move |b| (ctx, b)))
             .collect();
         incidents.sort_by(|(_, a), (_, b)| {
-            b.severity
-                .rank()
-                .cmp(&a.severity.rank())
-                .then(b.occurrences.cmp(&a.occurrences))
+            b.severity.rank().cmp(&a.severity.rank()).then(b.occurrences.cmp(&a.occurrences))
         });
         incidents.truncate(FLEET_INCIDENT_ROWS);
 
@@ -741,14 +728,13 @@ impl DesktopApp {
             .when_some(self.load_error.clone(), |d, err| {
                 d.child(notice(format!("Could not read kubeconfig contexts: {err}")))
             })
-            .child(
-                div().grid().grid_cols(3).gap(px(16.)).children(
-                    self.clusters
-                        .iter()
-                        .enumerate()
-                        .map(|(index, cluster)| self.render_cluster_card(index, cluster, cx)),
-                ),
-            )
+            .child({
+                let mut grid = div().grid().grid_cols(3).gap(px(16.));
+                for (index, cluster) in self.clusters.iter().enumerate() {
+                    grid = grid.child(self.render_cluster_card(index, cluster, cx));
+                }
+                grid
+            })
             .child(
                 panel()
                     .child(panel_header(
@@ -808,11 +794,9 @@ impl DesktopApp {
         let (fg, _) = theme::grade_colors(grade);
         let troubled = matches!(grade, 'C' | 'D' | 'F');
         let (nodes, pods, incidents) = match (&cluster.snapshot, &cluster.issue) {
-            (Some(s), None) => (
-                s.nodes.len().to_string(),
-                s.pods.len().to_string(),
-                s.incident_buckets.len(),
-            ),
+            (Some(s), None) => {
+                (s.nodes.len().to_string(), s.pods.len().to_string(), s.incident_buckets.len())
+            }
             _ => ("—".into(), "—".into(), 0),
         };
 
@@ -825,17 +809,10 @@ impl DesktopApp {
             .py(px(18.))
             .bg(theme::surface())
             .border_1()
-            .border_color(if troubled {
-                gpui::rgb(0x3a3325)
-            } else {
-                theme::border()
-            })
+            .border_color(if troubled { gpui::rgb(0x3a3325) } else { theme::border() })
             .rounded(px(12.))
             .cursor_pointer()
-            .hover(|s| {
-                s.border_color(theme::border_strong())
-                    .bg(theme::surface_raised())
-            })
+            .hover(|s| s.border_color(theme::border_strong()).bg(theme::surface_raised()))
             .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| app.open_cluster(index, cx)))
             .child(
                 div()
@@ -884,11 +861,7 @@ impl DesktopApp {
                             .child(grade_chip(grade, 40., 22.)),
                     ),
             )
-            .child(sparkline(
-                cluster.history.iter().copied().collect(),
-                fg,
-                36.,
-            ))
+            .child(sparkline(cluster.history.iter().copied().collect(), fg, 36.))
             .child(
                 div()
                     .flex()
@@ -900,11 +873,7 @@ impl DesktopApp {
                     .child(stat(
                         incidents.to_string(),
                         "incidents",
-                        if incidents > 0 {
-                            theme::warning()
-                        } else {
-                            theme::text()
-                        },
+                        if incidents > 0 { theme::warning() } else { theme::text() },
                     )),
             )
             .child(
@@ -948,12 +917,10 @@ impl DesktopApp {
         let header = div()
             .flex()
             .items_center()
-            .child(
-                icon_button("back", "‹").on_click(cx.listener(|app, _: &ClickEvent, _, cx| {
-                    app.set_screen(Screen::Fleet);
-                    cx.notify();
-                })),
-            )
+            .child(icon_button("back", "‹").on_click(cx.listener(|app, _: &ClickEvent, _, cx| {
+                app.set_screen(Screen::Fleet);
+                cx.notify();
+            })))
             .child(grade_chip(grade, 56., 30.).ml(px(20.)))
             .child(
                 div()
@@ -978,12 +945,7 @@ impl DesktopApp {
                             .text_size(px(24.))
                             .hover(|s| s.text_color(theme::accent()))
                             .child(cluster.context.clone())
-                            .child(
-                                div()
-                                    .text_color(theme::faint())
-                                    .text_size(px(16.))
-                                    .child("▾"),
-                            )
+                            .child(div().text_color(theme::faint()).text_size(px(16.)).child("▾"))
                             .on_click(cx.listener(|app, _: &ClickEvent, _, cx| {
                                 app.picker = Picker::Cluster;
                                 cx.notify();
@@ -1036,9 +998,9 @@ impl DesktopApp {
         let body: AnyElement = match (&cluster.snapshot, &cluster.issue) {
             (_, Some(issue)) => notice(format!("Unreachable: {}", issue.detail)).into_any_element(),
             (None, None) => notice("Connecting…".to_string()).into_any_element(),
-            (Some(snapshot), None) => self
-                .render_cluster_body(index, cluster, snapshot, cx)
-                .into_any_element(),
+            (Some(snapshot), None) => {
+                self.render_cluster_body(index, cluster, snapshot, cx).into_any_element()
+            }
         };
 
         div()
@@ -1066,10 +1028,7 @@ impl DesktopApp {
             .min_w_0()
             .child(panel_header(
                 "Health score",
-                &format!(
-                    "why it's a{} {grade} · samples since launch",
-                    article(grade)
-                ),
+                &format!("why it's a{} {grade} · samples since launch", article(grade)),
             ))
             .child(
                 div()
@@ -1093,11 +1052,7 @@ impl DesktopApp {
                         "failed, unready, crash-looping or OOM",
                         health.critical_pods,
                     ))
-                    .child(factor_tile(
-                        "Restarts",
-                        "−2 each, capped",
-                        health.total_restarts,
-                    ))
+                    .child(factor_tile("Restarts", "−2 each, capped", health.total_restarts))
                     .child(factor_tile(
                         "Incidents",
                         "listed alongside",
@@ -1132,10 +1087,7 @@ impl DesktopApp {
         let incidents_panel = panel()
             .w(px(460.))
             .flex_shrink_0()
-            .child(panel_header(
-                "Incidents",
-                &snapshot.incident_buckets.len().to_string(),
-            ))
+            .child(panel_header("Incidents", &snapshot.incident_buckets.len().to_string()))
             .when(snapshot.incident_buckets.is_empty(), |d| {
                 d.child(
                     div()
@@ -1145,91 +1097,72 @@ impl DesktopApp {
                         .child("No active incidents."),
                 )
             })
-            .children(
-                snapshot
-                    .incident_buckets
-                    .iter()
-                    .enumerate()
-                    .map(|(i, bucket)| {
-                        let pod_name = bucket
-                            .targets
-                            .iter()
-                            .find_map(|t| t.pod_name().map(str::to_string));
-                        let row = div()
-                            .id(("incident", i))
+            .children(snapshot.incident_buckets.iter().enumerate().map(|(i, bucket)| {
+                let pod_name = bucket.targets.iter().find_map(|t| t.pod_name().map(str::to_string));
+                let row = div()
+                    .id(("incident", i))
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .px(px(20.))
+                    .py(px(12.))
+                    .border_t_1()
+                    .border_color(theme::divider())
+                    .when(i == 0, |d| d.bg(theme::surface_raised()))
+                    .when_some(pod_name, |d, name| {
+                        d.cursor_pointer().hover(|s| s.bg(theme::selected())).on_click(cx.listener(
+                            move |app, _: &ClickEvent, _, cx| app.open_pod_named(index, &name, cx),
+                        ))
+                    })
+                    .child(
+                        div()
                             .flex()
-                            .flex_col()
-                            .gap(px(8.))
-                            .px(px(20.))
-                            .py(px(12.))
-                            .border_t_1()
-                            .border_color(theme::divider())
-                            .when(i == 0, |d| d.bg(theme::surface_raised()))
-                            .when_some(pod_name, |d, name| {
-                                d.cursor_pointer()
-                                    .hover(|s| s.bg(theme::selected()))
-                                    .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| {
-                                        app.open_pod_named(index, &name, cx)
-                                    }))
-                            })
+                            .items_center()
+                            .gap(px(10.))
+                            .child(severity_badge(bucket.severity))
                             .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(10.))
-                                    .child(severity_badge(bucket.severity))
-                                    .child(
-                                        mono(bucket.reason.clone())
-                                            .ml(px(10.))
-                                            .font_weight(FontWeight::MEDIUM),
-                                    )
-                                    .child(
-                                        div()
-                                            .ml_auto()
-                                            .text_size(px(12.))
-                                            .text_color(theme::muted())
-                                            .child(format!(
-                                                "×{} · {}",
-                                                bucket.occurrences, bucket.latest_timestamp
-                                            )),
-                                    ),
+                                mono(bucket.reason.clone())
+                                    .ml(px(10.))
+                                    .font_weight(FontWeight::MEDIUM),
                             )
                             .child(
-                                mono(target_label(bucket))
-                                    .text_color(theme::text_secondary())
-                                    .truncate(),
-                            );
-                        match (&bucket.sample_message, i) {
-                            (Some(message), 0) => row.child(
                                 div()
-                                    .p(px(10.))
-                                    .bg(theme::bg())
-                                    .border_1()
-                                    .border_color(theme::border())
-                                    .rounded(px(6.))
-                                    .font_family(MONO)
+                                    .ml_auto()
                                     .text_size(px(12.))
                                     .text_color(theme::muted())
-                                    .line_clamp(4)
-                                    .child(message.clone()),
+                                    .child(format!(
+                                        "×{} · {}",
+                                        bucket.occurrences, bucket.latest_timestamp
+                                    )),
                             ),
-                            _ => row,
-                        }
-                    }),
-            );
+                    )
+                    .child(
+                        mono(target_label(bucket)).text_color(theme::text_secondary()).truncate(),
+                    );
+                match (&bucket.sample_message, i) {
+                    (Some(message), 0) => row.child(
+                        div()
+                            .p(px(10.))
+                            .bg(theme::bg())
+                            .border_1()
+                            .border_color(theme::border())
+                            .rounded(px(6.))
+                            .font_family(MONO)
+                            .text_size(px(12.))
+                            .text_color(theme::muted())
+                            .line_clamp(4)
+                            .child(message.clone()),
+                    ),
+                    _ => row,
+                }
+            }));
 
         div()
             .flex()
             .flex_col()
             .gap(px(20.))
             .when_some(coverage_notice(snapshot), |d, text| d.child(notice(text)))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(20.))
-                    .child(health_panel)
-                    .child(incidents_panel),
-            )
+            .child(div().flex().gap(px(20.)).child(health_panel).child(incidents_panel))
             .child(self.render_nodes_panel(index, snapshot, cx))
             .child(self.render_pods_panel(index, snapshot, cx))
     }
@@ -1331,14 +1264,9 @@ impl DesktopApp {
         ]);
 
         panel()
-            .child(panel_header(
-                "Pods",
-                &format!("{count} · worst first · click one for details"),
-            ))
+            .child(panel_header("Pods", &format!("{count} · worst first · click one for details")))
             .child(table_header(&columns))
-            .when(count == 0, |d| {
-                d.child(empty_row("No pods in this namespace."))
-            })
+            .when(count == 0, |d| d.child(empty_row("No pods in this namespace.")))
             .when(count > 0, |d| {
                 d.child(
                     uniform_list(
@@ -1422,57 +1350,34 @@ impl DesktopApp {
             });
 
         let Some(pod) = pod else {
-            return div()
-                .flex()
-                .flex_col()
-                .gap(px(20.))
-                .child(header)
-                .child(notice(
-                    "This pod is no longer in the latest snapshot (deleted or rescheduled)."
-                        .to_string(),
-                ));
+            return div().flex().flex_col().gap(px(20.)).child(header).child(notice(
+                "This pod is no longer in the latest snapshot (deleted or rescheduled)."
+                    .to_string(),
+            ));
         };
         let snapshot = snapshot.expect("pod came from the snapshot");
         let metrics = snapshot.coverage.metrics_available;
         let ready = pod.containers.iter().filter(|c| c.ready).count();
 
-        let overview = panel()
-            .flex_1()
-            .min_w_0()
-            .child(panel_header("Overview", ""))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(10.))
-                    .px(px(20.))
-                    .pb(px(18.))
-                    .child(kv("Phase", pod.phase.clone()))
-                    .child(kv(
-                        "Ready",
-                        format!("{ready}/{} containers", pod.containers.len()),
-                    ))
-                    .child(kv("Restarts", pod.restarts.to_string()))
-                    .child(kv(
-                        "Node",
-                        pod.node_name
-                            .clone()
-                            .unwrap_or_else(|| "unscheduled".into()),
-                    ))
-                    .child(kv("Namespace", pod.namespace.clone()))
-                    .child(kv("Age", pod.age.clone()))
-                    .child(kv("UID", pod.uid.clone()))
-                    .child(kv(
-                        "Flags",
-                        pod_flags(pod).unwrap_or_else(|| "none".to_string()),
-                    )),
-            );
+        let overview = panel().flex_1().min_w_0().child(panel_header("Overview", "")).child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .px(px(20.))
+                .pb(px(18.))
+                .child(kv("Phase", pod.phase.clone()))
+                .child(kv("Ready", format!("{ready}/{} containers", pod.containers.len())))
+                .child(kv("Restarts", pod.restarts.to_string()))
+                .child(kv("Node", pod.node_name.clone().unwrap_or_else(|| "unscheduled".into())))
+                .child(kv("Namespace", pod.namespace.clone()))
+                .child(kv("Age", pod.age.clone()))
+                .child(kv("UID", pod.uid.clone()))
+                .child(kv("Flags", pod_flags(pod).unwrap_or_else(|| "none".to_string()))),
+        );
 
-        let resources = panel()
-            .flex_1()
-            .min_w_0()
-            .child(panel_header("Resources", "usage vs limit"))
-            .child(
+        let resources =
+            panel().flex_1().min_w_0().child(panel_header("Resources", "usage vs limit")).child(
                 div()
                     .flex()
                     .flex_col()
@@ -1532,11 +1437,7 @@ impl DesktopApp {
                     .child(fixed(
                         70.,
                         div()
-                            .text_color(if c.ready {
-                                theme::muted()
-                            } else {
-                                theme::warning()
-                            })
+                            .text_color(if c.ready { theme::muted() } else { theme::warning() })
                             .child(if c.ready { "yes" } else { "no" }),
                     ))
                     .child(fixed(
@@ -1550,11 +1451,10 @@ impl DesktopApp {
                     .child(fixed(200., div().truncate().child(c.state.clone())))
                     .child(fixed(
                         200.,
-                        div().truncate().text_color(theme::muted()).child(
-                            c.last_termination_reason
-                                .clone()
-                                .unwrap_or_else(|| "—".into()),
-                        ),
+                        div()
+                            .truncate()
+                            .text_color(theme::muted())
+                            .child(c.last_termination_reason.clone().unwrap_or_else(|| "—".into())),
                     ))
                     .child(fixed(
                         60.,
@@ -1570,11 +1470,7 @@ impl DesktopApp {
                     }))
             }));
 
-        let events: Vec<_> = snapshot
-            .events
-            .iter()
-            .filter(|e| e.name == pod.name)
-            .collect();
+        let events: Vec<_> = snapshot.events.iter().filter(|e| e.name == pod.name).collect();
         let events_panel = panel()
             .flex_1()
             .min_w_0()
@@ -1626,11 +1522,7 @@ impl DesktopApp {
         let incidents: Vec<_> = snapshot
             .incident_buckets
             .iter()
-            .filter(|b| {
-                b.targets
-                    .iter()
-                    .any(|t| t.pod_name() == Some(pod.name.as_str()))
-            })
+            .filter(|b| b.targets.iter().any(|t| t.pod_name() == Some(pod.name.as_str())))
             .collect();
         let incidents_panel = panel()
             .w(px(420.))
@@ -1672,12 +1564,7 @@ impl DesktopApp {
                     .items_center()
                     .px(px(20.))
                     .py(px(12.))
-                    .child(
-                        div()
-                            .text_size(px(15.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Logs"),
-                    )
+                    .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child("Logs"))
                     .child(
                         mono(view.container.clone().unwrap_or_else(|| "default".into()))
                             .ml(px(12.))
@@ -1693,11 +1580,9 @@ impl DesktopApp {
                             .border_1()
                             .border_color(theme::border())
                             .rounded(px(8.))
-                            .child(
-                                segment("logs-live", "Live", !previous).on_click(cx.listener(
-                                    |app, _: &ClickEvent, _, cx| app.set_previous_logs(false, cx),
-                                )),
-                            )
+                            .child(segment("logs-live", "Live", !previous).on_click(cx.listener(
+                                |app, _: &ClickEvent, _, cx| app.set_previous_logs(false, cx),
+                            )))
                             .child(segment("logs-previous", "Previous", previous).on_click(
                                 cx.listener(|app, _: &ClickEvent, _, cx| {
                                     app.set_previous_logs(true, cx)
@@ -1742,12 +1627,7 @@ impl DesktopApp {
             .child(div().flex().gap(px(20.)).child(overview).child(resources))
             .child(containers)
             .child(
-                div()
-                    .flex()
-                    .items_start()
-                    .gap(px(20.))
-                    .child(events_panel)
-                    .child(incidents_panel),
+                div().flex().items_start().gap(px(20.)).child(events_panel).child(incidents_panel),
             )
             .child(logs_panel)
     }
@@ -1806,18 +1686,10 @@ impl DesktopApp {
         div()
             .flex()
             .flex_col()
-            .child(picker_header(
-                "Switch cluster",
-                "Contexts from your kubeconfig",
-            ))
+            .child(picker_header("Switch cluster", "Contexts from your kubeconfig"))
             .child(
-                div()
-                    .id("cluster-list")
-                    .flex()
-                    .flex_col()
-                    .p(px(6.))
-                    .overflow_y_scroll()
-                    .children(self.clusters.iter().enumerate().map(|(index, cluster)| {
+                div().id("cluster-list").flex().flex_col().p(px(6.)).overflow_y_scroll().children(
+                    self.clusters.iter().enumerate().map(|(index, cluster)| {
                         let is_current = current == Some(index);
                         div()
                             .id(("pick-cluster", index))
@@ -1861,13 +1733,10 @@ impl DesktopApp {
                             .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| {
                                 app.open_cluster(index, cx)
                             }))
-                    })),
+                    }),
+                ),
             )
-            .child(picker_footer(&[
-                ("1–9", "jump"),
-                ("Ctrl/⌘ K", "switch"),
-                ("Esc", "close"),
-            ]))
+            .child(picker_footer(&[("1–9", "jump"), ("Ctrl/⌘ K", "switch"), ("Esc", "close")]))
     }
 
     fn render_namespace_picker(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1916,26 +1785,17 @@ impl DesktopApp {
             Some(namespaces) => list.children(namespaces.iter().enumerate().map(|(i, ns)| {
                 let name = ns.name.clone();
                 let is_selected = selected.as_deref() == Some(ns.name.as_str());
-                namespace_row(
-                    ("ns", i),
-                    ns.name.clone(),
-                    Some(ns.pod_count),
-                    is_selected,
-                    true,
-                )
-                .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| {
-                    app.select_namespace(index, Some(name.clone()), cx)
-                }))
+                namespace_row(("ns", i), ns.name.clone(), Some(ns.pod_count), is_selected, true)
+                    .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| {
+                        app.select_namespace(index, Some(name.clone()), cx)
+                    }))
             })),
         };
 
         div()
             .flex()
             .flex_col()
-            .child(picker_header(
-                "Namespace",
-                &format!("Namespaces in {}", cluster.context),
-            ))
+            .child(picker_header("Namespace", &format!("Namespaces in {}", cluster.context)))
             .child(list)
             .child(picker_footer(&[("n", "opens this"), ("Esc", "close")]))
     }
@@ -1953,20 +1813,12 @@ fn mono(text: impl Into<SharedString>) -> Div {
 }
 
 fn article(grade: char) -> &'static str {
-    if matches!(grade, 'A' | 'F') {
-        "n"
-    } else {
-        ""
-    }
+    if matches!(grade, 'A' | 'F') { "n" } else { "" }
 }
 
 fn target_label(bucket: &IncidentBucket) -> String {
     match bucket.targets.as_slice() {
-        [] => bucket
-            .affected_resources
-            .first()
-            .cloned()
-            .unwrap_or_default(),
+        [] => bucket.affected_resources.first().cloned().unwrap_or_default(),
         [only] => only.display_label(),
         [first, rest @ ..] => format!("{} +{} more", first.display_label(), rest.len()),
     }
@@ -1999,9 +1851,7 @@ fn nav_item(id: &'static str, label: &'static str, selected: bool) -> Stateful<D
         .rounded(px(8.))
         .cursor_pointer()
         .text_size(px(14.))
-        .when(selected, |d| {
-            d.bg(theme::selected()).font_weight(FontWeight::MEDIUM)
-        })
+        .when(selected, |d| d.bg(theme::selected()).font_weight(FontWeight::MEDIUM))
         .when(!selected, |d| d.text_color(theme::muted()))
         .hover(|s| s.bg(theme::selected()))
         .child(label)
@@ -2020,12 +1870,7 @@ fn page_title(title: &'static str, subtitle: String) -> Div {
         .flex()
         .flex_col()
         .gap(px(4.))
-        .child(
-            div()
-                .text_size(px(26.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title),
-        )
+        .child(div().text_size(px(26.)).font_weight(FontWeight::SEMIBOLD).child(title))
         .child(div().text_color(theme::muted()).child(subtitle))
 }
 
@@ -2092,18 +1937,8 @@ fn panel_header(title: &str, detail: &str) -> Div {
         .gap(px(12.))
         .px(px(20.))
         .py(px(14.))
-        .child(
-            div()
-                .text_size(px(15.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title.to_string()),
-        )
-        .child(
-            div()
-                .text_size(px(12.))
-                .text_color(theme::faint())
-                .child(detail.to_string()),
-        )
+        .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).child(title.to_string()))
+        .child(div().text_size(px(12.)).text_color(theme::faint()).child(detail.to_string()))
 }
 
 fn picker_header(title: &str, detail: &str) -> Div {
@@ -2115,18 +1950,8 @@ fn picker_header(title: &str, detail: &str) -> Div {
         .py(px(14.))
         .border_b_1()
         .border_color(theme::border())
-        .child(
-            div()
-                .text_size(px(14.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title.to_string()),
-        )
-        .child(
-            div()
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(detail.to_string()),
-        )
+        .child(div().text_size(px(14.)).font_weight(FontWeight::SEMIBOLD).child(title.to_string()))
+        .child(div().text_size(px(12.)).text_color(theme::muted()).child(detail.to_string()))
 }
 
 fn picker_footer(hints: &[(&'static str, &'static str)]) -> Div {
@@ -2143,11 +1968,7 @@ fn picker_footer(hints: &[(&'static str, &'static str)]) -> Div {
             div()
                 .flex()
                 .gap(px(6.))
-                .child(
-                    mono(*key)
-                        .text_color(theme::muted())
-                        .font_weight(FontWeight::MEDIUM),
-                )
+                .child(mono(*key).text_color(theme::muted()).font_weight(FontWeight::MEDIUM))
                 .child(*action)
         }))
 }
@@ -2192,11 +2013,7 @@ fn stat(value: String, label: &'static str, color: Rgba) -> Div {
     div()
         .flex()
         .gap(px(4.))
-        .child(
-            mono(value)
-                .text_color(color)
-                .font_weight(FontWeight::MEDIUM),
-        )
+        .child(mono(value).text_color(color).font_weight(FontWeight::MEDIUM))
         .child(label)
 }
 
@@ -2255,36 +2072,25 @@ fn snapshot_alert(
     }
 
     let summary = if dropped {
-        format!(
-            "{context} dropped from {} to {}",
-            previous.health.grade, current.health.grade
-        )
+        format!("{context} dropped from {} to {}", previous.health.grade, current.health.grade)
     } else if fresh.len() == 1 {
         format!("{context}: new incident")
     } else {
         format!("{context}: {} new incidents", fresh.len())
     };
-    let mut lines: Vec<String> = fresh
-        .iter()
-        .take(3)
-        .map(|b| format!("{} · {}", b.reason, target_label(b)))
-        .collect();
+    let mut lines: Vec<String> =
+        fresh.iter().take(3).map(|b| format!("{} · {}", b.reason, target_label(b))).collect();
     if fresh.len() > 3 {
         lines.push(format!("+{} more", fresh.len() - 3));
     }
     if lines.is_empty() {
-        lines.push(format!(
-            "Score {} → {}",
-            previous.health.score, current.health.score
-        ));
+        lines.push(format!("Score {} → {}", previous.health.score, current.health.score));
     }
     Some(Alert {
         summary,
         body: lines.join("\n"),
         grade: current.health.grade,
-        critical: fresh
-            .iter()
-            .any(|b| b.severity == IncidentSeverity::Critical),
+        critical: fresh.iter().any(|b| b.severity == IncidentSeverity::Critical),
     })
 }
 
@@ -2328,19 +2134,10 @@ fn node_row(node: &NodeMetric, pods: usize, metrics: bool) -> Div {
                 .text_color(theme::text_secondary())
                 .child(node.name.clone()),
         )
-        .child(fixed(
-            130.,
-            div()
-                .text_size(px(12.))
-                .text_color(status_color)
-                .child(status),
-        ))
+        .child(fixed(130., div().text_size(px(12.)).text_color(status_color).child(status)))
         .child(fixed(240., usage_cell(node.cpu_pct, metrics)))
         .child(fixed(240., usage_cell(node.memory_pct, metrics)))
-        .child(fixed(
-            56.,
-            mono(pods.to_string()).text_color(theme::muted()),
-        ))
+        .child(fixed(56., mono(pods.to_string()).text_color(theme::muted())))
 }
 
 fn pod_row(
@@ -2375,10 +2172,7 @@ fn pod_row(
                     .truncate(),
             ))
         })
-        .child(fixed(
-            150.,
-            div().text_size(px(12.)).text_color(color).child(status),
-        ))
+        .child(fixed(150., div().text_size(px(12.)).text_color(color).child(status)))
         .child(fixed(
             60.,
             mono(format!("{ready}/{}", pod.containers.len()))
@@ -2387,13 +2181,11 @@ fn pod_row(
         ))
         .child(fixed(
             70.,
-            mono(pod.restarts.to_string())
-                .text_size(px(12.))
-                .text_color(if pod.restarts > 0 {
-                    theme::warning()
-                } else {
-                    theme::muted()
-                }),
+            mono(pod.restarts.to_string()).text_size(px(12.)).text_color(if pod.restarts > 0 {
+                theme::warning()
+            } else {
+                theme::muted()
+            }),
         ))
         .child(fixed(150., usage_cell(pod.cpu_pct, metrics)))
         .child(fixed(150., usage_cell(pod.memory_pct, metrics)))
@@ -2406,10 +2198,7 @@ fn pod_row(
         ))
         .child(fixed(
             56.,
-            div()
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child(pod.age.clone()),
+            div().text_size(px(12.)).text_color(theme::muted()).child(pod.age.clone()),
         ))
         .on_click(cx.listener(move |app, _: &ClickEvent, _, cx| app.open_pod(index, &pod, cx)))
 }
@@ -2419,10 +2208,7 @@ fn usage_cell(pct: u8, metrics: bool) -> Div {
     if metrics {
         usage_bar(pct)
     } else {
-        div()
-            .text_size(px(12.))
-            .text_color(theme::faint())
-            .child("n/a")
+        div().text_size(px(12.)).text_color(theme::faint()).child("n/a")
     }
 }
 
@@ -2462,30 +2248,16 @@ fn pod_flags(pod: &PodInfo) -> Option<String> {
 fn kv(label: &'static str, value: String) -> Div {
     div()
         .flex()
-        .child(
-            div()
-                .w(px(110.))
-                .flex_shrink_0()
-                .text_color(theme::faint())
-                .child(label),
-        )
+        .child(div().w(px(110.)).flex_shrink_0().text_color(theme::faint()).child(label))
         .child(mono(value).min_w_0().truncate())
 }
 
 fn millicores(value: u64) -> String {
-    if value == 0 {
-        "none".into()
-    } else {
-        format!("{value}m")
-    }
+    if value == 0 { "none".into() } else { format!("{value}m") }
 }
 
 fn mebibytes(value: u64) -> String {
-    if value == 0 {
-        "none".into()
-    } else {
-        format!("{value} MiB")
-    }
+    if value == 0 { "none".into() } else { format!("{value} MiB") }
 }
 
 fn resource_block(
@@ -2495,11 +2267,7 @@ fn resource_block(
     used: String,
     bounds: String,
 ) -> Div {
-    let used = if metrics {
-        used
-    } else {
-        "usage n/a".to_string()
-    };
+    let used = if metrics { used } else { "usage n/a".to_string() };
     div()
         .flex()
         .flex_col()
@@ -2511,12 +2279,7 @@ fn resource_block(
                 .child(mono(used).ml_auto().text_color(theme::text_secondary())),
         )
         .child(usage_cell(pct, metrics))
-        .child(
-            div()
-                .text_size(px(12.))
-                .text_color(theme::faint())
-                .child(bounds),
-        )
+        .child(div().text_size(px(12.)).text_color(theme::faint()).child(bounds))
 }
 
 fn segment(id: &'static str, label: &'static str, active: bool) -> Stateful<Div> {
@@ -2527,9 +2290,7 @@ fn segment(id: &'static str, label: &'static str, active: bool) -> Stateful<Div>
         .rounded(px(6.))
         .cursor_pointer()
         .text_size(px(12.))
-        .when(active, |d| {
-            d.bg(theme::selected()).text_color(theme::text())
-        })
+        .when(active, |d| d.bg(theme::selected()).text_color(theme::text()))
         .when(!active, |d| d.text_color(theme::muted()))
         .child(label)
 }
@@ -2546,19 +2307,10 @@ fn factor_tile(label: &'static str, hint: &'static str, count: u32) -> Div {
             mono(count.to_string())
                 .text_size(px(20.))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(if count > 0 {
-                    theme::warning()
-                } else {
-                    theme::muted()
-                }),
+                .text_color(if count > 0 { theme::warning() } else { theme::muted() }),
         )
         .child(div().font_weight(FontWeight::MEDIUM).child(label))
-        .child(
-            div()
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .child(hint),
-        )
+        .child(div().text_size(px(11.)).text_color(theme::faint()).child(hint))
 }
 
 /// Worst condition first: not ready, pressure, cordoned, else ready.
@@ -2589,23 +2341,13 @@ fn usage_bar(pct: u8) -> Div {
                 .rounded(px(3.))
                 .bg(theme::bg())
                 .overflow_hidden()
-                .child(
-                    div()
-                        .h_full()
-                        .w(gpui::relative(f32::from(pct.min(100)) / 100.))
-                        .bg(color),
-                ),
+                .child(div().h_full().w(gpui::relative(f32::from(pct.min(100)) / 100.)).bg(color)),
         )
-        .child(
-            mono(format!("{pct}%"))
-                .w(px(34.))
-                .text_size(px(12.))
-                .text_color(if pct >= 85 {
-                    theme::critical()
-                } else {
-                    theme::muted()
-                }),
-        )
+        .child(mono(format!("{pct}%")).w(px(34.)).text_size(px(12.)).text_color(if pct >= 85 {
+            theme::critical()
+        } else {
+            theme::muted()
+        }))
 }
 
 fn namespace_row(
@@ -2636,15 +2378,10 @@ fn namespace_row(
         )
         .when_some(pods, |d, pods| {
             d.child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(format!("{pods} pods")),
+                div().text_size(px(12.)).text_color(theme::muted()).child(format!("{pods} pods")),
             )
         })
-        .when(selected, |d| {
-            d.child(div().text_color(theme::accent()).child("✓"))
-        })
+        .when(selected, |d| d.child(div().text_color(theme::accent()).child("✓")))
 }
 
 /// The hexagon mark from the design canvas.
@@ -2656,14 +2393,7 @@ fn logo_icon(size: f32) -> impl IntoElement {
             let at = |x: f32, y: f32| point(bounds.origin.x + unit * x, bounds.origin.y + unit * y);
             let mut hex = PathBuilder::stroke(px(1.8));
             hex.move_to(at(12., 2.));
-            for (x, y) in [
-                (21., 7.),
-                (21., 17.),
-                (12., 22.),
-                (3., 17.),
-                (3., 7.),
-                (12., 2.),
-            ] {
+            for (x, y) in [(21., 7.), (21., 17.), (12., 22.), (3., 17.), (3., 7.), (12., 2.)] {
                 hex.line_to(at(x, y));
             }
             if let Ok(path) = hex.build() {
@@ -2671,20 +2401,8 @@ fn logo_icon(size: f32) -> impl IntoElement {
             }
             let mut dot = PathBuilder::stroke(px(1.8));
             dot.move_to(at(15., 12.));
-            dot.arc_to(
-                point(unit * 3., unit * 3.),
-                px(0.),
-                false,
-                true,
-                at(9., 12.),
-            );
-            dot.arc_to(
-                point(unit * 3., unit * 3.),
-                px(0.),
-                false,
-                true,
-                at(15., 12.),
-            );
+            dot.arc_to(point(unit * 3., unit * 3.), px(0.), false, true, at(9., 12.));
+            dot.arc_to(point(unit * 3., unit * 3.), px(0.), false, true, at(15., 12.));
             if let Ok(path) = dot.build() {
                 window.paint_path(path, theme::accent());
             }
@@ -2712,13 +2430,7 @@ fn lock_icon(size: f32, color: Rgba) -> impl IntoElement {
             let mut shackle = PathBuilder::stroke(px(1.8));
             shackle.move_to(at(7., 11.));
             shackle.line_to(at(7., 7.));
-            shackle.arc_to(
-                point(unit * 5., unit * 5.),
-                px(0.),
-                false,
-                true,
-                at(17., 7.),
-            );
+            shackle.arc_to(point(unit * 5., unit * 5.), px(0.), false, true, at(17., 7.));
             shackle.line_to(at(17., 11.));
             if let Ok(path) = shackle.build() {
                 window.paint_path(path, color);
@@ -2739,12 +2451,9 @@ fn sparkline(values: Vec<u8>, color: Rgba, height: f32) -> impl IntoElement {
                 1 => vec![values[0], values[0]],
                 _ => values,
             };
-            if let Some(path) = polyline(
-                &values,
-                bounds.origin,
-                bounds.size.width,
-                bounds.size.height,
-            ) {
+            if let Some(path) =
+                polyline(&values, bounds.origin, bounds.size.width, bounds.size.height)
+            {
                 window.paint_path(path, color);
             }
         },
@@ -2787,12 +2496,9 @@ fn score_chart(values: Vec<u8>, height: f32) -> impl IntoElement {
             canvas(
                 |_, _, _| (),
                 move |bounds, _, window, _| {
-                    for threshold in [
-                        GRADE_A_THRESHOLD,
-                        GRADE_B_THRESHOLD,
-                        GRADE_C_THRESHOLD,
-                        GRADE_D_THRESHOLD,
-                    ] {
+                    for threshold in
+                        [GRADE_A_THRESHOLD, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD]
+                    {
                         let y = bounds.origin.y
                             + bounds.size.height * (1. - f32::from(threshold) / 100.);
                         let mut line = PathBuilder::stroke(px(1.));
@@ -2807,12 +2513,9 @@ fn score_chart(values: Vec<u8>, height: f32) -> impl IntoElement {
                         1 => vec![values[0], values[0]],
                         _ => values,
                     };
-                    if let Some(path) = polyline(
-                        &values,
-                        bounds.origin,
-                        bounds.size.width,
-                        bounds.size.height,
-                    ) {
+                    if let Some(path) =
+                        polyline(&values, bounds.origin, bounds.size.width, bounds.size.height)
+                    {
                         window.paint_path(path, theme::accent());
                     }
                 },

@@ -33,24 +33,17 @@ impl Backend {
             .build()
             .expect("failed to start the tokio runtime");
         let (events_tx, events_rx) = mpsc::unbounded_channel();
-        (
-            Self {
-                runtime,
-                config,
-                events_tx,
-            },
-            events_rx,
-        )
+        (Self { runtime, config, events_tx }, events_rx)
     }
 
     /// Every context in the kubeconfig. Local and fast, so it blocks.
     pub fn context_names(&self) -> Result<Vec<String>, String> {
-        self.runtime
-            .block_on(collector::fetch_context_names())
-            .map_err(|err| match collector::classify_kubectl_error(&err) {
+        self.runtime.block_on(collector::fetch_context_names()).map_err(|err| {
+            match collector::classify_kubectl_error(&err) {
                 Some(issue) => issue.detail,
                 None => err.to_string(),
-            })
+            }
+        })
     }
 
     /// Shows a desktop notification off the UI thread (delivery can block).
@@ -73,8 +66,7 @@ impl Backend {
         let (cmd_tx, cmd_rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
 
         let fetcher = Fetcher::new(self.config.clone(), fetch_tx);
-        self.runtime
-            .spawn(collector::with_context(context, fetcher.run(cmd_rx)));
+        self.runtime.spawn(collector::with_context(context, fetcher.run(cmd_rx)));
 
         let events_tx = self.events_tx.clone();
         self.runtime.spawn(async move {
@@ -92,9 +84,7 @@ impl Backend {
         let namespace = self.config.namespace.clone();
         self.runtime.spawn(async move {
             tokio::time::sleep(STARTUP_STAGGER * index as u32).await;
-            let _ = first_fetch
-                .send(FetchCommand::RefreshAll { namespace })
-                .await;
+            let _ = first_fetch.send(FetchCommand::RefreshAll { namespace }).await;
         });
         cmd_tx
     }

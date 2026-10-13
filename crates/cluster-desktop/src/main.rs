@@ -7,7 +7,7 @@ mod view;
 
 use cluster_core::config::{Config, ConfigOverrides};
 use gpui::{
-    px, size, App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
+    App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
 
 fn main() {
@@ -69,7 +69,11 @@ mod shell_path {
             return; // Started from a terminal: PATH is already the user's.
         }
         if let Some(path) = login_shell_path() {
-            std::env::set_var("PATH", path);
+            // SAFETY: We call this once at startup, before spawning any threads, so
+            // there is no risk of a data race with other environment variable accesses.
+            unsafe {
+                std::env::set_var("PATH", path);
+            }
         }
     }
 

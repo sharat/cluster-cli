@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use gpui::{rgb, rgba, App, Rgba};
+use gpui::{App, Rgba, rgb, rgba};
 
 pub const SANS: &str = "IBM Plex Sans";
 pub const MONO: &str = "IBM Plex Mono";
