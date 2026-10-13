@@ -12,14 +12,14 @@ In Rust, as in many other languages, tests often show how the functions are mean
 ### Use descriptive names
 
 > In the unit test name we should see the following:
-> * `unit_of_work`: which *function* we are calling. The **action** that will be executed. This is often be the name of the the test `mod` where the function is being tested.
+> * `unit_of_work`: which *function* we are calling. The **action** that will be executed. This is often the name of the test `mod` where the function is being tested.
 ```rust
 #[cfg(test)] 
 mod test { 
-    mod function_name { 
-        #[test] 
-        fn returns_y_when_x() { ... } 
-    } 
+  mod function_name { 
+    #[test] 
+    fn returns_y_when_x() { ... } 
+  } 
 }
 ```
 > * `expected_behavior`: the set of **assertions** that we need to verify that the test works.
@@ -33,7 +33,7 @@ fn test_add_happy_path() {
 }
 ```
 #### ✅ Use a name which reads like a sentence, describing the desired behavior
-> Alternatively, if you function has too many tests, you can blob them together in a `mod`, it makes it easier to read and navigate.
+> Alternatively, if your function has too many tests, you can blob them together in a `mod`, it makes it easier to read and navigate.
 
 ```rust
 // OPTION 1
@@ -50,16 +50,16 @@ fn process_should_return_blob_when_larger_than_b() {
 
 // OPTION 2
 mod process {
-    #[test]
-    fn should_return_blob_when_larger_than_b() {
-        let a = setup_a_to_be_xyz();
-        let b = Some(2);
-        let expected = MyExpectedStruct { ... };
+  #[test]
+  fn should_return_blob_when_larger_than_b() {
+      let a = setup_a_to_be_xyz();
+      let b = Some(2);
+      let expected = MyExpectedStruct { ... };
 
-        let result = process(a, b).unwrap();
+      let result = process(a, b).unwrap();
 
-        assert_eq!(result, expected);
-    }
+      assert_eq!(result, expected);
+  }
 }
 ```
 
@@ -75,31 +75,31 @@ Together, that means you can use the module name to group related tests together
 
 ```rust
 #[cfg(test)]
-mod test { // IDEs will provide a ▶️ button here
+mod test {  // IDEs will provide a ▶️ button here
 
-    mod process {
-        #[test] // IDEs will provide a ▶️ button here
-        fn returns_error_xyz_when_b_is_negative() {
-            let a = setup_a_to_be_xyz();
-            let b = Some(-5);
-            let expected = MyError::Xyz;
-            
-            let result = process(a, b).unwrap_err();
-            
-            assert_eq!(result, expected);
-        }
-
-        #[test] // IDEs will provide a ▶️ button here
-        fn returns_invalid_input_error_when_a_and_b_not_present() {
-            let a = None;
-            let b = None;
-            let expected = MyError::InvalidInput;
-
-            let result = process(a, b).unwrap_err();
-
-            assert_eq!(result, expected);
-        }
+  mod process {
+    #[test] // IDEs will provide a ▶️ button here
+    fn returns_error_xyz_when_b_is_negative() {
+        let a = setup_a_to_be_xyz();
+        let b = Some(-5);
+        let expected = MyError::Xyz;
+    
+        let result = process(a, b).unwrap_err();
+    
+        assert_eq!(result, expected);
     }
+
+    #[test] // IDEs will provide a ▶️ button here
+    fn returns_invalid_input_error_when_a_and_b_not_present() {
+      let a = None;
+      let b = None;
+      let expected = MyError::InvalidInput;
+
+      let result = process(a, b).unwrap_err();
+
+      assert_eq!(result, expected);
+    }
+  }
 }
 ```
 
@@ -111,8 +111,8 @@ This makes it easier to understand why a test is failing.
 #### ❌ Don't test multiple things in the same test
 ```rust
 fn test_thing_parser(...) {
-    assert!(Thing::parse("abcd").is_ok());
-    assert!(Thing::parse("ABCD").is_err());
+  assert!(Thing::parse("abcd").is_ok());
+  assert!(Thing::parse("ABCD").is_err());
 }
 ```
 
@@ -120,20 +120,20 @@ fn test_thing_parser(...) {
 ```rust
 #[cfg(test)]
 mod test_thing_parser {
-    #[test]
-    fn lowercase_letters_are_valid() {
-        assert!(
-            Thing::parse("abcd").is_ok(),
-            // Works like `eprintln`, `format` and `println` macros
-            "Thing parse error: {:?}", 
-            Thing::parse("abcd").unwrap_err()
-        );
-    }
+  #[test]
+  fn lowercase_letters_are_valid() {
+    assert!(
+      Thing::parse("abcd").is_ok(),
+      // Works like `eprintln`, `format` and `println` macros
+      "Thing parse error: {:?}", 
+      Thing::parse("abcd").unwrap_err()
+    );
+  }
 
-    #[test]
-    fn capital_letters_are_invalid() {
-        assert!(Thing::parse("ABCD").is_err());
-    }
+  #[test]
+  fn capital_letters_are_invalid() {
+    assert!(Thing::parse("ABCD").is_err());
+  }
 }
 ```
 
@@ -149,10 +149,10 @@ often requires many iterations to fix a broken test, as you work through asserti
 ```rust
 #[test]
 fn test_valid_inputs() {
-    assert!(the_function("a").is_ok());
-    assert!(the_function("ab").is_ok());
-    assert!(the_function("ba").is_ok());
-    assert!(the_function("bab").is_ok());
+  assert!(the_function("a").is_ok());
+  assert!(the_function("ab").is_ok());
+  assert!(the_function("ba").is_ok());
+  assert!(the_function("bab").is_ok());
 }
 ```
 
@@ -165,7 +165,7 @@ To avoid boilerplate, either use a shared setup function or [rstest](https://cra
 #[case::last_letter("ba")]
 #[case::in_the_middle("bab")]
 fn the_function_accepts_all_strings_with_a(#[case] input: &str) {
-    assert!(the_function(input).is_ok());
+  assert!(the_function(input).is_ok());
 }
 ```
 
@@ -174,9 +174,11 @@ fn the_function_accepts_all_strings_with_a(#[case] input: &str) {
 > * It's harder for both IDEs and humans to run/locate specific tests.
 > * Expectation vs condition naming is now visually inverted (expectation first).
 
+> ❗ Share **setup**, not the test itself: keep each test's action and assertion inline, even when repetitive. Tests tolerate duplication better than production code -- see [Chapter 1, §1.8](./chapter_01.md#-test-code-readability-beats-dry).
+
 ## 5.2 Add Test Examples to your Docs
 
-We will deep dive into docs at a later stage, so in this section we will just briefly go over how to add tests to you docs. Rustdoc can turn examples into executable tests using `///` with a few advantages:
+We will deep dive into docs at a later stage, so in this section we will just briefly go over how to add tests to your docs. Rustdoc can turn examples into executable tests using `///` with a few advantages:
 
 * These tests run with `cargo test` **BUT NOT** `cargo nextest run`. If using `nextest`, make sure to run `cargo t --doc` separately.
 * They serve both as documentation and correctness checks, and are kept up to date by changes, due to the fact that the compiler checks them.
@@ -185,7 +187,7 @@ We will deep dive into docs at a later stage, so in this section we will just br
 
 ```rust
 /// Helper function that adds any two numeric values together.
-/// This function reasons about which would be the correct type to parse based on the type
+/// This function reasons about which would be the correct type to parse based on the type 
 /// and the size of the numeric value.
 /// 
 /// # Examples
@@ -235,7 +237,7 @@ mod unit_of_work_tests {
     #[test]
     fn unit_state_behavior() {
         let expected = ...;
-        let result = ...;
+        let result   = ...;
         assert_eq!(result, expected, "Failed because {}", result - expected);
     }
 }
@@ -282,14 +284,20 @@ Rust comes with 2 macros to make assertions:
 
 ### 🚨 `assert!` reminders
 * Rust asserts support formatted strings, like the previous examples, those strings will be printed in case of failure, so it is a good practice to add what the actual state was and how it differs from the expected.
-* If you don't care about the exact pattern matching value, using `matches!` combined with `assert!` might be a good alternative.
+* If you don't care about the exact pattern matching value, using `matches!` combined with `assert!` might be a good alternative. Note the message string is an argument to `assert!`, not to `matches!`:
 ```rust
-assert!(matches!(error, MyError::BadInput(_), "Expected `BadInput`, found {error}"));
+assert!(matches!(error, MyError::BadInput(_)), "Expected `BadInput`, found {error}");
+```
+* Since Rust 1.96 prefer the stabilized [`assert_matches!`](https://doc.rust-lang.org/std/macro.assert_matches.html) (and [`debug_assert_matches!`](https://doc.rust-lang.org/std/macro.debug_assert_matches.html)) over `assert!(matches!(..))`. It prints the actual value on failure for free, so you don't have to write the message yourself:
+```rust
+use std::assert_matches::assert_matches;
+
+assert_matches!(error, MyError::BadInput(_));
 ```
 * Use `#[should_panic]` wisely. It should only be used when panic is the desired behavior, prefer result instead of panic.
 * There are some other that can enhance your testing experience like:
     * [`rstest`](https://crates.io/crates/rstest): fixture based test framework with procedural macros.
-    * [`pretty_assertions`](https://crates.io/crates/pretty_assertions): overrides `assert_eq` and `assert_ne`, and creates colorful diffs between them.
+    * [`pretty_assertions`](https://crates.io/crates/pretty_assertions): overrides `assert_eq` and `assert_ne`,  and creates colorful diffs between them.
 
 ## 5.5 Snapshot Testing with `cargo insta`
 
@@ -302,6 +310,7 @@ insta = { version = "1.42.2", features = ["yaml"] }
 > For most real world applications the recommendation is to use YAML snapshots of serializable values. This is because they look best under version control and the diff viewer and support redaction. To use this enable the yaml feature of insta.
 
 2. For a better review experience, add the CLI `cargo install cargo-insta`.
+
 
 3. Writing a simple test:
 ```rust
