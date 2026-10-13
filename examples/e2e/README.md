@@ -54,8 +54,8 @@ sudo apt-get install tmux  # Ubuntu/Debian
 # Option 1: termshot (Rust, recommended)
 cargo install termshot
 
-# Option 2: ansisvg + librsvg
-npm install -g ansisvg
+# Option 2: ansi-to-svg + librsvg
+npm install -g ansi-to-svg
 brew install librsvg  # macOS
 sudo apt-get install librsvg2-bin  # Ubuntu/Debian
 ```

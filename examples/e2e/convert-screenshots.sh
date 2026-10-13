@@ -13,7 +13,7 @@ echo "Output: $OUTPUT_DIR"
 
 # Check for available conversion tools
 HAS_RSVG=false
-HAS_ANSISVG=false
+HAS_ANSITOSVG=false
 HAS_TERMSHOT=false
 
 if command -v rsvg-convert &> /dev/null; then
@@ -21,9 +21,9 @@ if command -v rsvg-convert &> /dev/null; then
     echo "Found: rsvg-convert"
 fi
 
-if command -v ansisvg &> /dev/null; then
-    HAS_ANSISVG=true
-    echo "Found: ansisvg"
+if command -v ansi-to-svg &> /dev/null; then
+    HAS_ANSITOSVG=true
+    echo "Found: ansi-to-svg"
 fi
 
 if command -v termshot &> /dev/null; then
@@ -31,13 +31,13 @@ if command -v termshot &> /dev/null; then
     echo "Found: termshot"
 fi
 
-# Function to convert using ansisvg + rsvg-convert
+# Function to convert using ansi-to-svg + rsvg-convert
 convert_ansisvg() {
     local input="$1"
     local output="$2"
     local svg="${output%.png}.svg"
     
-    ansisvg < "$input" > "$svg"
+    ansi-to-svg < "$input" > "$svg"
     rsvg-convert "$svg" -o "$output"
     rm -f "$svg"
 }
@@ -63,8 +63,8 @@ for txtfile in "$INPUT_DIR"/*.txt; do
     
     echo "Converting: $basename"
     
-    # Prefer ansisvg + rsvg-convert (more reliable in CI)
-    if [ "$HAS_ANSISVG" = true ] && [ "$HAS_RSVG" = true ]; then
+    # Prefer ansi-to-svg + rsvg-convert (more reliable in CI)
+    if [ "$HAS_ANSITOSVG" = true ] && [ "$HAS_RSVG" = true ]; then
         convert_ansisvg "$txtfile" "$pngfile"
     elif [ "$HAS_TERMSHOT" = true ]; then
         convert_termshot "$txtfile" "$pngfile"
@@ -72,7 +72,7 @@ for txtfile in "$INPUT_DIR"/*.txt; do
         echo "  ERROR: No conversion tools available!"
         echo "  Install one of:"
         echo "    - termshot: cargo install termshot"
-        echo "    - ansisvg + librsvg: npm install -g ansisvg && apt install librsvg2-bin"
+        echo "    - ansi-to-svg + librsvg: npm install -g ansi-to-svg && apt install librsvg2-bin"
         exit 1
     fi
     
