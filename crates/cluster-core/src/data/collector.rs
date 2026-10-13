@@ -12,6 +12,46 @@ use crate::data::models::*;
 
 const KUBECTL_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Upper bound on concurrent kubectl processes across the whole process. One
+/// refresh of one cluster runs ~18; the cap only bites when many clusters are
+/// watched at once (the desktop fleet view), turning a burst of hundreds of
+/// processes into a queue.
+const MAX_CONCURRENT_KUBECTL: usize = 48;
+static KUBECTL_PERMITS: tokio::sync::Semaphore =
+    tokio::sync::Semaphore::const_new(MAX_CONCURRENT_KUBECTL);
+
+tokio::task_local! {
+    /// kubectl context that every command in the current task targets via
+    /// `--context`. Unset (the TUI) means kubectl's current context.
+    static CONTEXT_OVERRIDE: String;
+}
+
+/// Runs `fut` with every kubectl call it makes pinned to `context`, so one
+/// process can watch several clusters at once. The override is task-local:
+/// work that `fut` hands to `tokio::spawn` falls back to the current context.
+pub async fn with_context<F: std::future::Future>(context: String, fut: F) -> F::Output {
+    CONTEXT_OVERRIDE.scope(context, fut).await
+}
+
+/// The kubectl context pinned by an enclosing [`with_context`], if any.
+pub fn context_override() -> Option<String> {
+    CONTEXT_OVERRIDE.try_with(Clone::clone).ok()
+}
+
+/// Wraps `fut` so it keeps the caller's context override when handed to
+/// `tokio::spawn` (task-locals do not cross task boundaries on their own).
+pub fn inherit_context<F: std::future::Future>(
+    fut: F,
+) -> impl std::future::Future<Output = F::Output> {
+    let context = context_override();
+    async move {
+        match context {
+            Some(context) => with_context(context, fut).await,
+            None => fut.await,
+        }
+    }
+}
+
 fn percent_of(value: u64, total: u64) -> u8 {
     if total == 0 {
         return 0;
@@ -48,44 +88,68 @@ impl fmt::Display for KubectlError {
 
 impl std::error::Error for KubectlError {}
 
-async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
+/// `-n ALL_NAMESPACES` becomes `--all-namespaces`, so every namespaced call
+/// site supports the all-namespaces view without special-casing.
+pub(crate) fn expand_all_namespaces<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    let mut expanded = Vec::with_capacity(args.len());
+    let mut iter = args.iter().copied().peekable();
+    while let Some(arg) = iter.next() {
+        if (arg == "-n" || arg == "--namespace") && iter.peek() == Some(&ALL_NAMESPACES) {
+            iter.next();
+            expanded.push("--all-namespaces");
+        } else {
+            expanded.push(arg);
+        }
+    }
+    expanded
+}
+
+pub(crate) async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
+    let args = &expand_all_namespaces(args)[..];
     ensure_readonly_kubectl_args(program, args)
         .map_err(|err| KubectlError::new(err.to_string()))?;
 
+    let _permit = KUBECTL_PERMITS
+        .acquire()
+        .await
+        .map_err(|err| KubectlError::new(format!("kubectl limiter closed: {err}")))?;
+    let mut command = Command::new(program);
+    if let Some(context) = context_override() {
+        command.args(["--context", &context]);
+    }
     // `kill_on_drop` ensures a timed-out kubectl is terminated instead of
     // being orphaned when the `output()` future is dropped.
-    let output =
-        timeout(KUBECTL_TIMEOUT, Command::new(program).args(args).kill_on_drop(true).output())
-            .await
-            .map_err(|_| {
-                let message = format!(
-                    "kubectl {} timed out after {}s",
-                    args.join(" "),
-                    KUBECTL_TIMEOUT.as_secs()
-                );
+    let output = timeout(KUBECTL_TIMEOUT, command.args(args).kill_on_drop(true).output())
+        .await
+        .map_err(|_| {
+            let message = format!(
+                "kubectl {} timed out after {}s",
+                args.join(" "),
+                KUBECTL_TIMEOUT.as_secs()
+            );
+            KubectlError::with_issue(
+                ConnectionIssue {
+                    kind: ConnectionIssueKind::Generic,
+                    namespace: None,
+                    detail: message.clone(),
+                },
+                message,
+            )
+        })?
+        .map_err(|err| {
+            if err.kind() == ErrorKind::NotFound {
                 KubectlError::with_issue(
                     ConnectionIssue {
-                        kind: ConnectionIssueKind::Generic,
+                        kind: ConnectionIssueKind::KubectlMissing,
                         namespace: None,
-                        detail: message.clone(),
+                        detail: "kubectl was not found in PATH".to_string(),
                     },
-                    message,
+                    format!("Failed to run {program} {args:?}: {err}"),
                 )
-            })?
-            .map_err(|err| {
-                if err.kind() == ErrorKind::NotFound {
-                    KubectlError::with_issue(
-                        ConnectionIssue {
-                            kind: ConnectionIssueKind::KubectlMissing,
-                            namespace: None,
-                            detail: "kubectl was not found in PATH".to_string(),
-                        },
-                        format!("Failed to run {program} {args:?}: {err}"),
-                    )
-                } else {
-                    KubectlError::new(format!("Failed to run {program} {args:?}: {err}"))
-                }
-            })?;
+            } else {
+                KubectlError::new(format!("Failed to run {program} {args:?}: {err}"))
+            }
+        })?;
 
     if !output.status.success() {
         let stderr = strip_klog_lines(&String::from_utf8_lossy(&output.stderr));
@@ -120,7 +184,9 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
 
     match args {
         ["get", ..] | ["top", ..] | ["logs", ..] => Ok(()),
-        ["config", "current-context", ..] | ["config", "view", ..] => Ok(()),
+        ["config", "current-context", ..]
+        | ["config", "view", ..]
+        | ["config", "get-contexts", ..] => Ok(()),
         [] => anyhow::bail!("kubectl command is empty"),
         _ => anyhow::bail!("Rejected non-read-only kubectl command: kubectl {}", args.join(" ")),
     }
@@ -144,8 +210,64 @@ pub async fn fetch_node_metrics(
     );
 
     let info_json: Value = serde_json::from_str(&info_result?)?;
+    let items = info_json
+        .get("items")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter())
+        .unwrap_or_else(|| [].iter());
     let (top_output, top_warning) = split_top_result(top_result);
-    Ok((build_node_metrics(&top_output, &info_json, node_pool_filter), top_warning))
+    Ok((build_node_metrics(&top_output, items, node_pool_filter), top_warning))
+}
+
+/// A `kubectl get <resource> -o json` list.
+#[derive(Debug, Clone, Default)]
+pub struct ResourceList {
+    pub items: Vec<Value>,
+    /// The list's `metadata.resourceVersion`: the point in time it reflects.
+    pub resource_version: Option<u64>,
+}
+
+pub(crate) async fn list_items(args: &[&str]) -> Result<ResourceList> {
+    let output = run_cmd("kubectl", args).await?;
+    let mut json: Value = serde_json::from_str(&output)?;
+    let resource_version = resource_version(&json);
+    let items = match json.get_mut("items").map(Value::take) {
+        Some(Value::Array(items)) => items,
+        _ => Vec::new(),
+    };
+    Ok(ResourceList { items, resource_version })
+}
+
+/// `metadata.resourceVersion` as a number. The API documents it as opaque,
+/// but it is etcd's revision and orders changes within a resource type;
+/// `None` (unparsable) disables version-based ordering for that object.
+pub fn resource_version(object: &Value) -> Option<u64> {
+    object
+        .pointer("/metadata/resourceVersion")
+        .and_then(Value::as_str)
+        .and_then(|version| version.parse().ok())
+}
+
+pub async fn list_nodes() -> Result<ResourceList> {
+    list_items(&["get", "nodes", "-o", "json"]).await
+}
+
+pub async fn list_pods(namespace: &str) -> Result<ResourceList> {
+    list_items(&["get", "pods", "-n", namespace, "-o", "json"]).await
+}
+
+pub async fn list_events(namespace: &str) -> Result<ResourceList> {
+    list_items(&["get", "events", "-n", namespace, "-o", "json"]).await
+}
+
+/// `kubectl top nodes` output; empty when metrics-server is unavailable.
+pub async fn top_nodes() -> String {
+    run_cmd("kubectl", &["top", "nodes", "--no-headers"]).await.unwrap_or_default()
+}
+
+/// `kubectl top pods` output; empty when metrics-server is unavailable.
+pub async fn top_pods(namespace: &str) -> String {
+    run_cmd("kubectl", &["top", "pods", "-n", namespace, "--no-headers"]).await.unwrap_or_default()
 }
 
 #[derive(Clone, Copy)]
@@ -156,24 +278,22 @@ struct TopNodeMetrics {
     memory_pct: Option<u8>,
 }
 
-fn build_node_metrics(
+pub fn build_node_metrics<'a>(
     top_output: &str,
-    info_json: &Value,
+    items: impl IntoIterator<Item = &'a Value>,
     node_pool_filter: Option<&str>,
 ) -> Vec<NodeMetric> {
     let top_map = parse_top_node_metrics(top_output);
     let mut nodes = Vec::new();
 
-    if let Some(items) = info_json.get("items").and_then(|v| v.as_array()) {
-        for item in items {
-            if node_pool_filter.is_some_and(|filter| !node_matches_pool(item, filter)) {
-                continue;
-            }
-            if let Some(node) =
-                build_node_metric(item, top_map.get(metadata_name(item).as_str()).copied())
-            {
-                nodes.push(node);
-            }
+    for item in items {
+        if node_pool_filter.is_some_and(|filter| !node_matches_pool(item, filter)) {
+            continue;
+        }
+        if let Some(node) =
+            build_node_metric(item, top_map.get(metadata_name(item).as_str()).copied())
+        {
+            nodes.push(node);
         }
     }
 
@@ -591,154 +711,178 @@ fn parse_condition_status(status: &str) -> ConditionStatus {
     }
 }
 
-pub async fn fetch_pod_info(namespace: &str) -> Result<(Vec<PodInfo>, Option<String>)> {
-    let top_args = vec!["top", "pods", "-n", namespace, "--no-headers"];
-    let info_args = vec!["get", "pods", "-n", namespace, "-o", "json"];
-    let (top_result, info_result) =
-        tokio::join!(run_cmd("kubectl", &top_args), run_cmd("kubectl", &info_args),);
-
-    let info_json: Value = serde_json::from_str(&info_result?)?;
-    let (top_output, top_warning) = split_top_result(top_result);
-
-    // Build map: pod name -> (cpu_m, mem_mb)
-    let mut top_map = std::collections::HashMap::new();
-    for line in top_output.lines() {
+/// `kubectl top pods` rows keyed by pod name, or by `namespace/name` when the
+/// output came from `--all-namespaces` (which adds a leading NAMESPACE column).
+fn parse_top_pod_metrics(output: &str, all_namespaces: bool) -> HashMap<String, (u64, u64)> {
+    let mut top_map = HashMap::new();
+    for line in output.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 3 {
-            continue;
+        let (key, rest) = match (all_namespaces, parts.as_slice()) {
+            (true, [ns, name, rest @ ..]) => (format!("{ns}/{name}"), rest),
+            (false, [name, rest @ ..]) => (name.to_string(), rest),
+            _ => continue,
+        };
+        if let [cpu, memory, ..] = rest {
+            top_map.insert(key, (parse_cpu(cpu), parse_memory_mb(memory)));
         }
-        top_map.insert(parts[0].to_string(), (parse_cpu(parts[1]), parse_memory_mb(parts[2])));
     }
+    top_map
+}
+
+pub async fn fetch_pod_info(namespace: &str) -> Result<(Vec<PodInfo>, Option<String>)> {
+    let top_args = ["top", "pods", "-n", namespace, "--no-headers"];
+    let (top_result, list_result) =
+        tokio::join!(run_cmd("kubectl", &top_args), list_pods(namespace));
+    let (top_output, top_warning) = split_top_result(top_result);
+    let list = list_result?;
+    Ok((build_pods(&list.items, &top_output, namespace), top_warning))
+}
+
+/// Builds pods from `kubectl get pods -o json` items, joining usage from the
+/// `kubectl top pods` output for the same `namespace`.
+pub fn build_pods<'a>(
+    items: impl IntoIterator<Item = &'a Value>,
+    top_output: &str,
+    namespace: &str,
+) -> Vec<PodInfo> {
+    let all_namespaces = namespace == ALL_NAMESPACES;
+    let top_map = parse_top_pod_metrics(top_output, all_namespaces);
 
     let mut pods = Vec::new();
 
-    if let Some(items) = info_json.get("items").and_then(|v| v.as_array()) {
-        for item in items {
-            let name =
-                item.pointer("/metadata/name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let uid =
-                item.pointer("/metadata/uid").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let pod_namespace = item
-                .pointer("/metadata/namespace")
-                .and_then(|v| v.as_str())
-                .unwrap_or(namespace)
-                .to_string();
+    for item in items {
+        let name =
+            item.pointer("/metadata/name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let uid = item.pointer("/metadata/uid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let pod_namespace = item
+            .pointer("/metadata/namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or(namespace)
+            .to_string();
 
-            let phase = item
-                .pointer("/status/phase")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
-                .to_string();
+        let phase =
+            item.pointer("/status/phase").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
 
-            let node_name =
-                item.pointer("/spec/nodeName").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let node_name =
+            item.pointer("/spec/nodeName").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-            let restarts: u32 = item
-                .pointer("/status/containerStatuses")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .map(|c| c.get("restartCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32)
-                        .sum()
+        let restarts: u32 = item
+            .pointer("/status/containerStatuses")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|c| c.get("restartCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32)
+                    .sum()
+            })
+            .unwrap_or(0);
+
+        let age = item
+            .pointer("/metadata/creationTimestamp")
+            .and_then(|v| v.as_str())
+            .map(calculate_age)
+            .unwrap_or_else(|| "?".to_string());
+
+        let spec_containers = item.pointer("/spec/containers").and_then(|v| v.as_array());
+        let init_containers = item.pointer("/spec/initContainers").and_then(|v| v.as_array());
+
+        let (cpu_request_millicores, cpu_limit_millicores) =
+            effective_pod_cpu_resources(spec_containers, init_containers);
+        let (memory_request_mb, memory_limit_mb) =
+            effective_pod_memory_resources(spec_containers, init_containers);
+
+        let top_key = if all_namespaces { format!("{pod_namespace}/{name}") } else { name.clone() };
+        let (cpu_millicores, memory_mb) = top_map.get(&top_key).copied().unwrap_or((0, 0));
+
+        let memory_pct =
+            if memory_limit_mb > 0 { percent_of(memory_mb, memory_limit_mb) } else { 0 };
+        let memory_request_pct =
+            if memory_request_mb > 0 { percent_of(memory_mb, memory_request_mb) } else { 0 };
+
+        let cpu_pct = if cpu_limit_millicores > 0 {
+            percent_of(cpu_millicores, cpu_limit_millicores)
+        } else {
+            0
+        };
+        let cpu_request_pct = if cpu_request_millicores > 0 {
+            percent_of(cpu_millicores, cpu_request_millicores)
+        } else {
+            0
+        };
+
+        let container_statuses =
+            item.pointer("/status/containerStatuses").and_then(|v| v.as_array());
+        let containers = extract_container_info(container_statuses);
+        let total_containers = container_statuses.map(|arr| arr.len() as u32).unwrap_or(0);
+        let ready_containers = container_statuses
+            .map(|arr| {
+                arr.iter()
+                    .filter(|c| c.get("ready").and_then(|v| v.as_bool()).unwrap_or(false))
+                    .count() as u32
+            })
+            .unwrap_or(0);
+        let is_ready = total_containers > 0 && ready_containers == total_containers;
+        let crash_looping = container_statuses
+            .map(|arr| {
+                arr.iter().any(|c| {
+                    c.pointer("/state/waiting/reason").and_then(|v| v.as_str())
+                        == Some("CrashLoopBackOff")
                 })
-                .unwrap_or(0);
-
-            let age = item
-                .pointer("/metadata/creationTimestamp")
-                .and_then(|v| v.as_str())
-                .map(calculate_age)
-                .unwrap_or_else(|| "?".to_string());
-
-            let spec_containers = item.pointer("/spec/containers").and_then(|v| v.as_array());
-            let init_containers = item.pointer("/spec/initContainers").and_then(|v| v.as_array());
-
-            let (cpu_request_millicores, cpu_limit_millicores) =
-                effective_pod_cpu_resources(spec_containers, init_containers);
-            let (memory_request_mb, memory_limit_mb) =
-                effective_pod_memory_resources(spec_containers, init_containers);
-
-            let (cpu_millicores, memory_mb) = top_map.get(&name).copied().unwrap_or((0, 0));
-
-            let memory_pct =
-                if memory_limit_mb > 0 { percent_of(memory_mb, memory_limit_mb) } else { 0 };
-            let memory_request_pct =
-                if memory_request_mb > 0 { percent_of(memory_mb, memory_request_mb) } else { 0 };
-
-            let cpu_pct = if cpu_limit_millicores > 0 {
-                percent_of(cpu_millicores, cpu_limit_millicores)
-            } else {
-                0
-            };
-            let cpu_request_pct = if cpu_request_millicores > 0 {
-                percent_of(cpu_millicores, cpu_request_millicores)
-            } else {
-                0
-            };
-
-            let container_statuses =
-                item.pointer("/status/containerStatuses").and_then(|v| v.as_array());
-            let containers = extract_container_info(container_statuses);
-            let total_containers = container_statuses.map(|arr| arr.len() as u32).unwrap_or(0);
-            let ready_containers = container_statuses
-                .map(|arr| {
-                    arr.iter()
-                        .filter(|c| c.get("ready").and_then(|v| v.as_bool()).unwrap_or(false))
-                        .count() as u32
-                })
-                .unwrap_or(0);
-            let is_ready = total_containers > 0 && ready_containers == total_containers;
-            let crash_looping = container_statuses
-                .map(|arr| {
-                    arr.iter().any(|c| {
-                        c.pointer("/state/waiting/reason").and_then(|v| v.as_str())
-                            == Some("CrashLoopBackOff")
-                    })
-                })
-                .unwrap_or(false);
-            let oom_killed = container_statuses
-                .map(|arr| {
-                    arr.iter().any(|c| {
-                        c.pointer("/lastState/terminated/reason").and_then(|v| v.as_str())
+            })
+            .unwrap_or(false);
+        let oom_killed = container_statuses
+            .map(|arr| {
+                arr.iter().any(|c| {
+                    c.pointer("/lastState/terminated/reason").and_then(|v| v.as_str())
+                        == Some("OOMKilled")
+                        || c.pointer("/state/terminated/reason").and_then(|v| v.as_str())
                             == Some("OOMKilled")
-                            || c.pointer("/state/terminated/reason").and_then(|v| v.as_str())
-                                == Some("OOMKilled")
-                    })
                 })
-                .unwrap_or(false);
-            let status = derive_pod_status(memory_pct, &phase, is_ready, crash_looping, oom_killed);
+            })
+            .unwrap_or(false);
+        let status_reason =
+            item.pointer("/status/reason").and_then(|v| v.as_str()).map(str::to_string);
+        let status = derive_pod_status(
+            memory_pct,
+            &phase,
+            status_reason.as_deref(),
+            is_ready,
+            crash_looping,
+            oom_killed,
+        );
 
-            pods.push(PodInfo {
-                uid,
-                name,
-                namespace: pod_namespace,
-                phase,
-                restarts,
-                age,
-                cpu_millicores,
-                cpu_request_millicores,
-                cpu_limit_millicores,
-                memory_mb,
-                memory_request_mb,
-                memory_limit_mb,
-                memory_request_pct,
-                memory_pct,
-                cpu_request_pct,
-                cpu_pct,
-                status,
-                ready_containers,
-                total_containers,
-                is_ready,
-                crash_looping,
-                oom_killed,
-                node_name,
-                containers,
-            });
-        }
+        pods.push(PodInfo {
+            uid,
+            name,
+            namespace: pod_namespace,
+            phase,
+            restarts,
+            age,
+            cpu_millicores,
+            cpu_request_millicores,
+            cpu_limit_millicores,
+            memory_mb,
+            memory_request_mb,
+            memory_limit_mb,
+            memory_request_pct,
+            memory_pct,
+            cpu_request_pct,
+            cpu_pct,
+            status,
+            ready_containers,
+            total_containers,
+            is_ready,
+            crash_looping,
+            oom_killed,
+            node_name,
+            containers,
+            status_reason,
+        });
     }
 
-    Ok((pods, top_warning))
+    pods
 }
 
+#[derive(Debug, Clone, Default)]
 pub struct WorkloadCollection {
     pub summaries: Vec<WorkloadSummary>,
     pub warnings: Vec<String>,
@@ -977,14 +1121,19 @@ pub async fn fetch_workload_summaries(namespace: &str) -> WorkloadCollection {
     collect_ingresses(&ingresses_json, namespace, &mut workloads);
     collect_pvcs(&pvcs_json, namespace, &mut workloads);
 
+    sort_workloads(&mut workloads);
+
+    WorkloadCollection { summaries: workloads, warnings }
+}
+
+/// Worst status first, then by kind and name.
+pub fn sort_workloads(workloads: &mut [WorkloadSummary]) {
     workloads.sort_by(|a, b| {
         workload_status_rank(&b.status)
             .cmp(&workload_status_rank(&a.status))
             .then_with(|| a.kind.as_str().cmp(b.kind.as_str()))
             .then_with(|| a.name.cmp(&b.name))
     });
-
-    WorkloadCollection { summaries: workloads, warnings }
 }
 
 fn parse_workload_resource_result<E: std::fmt::Display>(
@@ -1464,13 +1613,17 @@ fn effective_pod_memory_resources(
 fn derive_pod_status(
     memory_pct: u8,
     phase: &str,
+    status_reason: Option<&str>,
     is_ready: bool,
     crash_looping: bool,
     oom_killed: bool,
 ) -> HealthStatus {
+    // Finished Job/CronJob pods are expected to be unready; evicted pods are
+    // tombstones whose replacements run elsewhere.
     if phase == "Succeeded" {
-        // Completed Job/CronJob pods have no ready containers by design.
         HealthStatus::Healthy
+    } else if phase == "Failed" && status_reason == Some("Evicted") {
+        HealthStatus::Warning
     } else if crash_looping || oom_killed || matches!(phase, "Failed" | "Unknown") {
         HealthStatus::Critical
     } else if phase == "Pending" {
@@ -1534,49 +1687,65 @@ fn summarize_container_state(status: &Value) -> String {
 }
 
 pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
-    let output = run_cmd(
-        "kubectl",
-        &["get", "events", "-n", namespace, "--sort-by=.lastTimestamp", "-o", "json"],
-    )
-    .await?;
+    Ok(build_events(&list_events(namespace).await?.items))
+}
 
-    let json: Value = serde_json::from_str(&output)?;
+/// The most recent [`MAX_EVENTS_PER_FETCH`] events, newest first.
+pub fn build_events<'a>(items: impl IntoIterator<Item = &'a Value>) -> Vec<ClusterEvent> {
     let mut events = Vec::new();
+    for item in newest_events(items) {
+        let kind = item
+            .pointer("/involvedObject/kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
 
-    if let Some(items) = json.get("items").and_then(|v| v.as_array()) {
-        for item in items.iter().rev().take(MAX_EVENTS_PER_FETCH) {
-            let kind = item
-                .pointer("/involvedObject/kind")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
-                .to_string();
+        let name = item
+            .pointer("/involvedObject/name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
 
-            let name = item
-                .pointer("/involvedObject/name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
-                .to_string();
+        let reason = item.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-            let reason = item.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let message = item.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-            let message = item.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let event_type = if item.get("type").and_then(|v| v.as_str()) == Some("Warning") {
+            EventType::Warning
+        } else {
+            EventType::Normal
+        };
 
-            let event_type = if item.get("type").and_then(|v| v.as_str()) == Some("Warning") {
-                EventType::Warning
-            } else {
-                EventType::Normal
-            };
+        let count = item.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
 
-            let count = item.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+        let timestamp = event_timestamp(item).to_string();
 
-            let timestamp =
-                item.get("lastTimestamp").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-            events.push(ClusterEvent { kind, name, reason, message, event_type, count, timestamp });
-        }
+        events.push(ClusterEvent { kind, name, reason, message, event_type, count, timestamp });
     }
 
-    Ok(events)
+    events
+}
+
+/// The [`MAX_EVENTS_PER_FETCH`] newest raw events, newest first.
+pub fn newest_events<'a>(items: impl IntoIterator<Item = &'a Value>) -> Vec<&'a Value> {
+    let mut items: Vec<&Value> = items.into_iter().collect();
+    // Parsed, not compared as strings: `eventTime` carries microseconds and
+    // `lastTimestamp` does not. Unparsable timestamps sort oldest.
+    items.sort_by_cached_key(|item| {
+        chrono::DateTime::parse_from_rfc3339(event_timestamp(item)).ok()
+    });
+    items.reverse();
+    items.truncate(MAX_EVENTS_PER_FETCH);
+    items
+}
+
+/// `lastTimestamp`, falling back to `eventTime` (set instead by components
+/// using the events.k8s.io API) and then to creation time.
+fn event_timestamp(item: &Value) -> &str {
+    ["/lastTimestamp", "/eventTime", "/metadata/creationTimestamp"]
+        .iter()
+        .find_map(|pointer| item.pointer(pointer).and_then(Value::as_str))
+        .unwrap_or("")
 }
 
 pub async fn fetch_namespaces() -> Result<Vec<NamespaceSummary>> {
@@ -1614,6 +1783,9 @@ fn namespace_pod_counts(output: &str) -> std::collections::HashMap<&str, usize> 
 }
 
 pub async fn fetch_current_context() -> Result<String> {
+    if let Some(context) = context_override() {
+        return Ok(context);
+    }
     let output = run_cmd("kubectl", &["config", "current-context"]).await?;
     let context = output.trim().to_string();
     if context.is_empty() {
@@ -1628,6 +1800,12 @@ pub async fn fetch_current_context() -> Result<String> {
         .into());
     }
     Ok(context)
+}
+
+/// Names of every context in the kubeconfig, in kubeconfig order.
+pub async fn fetch_context_names() -> Result<Vec<String>> {
+    let output = run_cmd("kubectl", &["config", "get-contexts", "-o", "name"]).await?;
+    Ok(output.lines().map(str::trim).filter(|name| !name.is_empty()).map(str::to_string).collect())
 }
 
 pub async fn fetch_current_namespace() -> Result<String> {
@@ -1968,10 +2146,11 @@ mod tests {
     use super::{
         attach_workload_events, build_node_metrics, classify_connection_issue, collect_cronjobs,
         collect_hpas, collect_ingresses, collect_jobs, collect_pdbs, collect_pvcs,
-        collect_services, deployment_rollout_status, derive_node_status, derive_pod_status,
-        effective_pod_cpu_resources, effective_pod_memory_resources, ensure_readonly_kubectl_args,
-        namespace_pod_counts, parse_cpu, parse_memory_mb, parse_workload_resource_result,
-        requested_namespace, workload_health,
+        collect_services, context_override, deployment_rollout_status, derive_node_status,
+        derive_pod_status, effective_pod_cpu_resources, effective_pod_memory_resources,
+        ensure_readonly_kubectl_args, expand_all_namespaces, fetch_current_context,
+        inherit_context, namespace_pod_counts, parse_cpu, parse_memory_mb, parse_top_pod_metrics,
+        parse_workload_resource_result, requested_namespace, with_context, workload_health,
     };
     use crate::data::models::{
         ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
@@ -1985,6 +2164,74 @@ mod tests {
         assert!(ensure_readonly_kubectl_args("kubectl", &["top", "nodes"]).is_ok());
         assert!(ensure_readonly_kubectl_args("kubectl", &["logs", "pod-1", "-f"]).is_ok());
         assert!(ensure_readonly_kubectl_args("kubectl", &["config", "view"]).is_ok());
+        assert!(
+            ensure_readonly_kubectl_args("kubectl", &["config", "get-contexts", "-o", "name"])
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn context_override_is_scoped_to_the_task() {
+        assert_eq!(context_override(), None);
+        let inside = with_context("prod-eastus".to_string(), async {
+            (
+                context_override(),
+                fetch_current_context().await.expect("override short-circuits kubectl"),
+            )
+        })
+        .await;
+        assert_eq!(inside.0.as_deref(), Some("prod-eastus"));
+        assert_eq!(inside.1, "prod-eastus");
+        assert_eq!(context_override(), None);
+    }
+
+    #[test]
+    fn all_namespaces_sentinel_expands_to_flag() {
+        assert_eq!(
+            expand_all_namespaces(&["get", "pods", "-n", "*", "-o", "json"]),
+            vec!["get", "pods", "--all-namespaces", "-o", "json"]
+        );
+        assert_eq!(
+            expand_all_namespaces(&["get", "pods", "-n", "default"]),
+            vec!["get", "pods", "-n", "default"]
+        );
+    }
+
+    #[test]
+    fn top_pod_metrics_handle_namespace_column() {
+        let single = parse_top_pod_metrics("api-1 120m 300Mi\n", false);
+        assert_eq!(single.get("api-1"), Some(&(120, 300)));
+
+        let all = parse_top_pod_metrics("payments api-1 120m 300Mi\nweb api-1 5m 10Mi\n", true);
+        assert_eq!(all.get("payments/api-1"), Some(&(120, 300)));
+        assert_eq!(all.get("web/api-1"), Some(&(5, 10)));
+    }
+
+    #[test]
+    fn completed_and_evicted_pods_are_not_critical() {
+        assert_eq!(
+            derive_pod_status(0, "Succeeded", None, false, false, false),
+            HealthStatus::Healthy
+        );
+        assert_eq!(
+            derive_pod_status(0, "Failed", Some("Evicted"), false, false, false),
+            HealthStatus::Warning
+        );
+        assert_eq!(
+            derive_pod_status(0, "Failed", None, false, false, false),
+            HealthStatus::Critical
+        );
+    }
+
+    #[tokio::test]
+    async fn inherit_context_carries_override_into_spawned_tasks() {
+        let spawned = with_context("staging".to_string(), async {
+            tokio::spawn(inherit_context(async { context_override() }))
+                .await
+                .expect("task should finish")
+        })
+        .await;
+        assert_eq!(spawned.as_deref(), Some("staging"));
     }
 
     #[test]
@@ -2199,7 +2446,8 @@ mod tests {
             }]
         });
 
-        let nodes = build_node_metrics("", &info_json, None);
+        let nodes =
+            build_node_metrics("", info_json["items"].as_array().into_iter().flatten(), None);
 
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].name, "node-a");
@@ -2250,7 +2498,11 @@ mod tests {
             ]
         });
 
-        let nodes = build_node_metrics("", &info_json, Some("workers"));
+        let nodes = build_node_metrics(
+            "",
+            info_json["items"].as_array().into_iter().flatten(),
+            Some("workers"),
+        );
 
         assert_eq!(
             nodes.iter().map(|node| node.name.as_str()).collect::<Vec<_>>(),
@@ -2269,7 +2521,14 @@ mod tests {
             }]
         });
 
-        assert!(build_node_metrics("", &info_json, Some("workers")).is_empty());
+        assert!(
+            build_node_metrics(
+                "",
+                info_json["items"].as_array().into_iter().flatten(),
+                Some("workers")
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -2281,19 +2540,37 @@ mod tests {
             ]
         });
 
-        assert_eq!(build_node_metrics("", &info_json, None).len(), 2);
+        assert_eq!(
+            build_node_metrics("", info_json["items"].as_array().into_iter().flatten(), None).len(),
+            2
+        );
     }
 
     #[test]
     fn derived_statuses_reflect_runtime_health_not_just_memory() {
         assert_eq!(derive_node_status(10, false, 0), HealthStatus::Critical);
-        assert_eq!(derive_pod_status(10, "Running", false, false, false), HealthStatus::Critical);
-        assert_eq!(derive_pod_status(10, "Pending", true, false, false), HealthStatus::Warning);
-        assert_eq!(derive_pod_status(10, "Running", true, false, false), HealthStatus::Healthy);
+        assert_eq!(
+            derive_pod_status(10, "Running", None, false, false, false),
+            HealthStatus::Critical
+        );
+        assert_eq!(
+            derive_pod_status(10, "Pending", None, true, false, false),
+            HealthStatus::Warning
+        );
+        assert_eq!(
+            derive_pod_status(10, "Running", None, true, false, false),
+            HealthStatus::Healthy
+        );
         // Pending pods are never container-ready; they should still be Warning.
-        assert_eq!(derive_pod_status(10, "Pending", false, false, false), HealthStatus::Warning);
+        assert_eq!(
+            derive_pod_status(10, "Pending", None, false, false, false),
+            HealthStatus::Warning
+        );
         // Completed Job pods have terminated (not ready) containers.
-        assert_eq!(derive_pod_status(10, "Succeeded", false, false, false), HealthStatus::Healthy);
+        assert_eq!(
+            derive_pod_status(10, "Succeeded", None, false, false, false),
+            HealthStatus::Healthy
+        );
         assert_eq!(ConditionStatus::True.as_str(), "True");
     }
 

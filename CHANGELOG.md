@@ -7,15 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Upgrade Rust toolchain from 1.94.1 to 1.99.0
-- Upgrade to Rust edition 2024
-- Update all dependencies to latest compatible versions
-- Update MSRV from 1.70 to 1.85 (required for edition 2024)
+### Added
+- Experimental GPUI desktop app (`just desktop`) that watches every kubeconfig context at once, with a fleet overview, cluster detail, pod detail with live logs, namespace picker, and desktop notifications for new incidents and grade drops; supports an all-namespaces view and large fleets
+- Stream pod, node, and event changes between refreshes with read-only `kubectl get --watch`, so crash loops and new pods appear within a second instead of at the next refresh; disable with `--no-watch` or `watch = false`
+- Add cluster-wide health checks to the incident queue and score: unavailable APIServices, failed PersistentVolumes, namespaces stuck terminating, and admission webhooks that cannot be reached
+- Add `crd_checks` to flag custom resources (e.g. cert-manager Certificates, Flux Kustomizations, Argo CD Applications) whose Ready/Available/Healthy/Synced condition has been `False` for over 5 minutes or whose Argo health is Degraded/Missing
 - Add rustfmt.toml, clippy.toml, and deny.toml configuration files
 - Add MSRV check to CI pipeline
 - Add cargo-deny security audit to CI pipeline
 - Add cross-platform test job to CI (Ubuntu, macOS, Windows)
+
+### Changed
+- Scale the health score to cluster size: penalties now depend on the share of pods and nodes affected, so large clusters are no longer stuck at F by a handful of failures
+- Stop counting completed Job/CronJob pods and evicted pods as unhealthy, in the score and in pod status
+- Split the kubectl collector, health scoring, incidents, config and fetcher into a shared `cluster-core` workspace crate; the TUI is unchanged
+- Upgrade Rust toolchain from 1.94.1 to 1.99.0
+- Upgrade to Rust edition 2024
+- Update all dependencies to latest compatible versions
+- Update MSRV from 1.70 to 1.85 (required for edition 2024)
+
+## [0.3.5] - 2026-10-07
+
+### Changed
+- Updated tokio dependency
 
 ## [0.3.4] - 2026-10-07
 
@@ -25,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Record curl-based installations explicitly so upgrades keep using the correct method from custom install directories
 - Prevent stale log lines from a previous container or source appearing after a stream switch
 - Surface workload kinds that could not be collected instead of silently showing incomplete data
+- Order events that only set `eventTime` (events.k8s.io reporters) by that time instead of treating them as oldest
 - Recognize the standard Cluster API deployment label when it is propagated to Nodes
 - Prevent a crash when the refresh interval is 0 or extremely large; intervals are now clamped to 1s–24h
 - Treat completed Job/CronJob pods as healthy instead of critical, and show unready Pending pods as Warning
@@ -178,7 +193,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-update checking
 - Multi-platform support (Linux, macOS, Windows)
 
-[Unreleased]: https://github.com/sharat/cluster-cli/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/sharat/cluster-cli/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/sharat/cluster-cli/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/sharat/cluster-cli/compare/v0.3.0...v0.3.4
 [0.3.0]: https://github.com/sharat/cluster-cli/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/sharat/cluster-cli/compare/v0.2.4...v0.2.5
