@@ -27,6 +27,8 @@ jobs:
         run: cargo build --verbose
       - name: Run tests
         run: cargo test --verbose
+      - name: MCP smoke test
+        run: ./tests/mcp_smoke_test.sh ./target/debug/cluster
 
   msrv:
     name: Check MSRV (1.85)
