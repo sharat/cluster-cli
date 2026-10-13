@@ -2,6 +2,8 @@
 
 This directory contains end-to-end tests and sample workloads for testing cluster-cli against a real Kubernetes cluster.
 
+> **Status**: This E2E test suite automatically runs on every pull request, creating a kind cluster with test workloads and capturing TUI screenshots.
+
 ## Overview
 
 The E2E test suite:
@@ -199,3 +201,4 @@ spec:
         cpu: 20m
         memory: 32Mi
 ```
+
