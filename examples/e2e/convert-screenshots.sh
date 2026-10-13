@@ -53,6 +53,7 @@ convert_termshot() {
 
 # Convert all .txt files
 converted=0
+failed=0
 for txtfile in "$INPUT_DIR"/*.txt; do
     if [ ! -f "$txtfile" ]; then
         continue
@@ -65,9 +66,16 @@ for txtfile in "$INPUT_DIR"/*.txt; do
     
     # Prefer ansi-to-svg + rsvg-convert (more reliable in CI)
     if [ "$HAS_ANSITOSVG" = true ] && [ "$HAS_RSVG" = true ]; then
-        convert_ansisvg "$txtfile" "$pngfile"
+        if convert_ansisvg "$txtfile" "$pngfile" 2>&1; then
+            :
+        else
+            echo "  -> Conversion failed, trying termshot as fallback..."
+            if [ "$HAS_TERMSHOT" = true ]; then
+                convert_termshot "$txtfile" "$pngfile" 2>&1 || true
+            fi
+        fi
     elif [ "$HAS_TERMSHOT" = true ]; then
-        convert_termshot "$txtfile" "$pngfile"
+        convert_termshot "$txtfile" "$pngfile" 2>&1 || true
     else
         echo "  ERROR: No conversion tools available!"
         echo "  Install one of:"
@@ -81,8 +89,14 @@ for txtfile in "$INPUT_DIR"/*.txt; do
         ((converted++))
     else
         echo "  -> FAILED"
+        ((failed++))
     fi
 done
 
 echo ""
-echo "Converted $converted files"
+echo "Converted $converted files, $failed failed"
+
+# Exit with error only if ALL conversions failed
+if [ "$converted" -eq 0 ] && [ "$failed" -gt 0 ]; then
+    exit 1
+fi
