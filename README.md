@@ -46,7 +46,7 @@ For the current detailed feature inventory, see [features.md](features.md).
 
 ## Prerequisites
 
-- Rust 1.70+ (for building from source)
+- Rust 1.85+ (for building from source)
 - `kubectl` configured with cluster access (any Kubernetes cluster)
 - Terminal with truecolor support (recommended)
 

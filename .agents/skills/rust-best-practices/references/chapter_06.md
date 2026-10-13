@@ -12,7 +12,7 @@ Understanding the trade-offs lets you write faster, smaller and more flexible co
 
 Every programming language has tools for effectively handling the duplication of concepts. In Rust, one such tool is generics: abstract stand-ins for concrete types or other properties. We can express the behavior of generics or how they relate to other generics without knowing what will be in their place when compiling and running the code. 
 
-We use generics to create definitions for items like function signatures or structs, which we can then use with many different concrete data types. Let's first look at how to define functions, structs, enums, and methods using generics. Generics can also be used to implement Type State Pattern and constrain a struct functionality to certain expected types, more on type state on [Chapter 7](./chapter_07.md).
+We use generics to create definitions for items like function signatures or structs, which we can then use with many different concrete data types. Let's first look at how to define functions, structs, enums, and methods using generics. Generics can also be used to implement Type State Pattern and constrain a struct functionality to certain expected types, more on type state on [chapter 7](./chapter_07.md).
 
 [Generics by Examples](https://doc.rust-lang.org/rust-by-example/generics.html).
 
@@ -22,22 +22,22 @@ You might be wondering whether there is a runtime cost when using generic type p
 
 ## 6.2 Static Dispatch: `impl Trait` or `<T: Trait>`
 
-A static dispatch is basically a constrained version of a generics, a trait bounded generic, at compile-time it is able to check if your generic satisfies the declared traits.
+A static dispatch is basically a constrained version of generics, a trait bounded generic, at compile-time it is able to check if your generic satisfies the declared traits.
 
-### ✅ Best when:
+### ✅  Best when:
 * You want **zero runtime cost**, by paying the compile time cost.
 * You need **tight loops or performance**.
 * Your types are **known at compile time**.
-* Your are working with **single-use implementations** (monomorphized).
+* You are working with **single-use implementations** (monomorphized).
 
 ### 🏎️ Example: High-performance function with generic
 ```rust
-fn specialized_sum<T: MyTrait, U: Iterator<Item = T>>(iter: U) -> T {
+fn specialized_sum<U: Sum + RandomMapping, T: Iterator<Item = U>>(iter: T) -> U {
     iter.map(|x| x.random_mapping()).sum()
 }
 
 // or, equivalent, more modern
-fn specialized_sum<T: MyTrait>(iter: impl Iterator<Item = T>) -> T {
+fn specialized_sum<U: Sum + RandomMapping>(iter: impl Iterator<Item = U>) -> U {
     iter.map(|x| x.random_mapping()).sum()
 }
 ```
@@ -48,13 +48,13 @@ This is compiled into **specialized machine code** for each usage, fast and inli
 
 Usually dynamic dispatch is used with some kind of pointer or a reference, like `Box<dyn Trait>`, `Arc<dyn Trait>` or `&dyn trait`.
 
-### ✅ Best when:
+### ✅  Best when:
 * You absolutely need runtime polymorphism.
 * You need to **store different implementations** in one collection.
 * You want to **abstract internals behind a stable interface**.
 * You are writing a **plugin-style architecture**.
 
-> ❗ Closer to what you would get in an object oriented language and can have some heavy costs associated to it. Can avoid generic entirely and let you mix types that implement the same traits.
+> ❗ Closer to what you would get in an object oriented language and can have some heavy costs associated to it. Can avoid generics entirely and let you mix types that implement the same traits.
 
 ### 🚚 Example: Heterogeneous collection
 
@@ -86,14 +86,14 @@ fn all_animals_greeting(animals: Vec<Box<dyn Animal>>) {
 
 ## 6.4 Trade-off summary
 
-| | Static Dispatch (impl Trait) | Dynamic Dispatch (dyn Trait) |
-|------------------- |------------------------------ |---------------------------------- |
-| Performance | ✅ Faster, inlined | ❌ Slower: vtable indirection |
-| Compile time | ❌ Slower: monomorphization | ✅ Faster: shared code |
-| Binary size | ❌ Larger: per-type codegen | ✅ Smaller |
-| Flexibility | ❌ Rigid, one type at a time | ✅ Can mix types in collections |
-| Use in trait fn() | ❌ Traits must be object-safe | ✅ Works with trait objects |
-| Errors | ✅ Clearer | ❌ Erased types can confuse errors |
+|                   	| Static Dispatch (impl Trait) 	|    Dynamic Dispatch (dyn Trait)   	|
+|-------------------	|------------------------------	|---------------------------------- 	|
+| Performance       	| ✅ Faster, inlined            	| ❌ Slower: vtable indirection         |
+| Compile time      	| ❌ Slower: monomorphization   	| ✅ Faster: shared code                |
+| Binary size       	| ❌ Larger: per-type codegen   	| ✅ Smaller                            |
+| Flexibility       	| ❌ Rigid, one type at a time  	| ✅ Can mix types in collections       |
+| Use in trait fn() 	| ❌ Traits must be object-safe 	| ✅ Works with trait objects           |
+| Errors            	| ✅ Clearer                    	| ❌ Erased types can confuse errors    |
 
 * Prefer generics/static dispatch when you control the call site and want performance.
 * Use dynamic dispatch when you need abstraction, plugins or mixed types. 🚨 Runtime cost.
@@ -129,18 +129,18 @@ fn all_animals_greeting(animals: Vec<Box<dyn Animal>>) {
 ## 6.6 🚨 Trait Objects Ergonomics
 
 * Prefer `&dyn Trait` over `Box<dyn Trait>` when you don't need ownership.
-* Use `Arc<dyn Trait>` for shared access across threads.
+* Use `Arc<dyn Trait + Send + Sync>` for shared access across threads.
 * Don't use `dyn Trait` if the trait has methods that return `Self`.
 * **Avoid boxing too early**. Don't box inside structs unless you are sure it'll be beneficial or is required (recursive).
 ```rust
 // ✅ Use generics when possible
-struct Renderer<B: Backend> {
+struct Renderer<B: RenderBackend> {
     backend: B
 }
 
 // ❌ Premature Boxing
 struct Renderer {
-    backend: Box<dyn Backend> // Boxing too early
+    backend: Box<dyn RenderBackend> // Boxing too early
 }
 ```
 * If you must expose a `dyn trait` in a public API, `Box` at the boundary, not internally.
