@@ -74,3 +74,9 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[patch.crates-io]
+# xattr 0.2.3 (pulled by gpui's zed-async-tar) is incompatible with libc ≥0.2.186
+# because it tries to use ENOATTR which doesn't exist on Linux (should be ENODATA).
+# Patch with local fixed version.
+xattr = { path = ".cargo-patches/xattr-0.2.3" }
