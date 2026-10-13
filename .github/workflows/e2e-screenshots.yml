@@ -3,6 +3,7 @@ name: E2E Screenshots
 on:
   pull_request:
     branches: [main, master]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
