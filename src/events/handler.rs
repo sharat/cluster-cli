@@ -26,6 +26,7 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
         AppView::Dashboard => handle_dashboard_key(app, key),
         AppView::PodDetail { .. } => handle_pod_detail_key(app, key),
         AppView::NodeDetail { .. } => handle_node_detail_key(app, key),
+        AppView::Timeline => handle_timeline_key(app, key),
     }
 }
 
@@ -275,6 +276,9 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
             app.export_input = filename;
             app.overlay = Overlay::ExportInput;
         }
+        KeyCode::Char('t') => {
+            app.enter_timeline_view();
+        }
         KeyCode::Esc => {
             if app.incident_focus.is_some() {
                 app.clear_incident_focus();
@@ -351,6 +355,14 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                 }
             } else if app.focused_panel == Panel::Events {
                 return handle_incident_enter(app);
+            }
+        }
+        KeyCode::Char('T') => {
+            // Enter timeline view filtered to the selected incident
+            if app.focused_panel == Panel::Events {
+                if let Some(bucket) = app.selected_incident().cloned() {
+                    app.enter_timeline_for_incident(&bucket);
+                }
             }
         }
         _ => {}
@@ -592,6 +604,69 @@ fn handle_node_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppComman
         }
         KeyCode::Char('k') | KeyCode::Up => {
             app.detail_scroll = app.detail_scroll.saturating_sub(1);
+        }
+        _ => {}
+    }
+    None
+}
+
+fn handle_timeline_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
+    use crate::data::timeline::TimelineEntryKind;
+
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => {
+            app.exit_timeline_view();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            let entries_count = app.get_timeline_entries().len();
+            if entries_count > 0 && app.timeline_cursor + 1 < entries_count {
+                app.timeline_cursor += 1;
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if app.timeline_cursor > 0 {
+                app.timeline_cursor -= 1;
+            }
+        }
+        KeyCode::Char('s') => {
+            app.timeline_newest_first = !app.timeline_newest_first;
+            app.timeline_cursor = 0;
+        }
+        KeyCode::Char('f') => {
+            // Cycle through kind filters
+            app.timeline_kind_filter = match app.timeline_kind_filter {
+                None => Some(TimelineEntryKind::Event),
+                Some(TimelineEntryKind::Event) => Some(TimelineEntryKind::ContainerRestart),
+                Some(TimelineEntryKind::ContainerRestart) => Some(TimelineEntryKind::OOMKilled),
+                Some(TimelineEntryKind::OOMKilled) => Some(TimelineEntryKind::CrashLoop),
+                Some(TimelineEntryKind::CrashLoop) => Some(TimelineEntryKind::NodeConditionChange),
+                Some(TimelineEntryKind::NodeConditionChange) => {
+                    Some(TimelineEntryKind::SchedulingFailure)
+                }
+                Some(TimelineEntryKind::SchedulingFailure) => {
+                    Some(TimelineEntryKind::ImagePullFailure)
+                }
+                Some(TimelineEntryKind::ImagePullFailure) => None,
+            };
+            app.timeline_cursor = 0;
+        }
+        KeyCode::Char('F') => {
+            // Cycle through severity filters
+            use crate::data::models::IncidentSeverity;
+            app.timeline_severity_filter = match app.timeline_severity_filter {
+                None => Some(IncidentSeverity::Critical),
+                Some(IncidentSeverity::Critical) => Some(IncidentSeverity::Warning),
+                Some(IncidentSeverity::Warning) => Some(IncidentSeverity::Elevated),
+                Some(IncidentSeverity::Elevated) => None,
+            };
+            app.timeline_cursor = 0;
+        }
+        KeyCode::Char('c') => {
+            // Clear all filters
+            app.timeline_kind_filter = None;
+            app.timeline_namespace_filter = None;
+            app.timeline_severity_filter = None;
+            app.timeline_cursor = 0;
         }
         _ => {}
     }

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 ### Changed
 - Upgrade Rust toolchain from 1.94.1 to 1.99.0
 - Upgrade to Rust edition 2024
@@ -16,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add MSRV check to CI pipeline
 - Add cargo-deny security audit to CI pipeline
 - Add cross-platform test job to CI (Ubuntu, macOS, Windows)
+=======
+### Added
+- Incident timeline view that correlates Kubernetes events, container restarts, OOMKilled/CrashLoopBackOff terminations, and node condition changes in a chronological view
+- Timeline filtering by event kind, namespace, and severity
+- Timeline grouping by workload and time window to identify related incidents
+- Keyboard shortcuts: `t` to open timeline from dashboard, `T` to open timeline filtered to selected incident from incident queue
+- Accessible severity labels in timeline (not color-only)
+>>>>>>> 2aeafd3 (feat: add incident timeline view with correlation and filtering)
 
 ## [0.3.4] - 2026-10-07
 
