@@ -37,6 +37,18 @@ tmux kill-session -t cluster-e2e 2>/dev/null || true
 # Create a new tmux session with fixed size
 tmux new-session -d -s cluster-e2e -x "$TERM_WIDTH" -y "$TERM_HEIGHT"
 
+# Fail instead of capturing the shell if cluster-cli has exited
+assert_running() {
+    local running
+    running=$(tmux display-message -p -t cluster-e2e '#{pane_current_command}')
+    if [ "$running" != "$(basename "$CLUSTER_BIN")" ]; then
+        echo "Error: cluster-cli is not running in the tmux pane (found: $running)"
+        tmux capture-pane -p -t cluster-e2e
+        tmux kill-session -t cluster-e2e 2>/dev/null || true
+        exit 1
+    fi
+}
+
 # Function to capture screenshot
 capture_screenshot() {
     local name="$1"
@@ -46,6 +58,7 @@ capture_screenshot() {
     
     # Wait for render
     sleep "$WAIT_RENDER"
+    assert_running
     
     # Capture pane content with ANSI codes
     tmux capture-pane -e -p -t cluster-e2e > "$output_file"
@@ -67,6 +80,7 @@ tmux send-keys -t cluster-e2e "$CLUSTER_BIN" C-m
 # Wait for initial data load
 echo "Waiting for data to load..."
 sleep "$WAIT_DATA"
+assert_running
 
 # Parse view list and capture each view
 IFS=',' read -ra VIEWS <<< "$VIEW_LIST"
@@ -78,54 +92,49 @@ for view in "${VIEWS[@]}"; do
             capture_screenshot "01-dashboard"
             ;;
             
+        # Panels are focused directly with 1 (nodes), 2 (events), 3 (pods).
+        # Views are left with Escape, because 'q' on the dashboard quits.
         pod-detail)
             echo "Navigating to pod detail view..."
+            send_keys "3"
+            sleep 1
             # Press Enter on the currently selected pod
             send_keys "C-m"
             sleep "$WAIT_RENDER"
             capture_screenshot "02-pod-detail"
-            # Go back to dashboard
-            send_keys "q"
+            send_keys "Escape"
             sleep 1
             ;;
             
         node-detail)
             echo "Navigating to node detail view..."
-            # Switch to nodes panel (Tab key)
-            send_keys "Tab"
-            sleep "$WAIT_RENDER"
+            send_keys "1"
+            sleep 1
             # Press Enter on the selected node
             send_keys "C-m"
             sleep "$WAIT_RENDER"
             capture_screenshot "03-node-detail"
-            # Go back to dashboard
-            send_keys "q"
+            send_keys "Escape"
             sleep 1
-            # Switch back to pods panel
-            send_keys "Tab"
+            send_keys "3"
             sleep 1
             ;;
             
         incidents)
-            echo "Opening incidents/events view..."
-            # Press 'e' to open events panel (if it exists)
-            # Or capture the events section from dashboard
-            send_keys "Tab Tab"
+            echo "Focusing incidents/events panel..."
+            send_keys "2"
             sleep "$WAIT_RENDER"
             capture_screenshot "04-incidents"
-            # Return to pods panel
-            send_keys "Tab"
+            send_keys "3"
             sleep 1
             ;;
             
         timeline)
-            echo "Opening timeline view (if available)..."
-            # Press 't' for timeline (if the feature exists on this branch)
+            echo "Opening timeline view..."
             send_keys "t"
             sleep "$WAIT_RENDER"
             capture_screenshot "05-timeline"
-            # Exit timeline
-            send_keys "q"
+            send_keys "Escape"
             sleep 1
             ;;
             

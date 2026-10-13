@@ -105,9 +105,9 @@ jobs:
           
           # Install ANSI to PNG conversion tools
           # Option 1: termshot (Rust-based, most reliable)
-          cargo install termshot || echo "termshot install failed, will try alternatives"
+          cargo install termshot --locked || echo "termshot install failed, will try alternatives"
           
-          # Option 2: ansi-to-svg + librsvg (fallback)
+          # Option 2: ansi-to-svg library + librsvg (fallback, driven by ansi-to-png.js)
           sudo apt-get install -y librsvg2-bin || true
           npm install -g ansi-to-svg || echo "ansi-to-svg install failed"
       
@@ -181,7 +181,16 @@ jobs:
           # Commit and push
           git add "${TARGET_DIR}/"
           git commit -m "Add screenshots for PR #${PR_NUMBER}" || echo "No changes to commit"
-          git push origin "${BRANCH_NAME}" || echo "Push failed"
+          
+          # Other PRs push to the same branch, so rebase and retry on rejection
+          for attempt in 1 2 3; do
+            if git push origin "${BRANCH_NAME}"; then
+              break
+            fi
+            echo "Push attempt ${attempt} failed, rebasing and retrying..."
+            git pull --rebase origin "${BRANCH_NAME}" || true
+            sleep $((attempt * 2))
+          done
       
       - name: Post PR comment with screenshots
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -223,7 +232,8 @@ jobs:
                   .replace(/-/g, ' ')
                   .replace(/\b\w/g, l => l.toUpperCase());
                 
-                const imageUrl = `https://raw.githubusercontent.com/${repo_owner}/${repo_name}/${branch_name}/${target_dir}/${file}`;
+                // Filenames are reused on every push; the query string defeats GitHub's image cache
+                const imageUrl = `https://raw.githubusercontent.com/${repo_owner}/${repo_name}/${branch_name}/${target_dir}/${file}?v=${context.sha.substring(0, 7)}`;
                 
                 body += `#### ${displayName}\n`;
                 body += `![${displayName}](${imageUrl})\n\n`;
@@ -236,13 +246,14 @@ jobs:
             body += '\n<sub>🤖 This comment is automatically updated on each push.</sub>';
             
             // Find existing comment
-            const comments = await github.rest.issues.listComments({
+            const comments = await github.paginate(github.rest.issues.listComments, {
               owner: repo_owner,
               repo: repo_name,
               issue_number: pr_number,
+              per_page: 100,
             });
             
-            const botComment = comments.data.find(comment => 
+            const botComment = comments.find(comment => 
               comment.user.type === 'Bot' && 
               comment.body.includes('E2E Test Screenshots')
             );

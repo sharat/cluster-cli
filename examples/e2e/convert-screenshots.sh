@@ -1,63 +1,62 @@
 #!/usr/bin/env bash
 # Convert ANSI text screenshots to PNG images
-# Uses ansisvg + rsvg-convert (librsvg) or other available tools
+# Uses termshot, or ansi-to-svg (Node library) + rsvg-convert (librsvg) as a fallback
 
 set -uo pipefail
 
 INPUT_DIR="${1:-.}"
 OUTPUT_DIR="${2:-$INPUT_DIR}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Must match the tmux pane size used by test-views.sh
+TERM_COLS="${TERM_COLS:-120}"
+TERM_ROWS="${TERM_ROWS:-40}"
 
 echo "Converting ANSI screenshots to PNG..."
 echo "Input:  $INPUT_DIR"
 echo "Output: $OUTPUT_DIR"
 
+mkdir -p "$OUTPUT_DIR"
+
 # Check for available conversion tools
-HAS_RSVG=false
-HAS_ANSITOSVG=false
 HAS_TERMSHOT=false
-
-if command -v rsvg-convert &> /dev/null; then
-    HAS_RSVG=true
-    echo "Found: rsvg-convert"
-fi
-
-if command -v ansi-to-svg &> /dev/null; then
-    HAS_ANSITOSVG=true
-    echo "Found: ansi-to-svg"
-fi
+HAS_NODE=false
+HAS_RSVG=false
 
 if command -v termshot &> /dev/null; then
     HAS_TERMSHOT=true
     echo "Found: termshot"
 fi
 
-# Function to convert using ansi-to-svg + rsvg-convert
-convert_ansisvg() {
-    local input="$1"
-    local output="$2"
-    local svg="${output%.png}.svg"
-    
-    if ansi-to-svg < "$input" > "$svg" 2>/dev/null && \
-       rsvg-convert "$svg" -o "$output" 2>/dev/null; then
-        rm -f "$svg"
-        return 0
-    else
-        rm -f "$svg" 2>/dev/null || true
-        return 1
-    fi
+if command -v node &> /dev/null; then
+    HAS_NODE=true
+    echo "Found: node"
+fi
+
+if command -v rsvg-convert &> /dev/null; then
+    HAS_RSVG=true
+    echo "Found: rsvg-convert"
+fi
+
+# Succeeds only if the file starts with the PNG signature
+is_png() {
+    [ -s "$1" ] && [ "$(head -c 8 "$1" | od -An -tx1 | tr -d ' \n')" = "89504e470d0a1a0a" ]
 }
 
-# Function to convert using termshot (if available)
-# termshot render <INPUT> writes PNG to stdout
+# termshot render writes a PNG to the -o path; without -o it only prints a path to stdout
 convert_termshot() {
     local input="$1"
     local output="$2"
-    
-    if termshot render "$input" > "$output" 2>/dev/null; then
-        return 0
-    else
-        return 1
-    fi
+
+    termshot render --cols "$TERM_COLS" --rows "$TERM_ROWS" -o "$output" "$input" > /dev/null 2>&1
+}
+
+# ansi-to-svg has no CLI binary, so ansi-to-png.js calls it as a library
+convert_ansisvg() {
+    local input="$1"
+    local output="$2"
+
+    node "$SCRIPT_DIR/ansi-to-png.js" "$input" "$output" > /dev/null 2>&1
 }
 
 # Convert all .txt files
@@ -75,34 +74,30 @@ for txtfile in "$INPUT_DIR"/*.txt; do
     
     success=false
     
-    # Try ansi-to-svg + rsvg-convert first (more reliable in CI)
-    if [ "$HAS_ANSITOSVG" = true ] && [ "$HAS_RSVG" = true ]; then
-        if convert_ansisvg "$txtfile" "$pngfile"; then
+    if [ "$HAS_TERMSHOT" = true ]; then
+        if convert_termshot "$txtfile" "$pngfile" && is_png "$pngfile"; then
             success=true
+        else
+            rm -f "$pngfile"
         fi
     fi
     
-    # Fall back to termshot if ansi-to-svg failed or wasn't available
-    if [ "$success" = false ] && [ "$HAS_TERMSHOT" = true ]; then
-        if convert_termshot "$txtfile" "$pngfile"; then
+    if [ "$success" = false ] && [ "$HAS_NODE" = true ] && [ "$HAS_RSVG" = true ]; then
+        if convert_ansisvg "$txtfile" "$pngfile" && is_png "$pngfile"; then
             success=true
+        else
+            rm -f "$pngfile"
         fi
     fi
     
-    if [ "$success" = false ]; then
-        echo "  ERROR: No conversion tools available or all tools failed!"
-        echo "  Install one of:"
-        echo "    - ansi-to-svg + librsvg: npm install -g ansi-to-svg && apt install librsvg2-bin"
-        echo "    - termshot: cargo install termshot"
-        ((failed++))
-        continue
-    fi
-    
-    if [ -f "$pngfile" ]; then
+    if [ "$success" = true ]; then
         echo "  -> $pngfile"
         ((converted++))
     else
-        echo "  -> FAILED (file not created)"
+        echo "  ERROR: No conversion tools available or all tools failed!"
+        echo "  Install one of:"
+        echo "    - termshot: cargo install termshot"
+        echo "    - ansi-to-svg + librsvg: npm install -g ansi-to-svg && apt install librsvg2-bin"
         ((failed++))
     fi
 done
