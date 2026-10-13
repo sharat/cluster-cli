@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: oom-killed-pod
+  namespace: default
+  labels:
+    app: oom-test
+spec:
+  containers:
+  - name: memory-hog
+    image: busybox:1.37
+    command:
+    - sh
+    - -c
+    - |
+      echo 'Allocating memory...'
+      # Allocate more memory than the limit
+      yes | tr \\n x | head -c 100m | grep n || true
+      sleep 3600
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 20m
+        memory: 32Mi
+  restartPolicy: Always
