@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rollout-app
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rollout-app
+  template:
+    metadata:
+      labels:
+        app: rollout-app
+    spec:
+      containers:
+      - name: web
+        image: nginx:1.25
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+        ports:
+        - containerPort: 80

@@ -14,6 +14,7 @@ pub enum AppView {
     Dashboard,
     PodDetail { pod_name: String },
     NodeDetail { node_name: String },
+    Timeline,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -138,6 +139,13 @@ pub struct AppState {
     pub workload_cursor: usize,
     pub pod_cursor: usize,
     pub event_cursor: usize,
+    pub timeline_cursor: usize,
+    pub timeline_scroll: usize,
+    pub timeline_newest_first: bool,
+    pub timeline_kind_filter: Option<crate::data::timeline::TimelineEntryKind>,
+    pub timeline_namespace_filter: Option<String>,
+    pub timeline_severity_filter: Option<crate::data::models::IncidentSeverity>,
+    pub timeline_from_incident: Option<String>,
     pub pod_detail_section: PodDetailSection,
     pub log_buffer: VecDeque<String>,
     pub log_stream_id: u64,
@@ -200,6 +208,13 @@ impl AppState {
             workload_cursor: 0,
             pod_cursor: 0,
             event_cursor: 0,
+            timeline_cursor: 0,
+            timeline_scroll: 0,
+            timeline_newest_first: true,
+            timeline_kind_filter: None,
+            timeline_namespace_filter: None,
+            timeline_severity_filter: None,
+            timeline_from_incident: None,
             pod_detail_section: PodDetailSection::Overview,
             log_buffer: VecDeque::new(),
             log_stream_id: 0,
@@ -422,6 +437,70 @@ impl AppState {
 
     pub fn selected_incident(&self) -> Option<&IncidentBucket> {
         self.snapshot.as_ref()?.incident_buckets.get(self.event_cursor)
+    }
+
+    pub fn enter_timeline_view(&mut self) {
+        self.view = AppView::Timeline;
+        self.timeline_cursor = 0;
+        self.timeline_scroll = 0;
+    }
+
+    pub fn enter_timeline_for_incident(&mut self, bucket: &IncidentBucket) {
+        self.view = AppView::Timeline;
+        self.timeline_cursor = 0;
+        self.timeline_scroll = 0;
+        self.timeline_from_incident = Some(bucket.reason.clone());
+
+        // Apply filters based on the incident
+        // Extract namespace from the first target if available
+        if let Some(first_target) = bucket.targets.first() {
+            // Try to get namespace from pod targets
+            if let Some(pod_name) = first_target.pod_name() {
+                // Look up the pod in the snapshot to get its namespace
+                if let Some(snapshot) = &self.snapshot {
+                    if let Some(pod) = snapshot.pods.iter().find(|p| p.name == pod_name) {
+                        self.timeline_namespace_filter = Some(pod.namespace.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn exit_timeline_view(&mut self) {
+        self.view = AppView::Dashboard;
+        self.timeline_from_incident = None;
+        self.timeline_kind_filter = None;
+        self.timeline_namespace_filter = None;
+        self.timeline_severity_filter = None;
+    }
+
+    pub fn get_timeline_entries(&self) -> Vec<crate::data::timeline::TimelineEntry> {
+        use crate::data::timeline::{build_timeline, filter_timeline_entries, mark_precursors};
+
+        let Some(snapshot) = &self.snapshot else {
+            return vec![];
+        };
+
+        let mut entries = build_timeline(snapshot);
+
+        // Mark precursors (events that likely caused incidents, e.g., rollout before crashes)
+        // Use a 10-minute window to identify precursors
+        mark_precursors(&mut entries, 600);
+
+        // Apply filters
+        entries = filter_timeline_entries(
+            &entries,
+            self.timeline_kind_filter,
+            self.timeline_namespace_filter.as_deref(),
+            self.timeline_severity_filter,
+        );
+
+        // Apply sort order
+        if !self.timeline_newest_first {
+            entries.reverse();
+        }
+
+        entries
     }
 
     pub fn has_blocking_connection_issue(&self) -> bool {
