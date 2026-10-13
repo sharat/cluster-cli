@@ -53,10 +53,8 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                         app.workload_cursor += 1;
                     }
                 }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    if app.workload_cursor > 0 {
-                        app.workload_cursor -= 1;
-                    }
+                KeyCode::Char('k') | KeyCode::Up if app.workload_cursor > 0 => {
+                    app.workload_cursor -= 1;
                 }
                 _ => {}
             }
@@ -92,10 +90,8 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
                         app.ns_list_cursor += 1;
                     }
                 }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    if app.ns_list_cursor > 0 {
-                        app.ns_list_cursor -= 1;
-                    }
+                KeyCode::Char('k') | KeyCode::Up if app.ns_list_cursor > 0 => {
+                    app.ns_list_cursor -= 1;
                 }
                 _ => {}
             }
@@ -723,7 +719,7 @@ pub fn handle_data_event(app: &mut AppState, event: DataEvent) {
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_data_event, handle_key, AppCommand};
+    use super::{AppCommand, handle_data_event, handle_key};
     use crate::app::{
         AppState, AppView, LogInputMode, LogSource, Overlay, Panel, PodDetailSection, PodSortMode,
     };

@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 use crate::app::AppState;
@@ -94,9 +94,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn pct(used: u64, total: u64) -> u8 {
-    if total == 0 {
-        0
-    } else {
-        ((used.saturating_mul(100)) / total).min(100) as u8
-    }
+    used.saturating_mul(100)
+        .checked_div(total)
+        .map(|v| v.min(100) as u8)
+        .unwrap_or(0)
 }

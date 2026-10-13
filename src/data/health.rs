@@ -1,6 +1,6 @@
 use crate::data::models::{
-    ClusterEvent, EventType, HealthScore, NodeMetric, PodInfo, GRADE_A_THRESHOLD,
-    GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD, RESOURCE_PRESSURE_PCT,
+    ClusterEvent, EventType, GRADE_A_THRESHOLD, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD,
+    GRADE_D_THRESHOLD, HealthScore, NodeMetric, PodInfo, RESOURCE_PRESSURE_PCT,
 };
 const ROLLOUT_FAILURE_REASONS: &[&str] = &[
     "ProgressDeadlineExceeded",

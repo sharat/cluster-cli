@@ -358,10 +358,11 @@ mod tests {
         assert_eq!(buckets[0].reason, "CrashLoopBackOff");
         assert_eq!(buckets[0].severity, IncidentSeverity::Critical);
         assert_eq!(buckets[0].occurrences, 5);
-        assert!(buckets[0]
-            .targets
-            .iter()
-            .any(|target| matches!(target, IncidentTarget::Pod { pod_name } if pod_name == "api")));
+        assert!(
+            buckets[0].targets.iter().any(
+                |target| matches!(target, IncidentTarget::Pod { pod_name } if pod_name == "api")
+            )
+        );
         assert!(buckets.iter().any(|b| b.reason == "NodeNotReady"));
         assert!(buckets.iter().any(|b| b.reason == "ImagePullBackOff"));
         assert!(buckets.iter().any(|b| b.reason == "FailedScheduling"));

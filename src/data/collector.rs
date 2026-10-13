@@ -907,10 +907,21 @@ pub async fn fetch_workload_summaries(namespace: &str) -> WorkloadCollection {
             }
         }
     }
-    let [deployment_json, statefulset_json, daemonset_json, replicasets_json, jobs_json, cronjobs_json, hpas_json, pdbs_json, services_json, ingresses_json, pvcs_json] =
-        parsed_resources
-            .try_into()
-            .expect("resource result count matches workload query count");
+    let [
+        deployment_json,
+        statefulset_json,
+        daemonset_json,
+        replicasets_json,
+        jobs_json,
+        cronjobs_json,
+        hpas_json,
+        pdbs_json,
+        services_json,
+        ingresses_json,
+        pvcs_json,
+    ] = parsed_resources
+        .try_into()
+        .expect("resource result count matches workload query count");
 
     let deployment_rs_map = build_deployment_replicaset_map(&replicasets_json);
     let mut workloads = Vec::new();
@@ -1852,8 +1863,7 @@ pub fn classify_kubectl_error(err: &anyhow::Error) -> Option<ConnectionIssue> {
         .and_then(|kubectl_err| kubectl_err.connection_issue().cloned())
 }
 
-const NO_CONTEXT_DETAIL: &str =
-    "No active kubectl context is configured. Run `kubectl config use-context <name>` or set KUBECONFIG.";
+const NO_CONTEXT_DETAIL: &str = "No active kubectl context is configured. Run `kubectl config use-context <name>` or set KUBECONFIG.";
 
 fn classify_connection_issue(args: &[&str], stderr: &str) -> Option<ConnectionIssue> {
     let stderr = strip_klog_lines(stderr);

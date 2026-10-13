@@ -50,16 +50,17 @@ fn test_reject_destructive_commands() {
     assert!(
         ensure_readonly_kubectl_args("kubectl", &["run", "my-pod", "--image", "nginx"]).is_err()
     );
-    assert!(ensure_readonly_kubectl_args(
-        "kubectl",
-        &["set", "image", "deployment/my-app", "nginx"]
-    )
-    .is_err());
-    assert!(ensure_readonly_kubectl_args(
-        "kubectl",
-        &["scale", "deployment", "my-app", "--replicas=5"]
-    )
-    .is_err());
+    assert!(
+        ensure_readonly_kubectl_args("kubectl", &["set", "image", "deployment/my-app", "nginx"])
+            .is_err()
+    );
+    assert!(
+        ensure_readonly_kubectl_args(
+            "kubectl",
+            &["scale", "deployment", "my-app", "--replicas=5"]
+        )
+        .is_err()
+    );
     assert!(
         ensure_readonly_kubectl_args("kubectl", &["rollout", "restart", "deployment/my-app"])
             .is_err()
@@ -73,11 +74,13 @@ fn test_reject_destructive_commands() {
     assert!(
         ensure_readonly_kubectl_args("kubectl", &["label", "pod", "my-pod", "env=prod"]).is_err()
     );
-    assert!(ensure_readonly_kubectl_args(
-        "kubectl",
-        &["annotate", "pod", "my-pod", "description=test"]
-    )
-    .is_err());
+    assert!(
+        ensure_readonly_kubectl_args(
+            "kubectl",
+            &["annotate", "pod", "my-pod", "description=test"]
+        )
+        .is_err()
+    );
 }
 
 #[test]

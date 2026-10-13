@@ -6,7 +6,7 @@ use std::time::Instant;
 use crate::config::Config;
 use crate::data::models::{
     ClusterSnapshot, ConnectionIssue, HealthStatus, IncidentBucket, IncidentTarget,
-    NamespaceSummary, PodInfo, ResourceUsageSummary, MAX_HISTORY_SAMPLES,
+    MAX_HISTORY_SAMPLES, NamespaceSummary, PodInfo, ResourceUsageSummary,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -796,12 +796,14 @@ mod tests {
         app.update_pod_history(&[pod("pod-a", "ns", 20, 40), pod("pod-b", "ns", 30, 50)]);
         app.update_pod_history(&[pod("pod-b", "ns", 35, 60)]);
 
-        assert!(app
-            .get_pod_memory_history(&pod("pod-a", "ns", 20, 40))
-            .is_none());
-        assert!(app
-            .get_pod_cpu_history(&pod("pod-a", "ns", 20, 40))
-            .is_none());
+        assert!(
+            app.get_pod_memory_history(&pod("pod-a", "ns", 20, 40))
+                .is_none()
+        );
+        assert!(
+            app.get_pod_cpu_history(&pod("pod-a", "ns", 20, 40))
+                .is_none()
+        );
         assert_eq!(
             app.get_pod_memory_history(&pod("pod-b", "ns", 35, 60)),
             Some(&vec![50, 60])
