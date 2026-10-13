@@ -1963,6 +1963,17 @@ fn calculate_age(timestamp: &str) -> String {
     }
 }
 
+/// Fetch all available kubectl contexts
+pub async fn fetch_contexts() -> Result<Vec<String>, KubectlError> {
+    let output = run_cmd("kubectl", &["config", "get-contexts", "-o", "name"]).await?;
+    Ok(output.lines().map(|s| s.trim().to_string()).collect())
+}
+
+/// Run kubectl command and return output (for MCP server use)
+pub async fn run_kubectl_output(args: &[&str]) -> Result<String, KubectlError> {
+    run_cmd("kubectl", args).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

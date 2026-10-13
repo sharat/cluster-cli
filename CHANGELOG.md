@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Headless JSON API: `cluster status --json`, `cluster incidents --json`, `cluster pods --json`, `cluster nodes --json`, and `cluster logs <pod>` with `--verbose` flag for detailed output
+- MCP (Model Context Protocol) server: `cluster mcp` exposes read-only tools for AI agents (Cursor, Claude Desktop) over stdio
+- JSON schema versioning (v1.0.0) for stable programmatic access
+- E2E testing infrastructure with kind cluster and sample workloads in `examples/e2e/`
+- `--context` flag support for JSON commands (headless mode)
+- MCP tools: `get_cluster_health`, `list_incidents`, `list_pods`, `describe_pod`, `explain_pod`, `get_logs`, `list_nodes`, `list_contexts`
 - Incident timeline view that correlates Kubernetes events, container restarts, OOMKilled/CrashLoopBackOff terminations, node condition changes, and deployment/replicaset rollouts in a chronological view
 - Deployment/ReplicaSet rollout tracking as timeline entries (new revisions, image changes, scaling events)
 - Timeline filtering by event kind, namespace, and severity
@@ -15,7 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Precursor highlighting (⚡) that automatically identifies events (rollouts, node condition changes) that likely caused incidents within a configurable time window (default 10 minutes)
 - Keyboard shortcuts: `t` to open timeline from dashboard, `T` to open timeline filtered to selected incident from incident queue, `s` to toggle sort order, `f`/`F` to cycle filters
 - Accessible severity labels in timeline (not color-only)
-- End-to-end test scenario with sample Kubernetes manifests in `examples/e2e/`
 
 ### Changed
 - Upgrade Rust toolchain from 1.94.1 to 1.99.0
@@ -28,16 +33,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add cross-platform test job to CI (Ubuntu, macOS, Windows)
 
 ## [0.3.5] - 2026-10-13
-
-### Changed
-- Upgrade Rust toolchain from 1.94.1 to 1.99.0
-- Upgrade to Rust edition 2024
-- Update all dependencies to latest compatible versions
-- Update MSRV from 1.70 to 1.85 (required for edition 2024)
 - Add rustfmt.toml, clippy.toml, and deny.toml configuration files
 - Add MSRV check to CI pipeline
 - Add cargo-deny security audit to CI pipeline
 - Add cross-platform test job to CI (Ubuntu, macOS, Windows)
+=======
+### Added
+- Headless JSON API: `cluster status --json`, `cluster incidents --json`, `cluster pods --json`, `cluster nodes --json`, and `cluster logs <pod>` with `--verbose` flag for detailed output
+- MCP (Model Context Protocol) server: `cluster mcp` exposes read-only tools for AI agents (Cursor, Claude Desktop) over stdio
+- JSON schema versioning (v1.0.0) for stable programmatic access
+- E2E testing infrastructure with kind cluster and sample workloads in `examples/e2e/`
+- `--context` flag support for JSON commands (headless mode)
+- MCP tools: `get_cluster_health`, `list_incidents`, `list_pods`, `describe_pod`, `explain_pod`, `get_logs`, `list_nodes`, `list_contexts`
+>>>>>>> b0fd2d9 (feat: add JSON API and MCP server for AI agents)
 
 ## [0.3.4] - 2026-10-07
 
