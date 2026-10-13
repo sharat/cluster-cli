@@ -28,20 +28,11 @@ fn test_workload_kind_as_str() {
     assert_eq!(WorkloadKind::DaemonSet.as_str(), "DaemonSet");
     assert_eq!(WorkloadKind::Job.as_str(), "Job");
     assert_eq!(WorkloadKind::CronJob.as_str(), "CronJob");
-    assert_eq!(
-        WorkloadKind::HorizontalPodAutoscaler.as_str(),
-        "HorizontalPodAutoscaler"
-    );
-    assert_eq!(
-        WorkloadKind::PodDisruptionBudget.as_str(),
-        "PodDisruptionBudget"
-    );
+    assert_eq!(WorkloadKind::HorizontalPodAutoscaler.as_str(), "HorizontalPodAutoscaler");
+    assert_eq!(WorkloadKind::PodDisruptionBudget.as_str(), "PodDisruptionBudget");
     assert_eq!(WorkloadKind::Service.as_str(), "Service");
     assert_eq!(WorkloadKind::Ingress.as_str(), "Ingress");
-    assert_eq!(
-        WorkloadKind::PersistentVolumeClaim.as_str(),
-        "PersistentVolumeClaim"
-    );
+    assert_eq!(WorkloadKind::PersistentVolumeClaim.as_str(), "PersistentVolumeClaim");
 }
 
 #[test]

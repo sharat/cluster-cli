@@ -242,11 +242,7 @@ pub struct PodHistory {
 #[allow(dead_code)]
 impl PodHistory {
     pub fn new(name: String, namespace: String) -> Self {
-        Self {
-            name,
-            namespace,
-            memory_samples: std::collections::VecDeque::new(),
-        }
+        Self { name, namespace, memory_samples: std::collections::VecDeque::new() }
     }
 
     pub fn add_sample(&mut self, memory_pct: u8, max_samples: usize) {
@@ -302,20 +298,10 @@ impl IncidentSeverity {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IncidentTarget {
-    Pod {
-        pod_name: String,
-    },
-    Node {
-        node_name: String,
-    },
-    Workload {
-        kind: String,
-        name: String,
-    },
-    Container {
-        pod_name: String,
-        container_name: String,
-    },
+    Pod { pod_name: String },
+    Node { node_name: String },
+    Workload { kind: String, name: String },
+    Container { pod_name: String, container_name: String },
 }
 
 impl IncidentTarget {
@@ -324,10 +310,9 @@ impl IncidentTarget {
             Self::Pod { pod_name } => format!("Pod/{pod_name}"),
             Self::Node { node_name } => format!("Node/{node_name}"),
             Self::Workload { kind, name } => format!("{kind}/{name}"),
-            Self::Container {
-                pod_name,
-                container_name,
-            } => format!("Pod/{pod_name}/{container_name}"),
+            Self::Container { pod_name, container_name } => {
+                format!("Pod/{pod_name}/{container_name}")
+            }
         }
     }
 

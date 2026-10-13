@@ -1,9 +1,9 @@
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState},
-    Frame,
 };
 
 use crate::app::{AppState, Panel};
@@ -12,11 +12,8 @@ use crate::ui::{format, theme};
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let is_focused = app.focused_panel == Panel::Nodes;
 
-    let border_style = if is_focused {
-        theme::focused_border_style()
-    } else {
-        theme::normal_border_style()
-    };
+    let border_style =
+        if is_focused { theme::focused_border_style() } else { theme::normal_border_style() };
 
     let node_count = app.snapshot.as_ref().map(|s| s.nodes.len()).unwrap_or(0);
 
@@ -58,9 +55,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             })
             .collect();
 
-        let list = List::new(items)
-            .highlight_style(theme::selected_style())
-            .highlight_symbol("> ");
+        let list = List::new(items).highlight_style(theme::selected_style()).highlight_symbol("> ");
 
         let mut state = ListState::default();
         if node_count > 0 {

@@ -33,11 +33,7 @@ fn format_compact_unit(value: f64, suffix: &str) -> String {
 
 /// Truncate a string to a maximum length without ellipsis
 pub fn truncate_no_ellipsis(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        s.chars().take(max).collect()
-    }
+    if s.chars().count() <= max { s.to_string() } else { s.chars().take(max).collect() }
 }
 
 #[cfg(test)]

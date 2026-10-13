@@ -145,12 +145,8 @@ impl Fetcher {
             }
         };
 
-        errors.extend(
-            workloads_result
-                .warnings
-                .iter()
-                .map(|warning| format!("Workloads/{warning}")),
-        );
+        errors
+            .extend(workloads_result.warnings.iter().map(|warning| format!("Workloads/{warning}")));
         let mut workloads = workloads_result.summaries;
 
         let pods = match pods_result {
@@ -187,10 +183,8 @@ impl Fetcher {
         let has_usable_data =
             !nodes.is_empty() || !workloads.is_empty() || !pods.is_empty() || !events.is_empty();
         if connection_issue.is_some() && !has_usable_data {
-            let _ = self
-                .tx
-                .send(AppEvent::Data(DataEvent::ConnectionState(connection_issue)))
-                .await;
+            let _ =
+                self.tx.send(AppEvent::Data(DataEvent::ConnectionState(connection_issue))).await;
             return;
         }
 
@@ -198,16 +192,9 @@ impl Fetcher {
 
         let health_score = health::calculate_health(&nodes, &pods, &events);
         let incident_buckets = incidents::build_incident_buckets(&nodes, &pods, &events);
-        let error_msg = if errors.is_empty() {
-            None
-        } else {
-            Some(errors.join(" | "))
-        };
+        let error_msg = if errors.is_empty() { None } else { Some(errors.join(" | ")) };
 
-        let _ = self
-            .tx
-            .send(AppEvent::Data(DataEvent::ConnectionState(connection_issue)))
-            .await;
+        let _ = self.tx.send(AppEvent::Data(DataEvent::ConnectionState(connection_issue))).await;
         let snapshot = ClusterSnapshot {
             nodes,
             workloads,
@@ -220,10 +207,7 @@ impl Fetcher {
             context_name: context_name.clone(),
         };
 
-        let _ = self
-            .tx
-            .send(AppEvent::Data(DataEvent::Refreshed(snapshot)))
-            .await;
+        let _ = self.tx.send(AppEvent::Data(DataEvent::Refreshed(snapshot))).await;
         event_cache.insert(cache_key, events);
         if event_cache.len() > MAX_EVENT_CACHE_ENTRIES {
             let current_key = event_cache_key(context_name.as_deref(), namespace);
@@ -234,18 +218,12 @@ impl Fetcher {
     async fn fetch_namespaces(&self) {
         match collector::fetch_namespaces().await {
             Ok(namespaces) => {
-                let _ = self
-                    .tx
-                    .send(AppEvent::Data(DataEvent::Namespaces(namespaces)))
-                    .await;
+                let _ = self.tx.send(AppEvent::Data(DataEvent::Namespaces(namespaces))).await;
             }
             Err(e) => {
                 error!("Failed to fetch namespaces: {}", e);
                 let issue = collector::classify_kubectl_error(&e);
-                let _ = self
-                    .tx
-                    .send(AppEvent::Data(DataEvent::ConnectionState(issue)))
-                    .await;
+                let _ = self.tx.send(AppEvent::Data(DataEvent::ConnectionState(issue))).await;
                 let _ = self
                     .tx
                     .send(AppEvent::Data(DataEvent::Error(format!("Namespaces: {e}"))))
@@ -285,9 +263,9 @@ impl Fetcher {
     async fn export_pods(&self, cluster_name: Option<String>, namespace: String, path: String) {
         let cluster_label = match cluster_name {
             Some(cluster_name) => cluster_name,
-            None => collector::fetch_current_context()
-                .await
-                .unwrap_or_else(|_| "unknown".to_string()),
+            None => {
+                collector::fetch_current_context().await.unwrap_or_else(|_| "unknown".to_string())
+            }
         };
         let message = match collector::fetch_pod_info(&namespace).await {
             Ok((pods, _)) => {
@@ -317,10 +295,7 @@ impl Fetcher {
             }
             Err(e) => format!("Export failed: {e}"),
         };
-        let _ = self
-            .tx
-            .send(AppEvent::Data(DataEvent::ExportResult { message }))
-            .await;
+        let _ = self.tx.send(AppEvent::Data(DataEvent::ExportResult { message })).await;
     }
 }
 
@@ -386,11 +361,7 @@ fn secs_until_next_boundary(interval_secs: u64) -> u64 {
     let epoch_secs = now.timestamp() as u64;
     let interval_secs = interval_secs.max(1);
     let elapsed_in_window = epoch_secs % interval_secs;
-    if elapsed_in_window == 0 {
-        interval_secs
-    } else {
-        interval_secs - elapsed_in_window
-    }
+    if elapsed_in_window == 0 { interval_secs } else { interval_secs - elapsed_in_window }
 }
 
 fn export_path(path: &str) -> Result<&std::path::Path, String> {
@@ -509,12 +480,8 @@ fn write_log_file(lines: &[String], path: &str) -> Result<usize, String> {
 }
 
 fn log_args(pod: &str, namespace: &str, container: Option<&str>, previous: bool) -> Vec<String> {
-    let mut args = vec![
-        "logs".to_string(),
-        "-n".to_string(),
-        namespace.to_string(),
-        pod.to_string(),
-    ];
+    let mut args =
+        vec!["logs".to_string(), "-n".to_string(), namespace.to_string(), pod.to_string()];
     if let Some(container) = container {
         args.push("-c".to_string());
         args.push(container.to_string());
@@ -620,12 +587,7 @@ async fn stream_logs(
         } else {
             format!("kubectl logs: {detail}")
         };
-        let _ = tx
-            .send(AppEvent::Data(DataEvent::LogStreamError {
-                stream_id,
-                message,
-            }))
-            .await;
+        let _ = tx.send(AppEvent::Data(DataEvent::LogStreamError { stream_id, message })).await;
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::data::models::{
-    ClusterEvent, EventType, HealthScore, NodeMetric, PodInfo, GRADE_A_THRESHOLD,
-    GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD, RESOURCE_PRESSURE_PCT,
+    ClusterEvent, EventType, GRADE_A_THRESHOLD, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD,
+    GRADE_D_THRESHOLD, HealthScore, NodeMetric, PodInfo, RESOURCE_PRESSURE_PCT,
 };
 const ROLLOUT_FAILURE_REASONS: &[&str] = &[
     "ProgressDeadlineExceeded",
@@ -120,13 +120,7 @@ pub fn calculate_health(
         'F'
     };
 
-    HealthScore {
-        score,
-        grade,
-        critical_nodes,
-        critical_pods,
-        total_restarts,
-    }
+    HealthScore { score, grade, critical_nodes, critical_pods, total_restarts }
 }
 
 fn is_rollout_failure(event: &ClusterEvent) -> bool {

@@ -1,0 +1,9 @@
+# clippy configuration for cluster-cli
+# Stricter lints for production-quality code
+
+# Complexity thresholds
+cognitive-complexity-threshold = 30
+too-many-arguments-threshold = 7
+
+# Vector size limits
+vec-box-size-threshold = 4096

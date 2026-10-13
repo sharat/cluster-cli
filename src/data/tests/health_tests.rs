@@ -16,11 +16,7 @@ fn create_test_node(memory_pct: u8, ready: bool, unhealthy_conditions: u8) -> No
         unhealthy_conditions,
         ready,
         conditions: NodeConditions {
-            ready: if ready {
-                ConditionStatus::True
-            } else {
-                ConditionStatus::False
-            },
+            ready: if ready { ConditionStatus::True } else { ConditionStatus::False },
             memory_pressure: ConditionStatus::False,
             disk_pressure: ConditionStatus::False,
             pid_pressure: ConditionStatus::False,
@@ -171,19 +167,12 @@ fn test_failed_scheduling_penalty() {
     let events = vec![create_test_event("FailedScheduling", EventType::Warning, 3)];
     let health = calculate_health(&[], &[], &events);
 
-    assert!(
-        health.score < 100,
-        "Failed scheduling events should reduce score"
-    );
+    assert!(health.score < 100, "Failed scheduling events should reduce score");
 }
 
 #[test]
 fn test_rollout_failure_penalty() {
-    let events = vec![create_test_event(
-        "ProgressDeadlineExceeded",
-        EventType::Warning,
-        2,
-    )];
+    let events = vec![create_test_event("ProgressDeadlineExceeded", EventType::Warning, 2)];
     let health = calculate_health(&[], &[], &events);
 
     assert!(health.score < 100, "Rollout failures should reduce score");
@@ -210,10 +199,7 @@ fn test_grade_calculation() {
 #[test]
 fn test_score_never_negative() {
     // Create a scenario that would push score below 0
-    let nodes = vec![
-        create_test_node(95, false, 5),
-        create_test_node(95, false, 5),
-    ];
+    let nodes = vec![create_test_node(95, false, 5), create_test_node(95, false, 5)];
     let pods = vec![
         create_test_pod(95, "Failed", false, 50, true, true),
         create_test_pod(95, "Failed", false, 50, true, true),
@@ -241,9 +227,8 @@ fn test_empty_cluster_perfect_score() {
 
 #[test]
 fn completed_job_pods_do_not_reduce_health() {
-    let pods: Vec<PodInfo> = (0..10)
-        .map(|_| create_test_pod(0, "Succeeded", false, 0, false, false))
-        .collect();
+    let pods: Vec<PodInfo> =
+        (0..10).map(|_| create_test_pod(0, "Succeeded", false, 0, false, false)).collect();
     let health = calculate_health(&[], &pods, &[]);
 
     assert_eq!(health.score, 100);
