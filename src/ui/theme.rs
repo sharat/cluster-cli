@@ -12,14 +12,14 @@ use crate::data::models::{
 
 pub fn status_style(status: &HealthStatus) -> Style {
     match status {
-        HealthStatus::Critical => Style::default()
-            .fg(Color::Rgb(220, 38, 38))
-            .add_modifier(Modifier::BOLD),
+        HealthStatus::Critical => {
+            Style::default().fg(Color::Rgb(220, 38, 38)).add_modifier(Modifier::BOLD)
+        }
         HealthStatus::Warning => Style::default().fg(Color::Rgb(249, 115, 22)),
         HealthStatus::Elevated => Style::default().fg(Color::Rgb(234, 179, 8)),
-        HealthStatus::Healthy => Style::default()
-            .fg(Color::Rgb(22, 163, 74))
-            .add_modifier(Modifier::BOLD),
+        HealthStatus::Healthy => {
+            Style::default().fg(Color::Rgb(22, 163, 74)).add_modifier(Modifier::BOLD)
+        }
     }
 }
 
@@ -34,15 +34,11 @@ pub fn status_icon(status: &HealthStatus) -> &'static str {
 
 pub fn grade_style(grade: char) -> Style {
     match grade {
-        'A' => Style::default()
-            .fg(Color::Rgb(22, 163, 74))
-            .add_modifier(Modifier::BOLD),
+        'A' => Style::default().fg(Color::Rgb(22, 163, 74)).add_modifier(Modifier::BOLD),
         'B' => Style::default().fg(Color::Rgb(132, 204, 22)),
         'C' => Style::default().fg(Color::Rgb(234, 179, 8)),
         'D' => Style::default().fg(Color::Rgb(249, 115, 22)),
-        _ => Style::default()
-            .fg(Color::Rgb(220, 38, 38))
-            .add_modifier(Modifier::BOLD),
+        _ => Style::default().fg(Color::Rgb(220, 38, 38)).add_modifier(Modifier::BOLD),
     }
 }
 
@@ -59,16 +55,11 @@ pub fn normal_border_style() -> Style {
 }
 
 pub fn header_style() -> Style {
-    Style::default()
-        .fg(Color::White)
-        .add_modifier(Modifier::BOLD)
+    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
 }
 
 pub fn selected_style() -> Style {
-    Style::default()
-        .bg(Color::DarkGray)
-        .fg(Color::White)
-        .add_modifier(Modifier::BOLD)
+    Style::default().bg(Color::DarkGray).fg(Color::White).add_modifier(Modifier::BOLD)
 }
 
 /// Color a resource-usage cell by raw percentage (used in pod table CPU/Mem columns)
@@ -131,13 +122,8 @@ fn compute_utilization_gradient_color(step: usize, total_steps: usize) -> Color 
         return Color::Rgb(61, 214, 208);
     }
 
-    let ramp = [
-        (61u8, 214u8, 208u8),
-        (115, 226, 122),
-        (244, 208, 63),
-        (255, 159, 67),
-        (255, 99, 72),
-    ];
+    let ramp =
+        [(61u8, 214u8, 208u8), (115, 226, 122), (244, 208, 63), (255, 159, 67), (255, 99, 72)];
     let scaled = step as f32 / (total_steps - 1) as f32;
     let segment = (scaled * (ramp.len() - 1) as f32).floor() as usize;
     let segment = segment.min(ramp.len() - 2);
@@ -181,13 +167,7 @@ fn compute_health_gradient_color(step: usize, total_steps: usize) -> Color {
         return health_color(100);
     }
 
-    let ramp = [
-        (220u8, 38u8, 38u8),
-        (249, 115, 22),
-        (234, 179, 8),
-        (132, 204, 22),
-        (22, 163, 74),
-    ];
+    let ramp = [(220u8, 38u8, 38u8), (249, 115, 22), (234, 179, 8), (132, 204, 22), (22, 163, 74)];
     let scaled = step as f32 / (total_steps - 1) as f32;
     let segment = (scaled * (ramp.len() - 1) as f32).floor() as usize;
     let segment = segment.min(ramp.len() - 2);
@@ -222,10 +202,7 @@ pub fn gradient_bar(pct: u8, width: usize) -> Line<'static> {
 
     for idx in 0..width {
         let span = if idx < filled {
-            Span::styled(
-                "█",
-                Style::default().fg(utilization_gradient_color(idx, width)),
-            )
+            Span::styled("█", Style::default().fg(utilization_gradient_color(idx, width)))
         } else {
             Span::styled("░", Style::default().fg(Color::DarkGray))
         };
@@ -286,10 +263,7 @@ pub fn sparkline(history: Option<&Vec<u8>>, width: usize) -> Line<'static> {
 }
 
 fn placeholder_sparkline(width: usize) -> Line<'static> {
-    Line::from(vec![Span::styled(
-        "·".repeat(width),
-        Style::default().fg(Color::DarkGray),
-    )])
+    Line::from(vec![Span::styled("·".repeat(width), Style::default().fg(Color::DarkGray))])
 }
 
 pub fn log_level_style(line: &str) -> Style {

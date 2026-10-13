@@ -33,11 +33,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Length(8),
-            Constraint::Min(0),
-        ])
+        .constraints([Constraint::Length(3), Constraint::Length(8), Constraint::Min(0)])
         .split(inner);
 
     render_header(f, chunks[0], node);
@@ -51,10 +47,7 @@ fn render_header(f: &mut Frame, area: Rect, node: &crate::data::models::NodeMetr
 
     let title = format!(" {} {} Node Details ", icon, node.name);
 
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(style);
+    let block = Block::default().title(title).borders(Borders::ALL).border_style(style);
 
     f.render_widget(block, area);
 }
@@ -83,11 +76,7 @@ fn render_resources(f: &mut Frame, area: Rect, node: &crate::data::models::NodeM
     let rows = vec![
         Row::new(vec![
             Cell::from("CPU Usage").style(Style::default().fg(Color::Cyan)),
-            Cell::from(format!(
-                "{}m / {}m",
-                node.cpu_millicores,
-                node.cpu_capacity * 1000
-            )),
+            Cell::from(format!("{}m / {}m", node.cpu_millicores, node.cpu_capacity * 1000)),
             Cell::from(usage_meter(node.cpu_pct)),
         ]),
         Row::new(vec![
@@ -117,19 +106,13 @@ fn render_resources(f: &mut Frame, area: Rect, node: &crate::data::models::NodeM
         ]),
     ];
 
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Length(20),
-            Constraint::Fill(1),
-            Constraint::Length(10),
-        ],
-    )
-    .header(
-        Row::new(vec!["Resource", "Value", "Usage"])
-            .style(Style::default().add_modifier(Modifier::BOLD)),
-    )
-    .block(Block::default().title(" Resources ").borders(Borders::ALL));
+    let table =
+        Table::new(rows, [Constraint::Length(20), Constraint::Fill(1), Constraint::Length(10)])
+            .header(
+                Row::new(vec!["Resource", "Value", "Usage"])
+                    .style(Style::default().add_modifier(Modifier::BOLD)),
+            )
+            .block(Block::default().title(" Resources ").borders(Borders::ALL));
 
     f.render_widget(table, area);
 }
@@ -139,17 +122,13 @@ fn usage_meter(pct: u8) -> Line<'static> {
     spans.push(Span::raw(" "));
     spans.push(Span::styled(
         format!("{pct:>3}%"),
-        Style::default()
-            .fg(theme::heat_color(pct))
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(theme::heat_color(pct)).add_modifier(Modifier::BOLD),
     ));
     Line::from(spans)
 }
 
 fn render_info(f: &mut Frame, area: Rect, node: &crate::data::models::NodeMetric) {
-    let info_block = Block::default()
-        .title(" Node Information ")
-        .borders(Borders::ALL);
+    let info_block = Block::default().title(" Node Information ").borders(Borders::ALL);
 
     let inner = info_block.inner(area);
     f.render_widget(info_block, area);
@@ -160,26 +139,16 @@ fn render_info(f: &mut Frame, area: Rect, node: &crate::data::models::NodeMetric
             condition_row("MemoryPressure", node.conditions.memory_pressure, false),
             condition_row("DiskPressure", node.conditions.disk_pressure, false),
             condition_row("PIDPressure", node.conditions.pid_pressure, false),
-            condition_row(
-                "NetworkUnavailable",
-                node.conditions.network_unavailable,
-                false,
-            ),
-            Row::new(vec![
-                Cell::from("Scheduling"),
-                Cell::from(scheduling_line(node)),
-            ])
-            .style(Style::default().fg(Color::Cyan)),
+            condition_row("NetworkUnavailable", node.conditions.network_unavailable, false),
+            Row::new(vec![Cell::from("Scheduling"), Cell::from(scheduling_line(node))])
+                .style(Style::default().fg(Color::Cyan)),
             Row::new(vec![
                 Cell::from("Kernel Version"),
                 Cell::from(node_info.kernel_version.clone()),
             ])
             .style(Style::default().fg(Color::Cyan)),
-            Row::new(vec![
-                Cell::from("OS Image"),
-                Cell::from(node_info.os_image.clone()),
-            ])
-            .style(Style::default().fg(Color::Cyan)),
+            Row::new(vec![Cell::from("OS Image"), Cell::from(node_info.os_image.clone())])
+                .style(Style::default().fg(Color::Cyan)),
             Row::new(vec![
                 Cell::from("Container Runtime"),
                 Cell::from(node_info.container_runtime.clone()),
@@ -190,11 +159,8 @@ fn render_info(f: &mut Frame, area: Rect, node: &crate::data::models::NodeMetric
                 Cell::from(node_info.kubelet_version.clone()),
             ])
             .style(Style::default().fg(Color::Cyan)),
-            Row::new(vec![
-                Cell::from("Architecture"),
-                Cell::from(node_info.architecture.clone()),
-            ])
-            .style(Style::default().fg(Color::Cyan)),
+            Row::new(vec![Cell::from("Architecture"), Cell::from(node_info.architecture.clone())])
+                .style(Style::default().fg(Color::Cyan)),
             Row::new(vec![
                 Cell::from("Operating System"),
                 Cell::from(node_info.operating_system.clone()),
@@ -214,16 +180,9 @@ fn render_info(f: &mut Frame, area: Rect, node: &crate::data::models::NodeMetric
             condition_row("MemoryPressure", node.conditions.memory_pressure, false),
             condition_row("DiskPressure", node.conditions.disk_pressure, false),
             condition_row("PIDPressure", node.conditions.pid_pressure, false),
-            condition_row(
-                "NetworkUnavailable",
-                node.conditions.network_unavailable,
-                false,
-            ),
-            Row::new(vec![
-                Cell::from("Scheduling"),
-                Cell::from(scheduling_line(node)),
-            ])
-            .style(Style::default().fg(Color::Cyan)),
+            condition_row("NetworkUnavailable", node.conditions.network_unavailable, false),
+            Row::new(vec![Cell::from("Scheduling"), Cell::from(scheduling_line(node))])
+                .style(Style::default().fg(Color::Cyan)),
             Row::new(vec![Cell::from("Node Info"), Cell::from("Not available")])
                 .style(Style::default().fg(Color::Yellow)),
         ];
@@ -242,11 +201,8 @@ fn condition_row(
     status: ConditionStatus,
     healthy_when_true: bool,
 ) -> Row<'static> {
-    Row::new(vec![
-        Cell::from(label),
-        Cell::from(condition_line(status, healthy_when_true)),
-    ])
-    .style(Style::default().fg(Color::Cyan))
+    Row::new(vec![Cell::from(label), Cell::from(condition_line(status, healthy_when_true))])
+        .style(Style::default().fg(Color::Cyan))
 }
 
 fn condition_line(status: ConditionStatus, healthy_when_true: bool) -> Line<'static> {
@@ -259,15 +215,9 @@ fn condition_line(status: ConditionStatus, healthy_when_true: bool) -> Line<'sta
     };
 
     Line::from(vec![
-        Span::styled(
-            icon,
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
-        Span::styled(
-            format!("({})", status.as_str()),
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled(format!("({})", status.as_str()), Style::default().fg(Color::DarkGray)),
     ])
 }
 
@@ -279,17 +229,10 @@ fn scheduling_line(node: &NodeMetric) -> Line<'static> {
     };
 
     Line::from(vec![
-        Span::styled(
-            label,
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
         Span::styled(
-            if node.cordoned || node.draining {
-                "(cordoned/draining)"
-            } else {
-                "(enabled)"
-            },
+            if node.cordoned || node.draining { "(cordoned/draining)" } else { "(enabled)" },
             Style::default().fg(Color::DarkGray),
         ),
     ])

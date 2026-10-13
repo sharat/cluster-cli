@@ -120,13 +120,7 @@ pub fn calculate_health(
         'F'
     };
 
-    HealthScore {
-        score,
-        grade,
-        critical_nodes,
-        critical_pods,
-        total_restarts,
-    }
+    HealthScore { score, grade, critical_nodes, critical_pods, total_restarts }
 }
 
 fn is_rollout_failure(event: &ClusterEvent) -> bool {

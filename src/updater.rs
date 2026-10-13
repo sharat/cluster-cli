@@ -27,10 +27,7 @@ async fn run_checked(label: &str, mut cmd: Command) -> Result<()> {
     let output = tokio::time::timeout(UPGRADE_TIMEOUT, cmd.output())
         .await
         .map_err(|_| {
-            anyhow!(
-                "{label} timed out after {}s and was terminated",
-                UPGRADE_TIMEOUT.as_secs()
-            )
+            anyhow!("{label} timed out after {}s and was terminated", UPGRADE_TIMEOUT.as_secs())
         })?
         .map_err(|e| anyhow!("Failed to run {label}: {e}"))?;
 
@@ -84,11 +81,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Stage an install script in the user-owned config directory without ever
@@ -121,10 +114,7 @@ pub struct Updater {
 impl Updater {
     pub fn new(current_version: &str) -> Self {
         let install_method = Self::detect_install_method();
-        Self {
-            current_version: current_version.to_string(),
-            install_method,
-        }
+        Self { current_version: current_version.to_string(), install_method }
     }
 
     /// Detect how the binary was installed
@@ -206,10 +196,9 @@ impl Updater {
         let current_version = self.current_version.trim_start_matches('v');
 
         // Compare versions using semver
-        if let (Ok(latest), Ok(current)) = (
-            semver::Version::parse(latest_version),
-            semver::Version::parse(current_version),
-        ) {
+        if let (Ok(latest), Ok(current)) =
+            (semver::Version::parse(latest_version), semver::Version::parse(current_version))
+        {
             if latest > current {
                 return Ok(Some(release));
             }
@@ -324,16 +313,10 @@ impl Updater {
         // it, so the verified script cannot be redirected to another path.
         let config_dir = crate::config::Config::dir_path();
         std::fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
-        let script_path = config_dir.join(format!(
-            "install-script-{}-{}.sh",
-            &digest[..16],
-            std::process::id()
-        ));
+        let script_path =
+            config_dir.join(format!("install-script-{}-{}.sh", &digest[..16], std::process::id()));
         stage_install_script(&script_path, script.as_bytes()).with_context(|| {
-            format!(
-                "Failed to securely stage install script at {}",
-                script_path.display()
-            )
+            format!("Failed to securely stage install script at {}", script_path.display())
         })?;
 
         let mut cmd = Command::new("bash");
@@ -362,10 +345,7 @@ impl Updater {
     pub fn show_info(&self) {
         println!("cluster-cli {}", self.current_version);
         println!("Installation method: {}", self.install_method.as_str());
-        println!(
-            "Config directory: {}",
-            crate::config::Config::dir_path().display()
-        );
+        println!("Config directory: {}", crate::config::Config::dir_path().display());
     }
 }
 
@@ -376,15 +356,9 @@ mod tests {
     #[test]
     fn test_install_method_from_str() {
         assert_eq!(InstallMethod::from_str("curl"), Some(InstallMethod::Curl));
-        assert_eq!(
-            InstallMethod::from_str("homebrew"),
-            Some(InstallMethod::Homebrew)
-        );
+        assert_eq!(InstallMethod::from_str("homebrew"), Some(InstallMethod::Homebrew));
         assert_eq!(InstallMethod::from_str("cargo"), Some(InstallMethod::Cargo));
-        assert_eq!(
-            InstallMethod::from_str("unknown"),
-            Some(InstallMethod::Unknown)
-        );
+        assert_eq!(InstallMethod::from_str("unknown"), Some(InstallMethod::Unknown));
     }
 
     #[test]
@@ -423,10 +397,8 @@ mod tests {
 
     #[test]
     fn install_script_url_uses_current_immutable_release_tag() {
-        let updater = Updater {
-            current_version: "v0.2.2".to_string(),
-            install_method: InstallMethod::Curl,
-        };
+        let updater =
+            Updater { current_version: "v0.2.2".to_string(), install_method: InstallMethod::Curl };
 
         assert_eq!(
             updater.install_script_url(),

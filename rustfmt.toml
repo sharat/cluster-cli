@@ -1,0 +1,11 @@
+# rustfmt configuration for cluster-cli
+# Edition 2024 formatting with stable features only
+
+edition = "2024"
+
+# Formatting
+max_width = 100
+use_small_heuristics = "Max"
+
+# Formatting style
+newline_style = "Unix"

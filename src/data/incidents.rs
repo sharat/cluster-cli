@@ -17,9 +17,7 @@ pub fn build_incident_buckets(
                 &mut buckets,
                 "NodeNotReady",
                 IncidentSeverity::Critical,
-                IncidentTarget::Node {
-                    node_name: node.name.clone(),
-                },
+                IncidentTarget::Node { node_name: node.name.clone() },
                 1,
                 String::new(),
                 Some("node is reporting NotReady".to_string()),
@@ -33,9 +31,7 @@ pub fn build_incident_buckets(
                 &mut buckets,
                 "CrashLoopBackOff",
                 IncidentSeverity::Critical,
-                IncidentTarget::Pod {
-                    pod_name: pod.name.clone(),
-                },
+                IncidentTarget::Pod { pod_name: pod.name.clone() },
                 1,
                 String::new(),
                 Some("pod is crash looping".to_string()),
@@ -47,9 +43,7 @@ pub fn build_incident_buckets(
                 &mut buckets,
                 "OOMKilled",
                 IncidentSeverity::Critical,
-                IncidentTarget::Pod {
-                    pod_name: pod.name.clone(),
-                },
+                IncidentTarget::Pod { pod_name: pod.name.clone() },
                 1,
                 String::new(),
                 Some("container was terminated by the kernel OOM killer".to_string()),
@@ -118,19 +112,12 @@ pub fn build_incident_buckets(
                 event_target(event),
                 event.count.max(1),
                 event.timestamp.clone(),
-                if event.message.is_empty() {
-                    None
-                } else {
-                    Some(event.message.clone())
-                },
+                if event.message.is_empty() { None } else { Some(event.message.clone()) },
             );
         }
     }
 
-    let mut buckets: Vec<_> = buckets
-        .into_values()
-        .map(IncidentAccumulator::into_bucket)
-        .collect();
+    let mut buckets: Vec<_> = buckets.into_values().map(IncidentAccumulator::into_bucket).collect();
     buckets.sort_by(|a, b| {
         b.severity
             .rank()
@@ -179,11 +166,7 @@ fn canonical_event_reason(event: &ClusterEvent) -> Option<(&str, IncidentSeverit
         return Some(("OOMKilled", IncidentSeverity::Critical));
     }
 
-    if reason.is_empty() {
-        None
-    } else {
-        Some((reason, severity_for_reason(reason)))
-    }
+    if reason.is_empty() { None } else { Some((reason, severity_for_reason(reason))) }
 }
 
 fn severity_for_reason(reason: &str) -> IncidentSeverity {
@@ -282,16 +265,9 @@ impl IncidentAccumulator {
 
 fn event_target(event: &ClusterEvent) -> IncidentTarget {
     match event.kind.as_str() {
-        "Node" => IncidentTarget::Node {
-            node_name: event.name.clone(),
-        },
-        "Pod" => IncidentTarget::Pod {
-            pod_name: event.name.clone(),
-        },
-        kind => IncidentTarget::Workload {
-            kind: kind.to_string(),
-            name: event.name.clone(),
-        },
+        "Node" => IncidentTarget::Node { node_name: event.name.clone() },
+        "Pod" => IncidentTarget::Pod { pod_name: event.name.clone() },
+        kind => IncidentTarget::Workload { kind: kind.to_string(), name: event.name.clone() },
     }
 }
 

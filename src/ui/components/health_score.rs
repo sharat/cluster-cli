@@ -16,14 +16,9 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         summary_spans.push(Span::raw(" "));
         summary_spans.push(Span::styled(
             format!("{:>3}/100", h.score),
-            Style::default()
-                .fg(theme::score_bar_color(h.score))
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(theme::score_bar_color(h.score)).add_modifier(Modifier::BOLD),
         ));
-        summary_spans.push(Span::styled(
-            format!(" ({})", h.grade),
-            theme::grade_style(h.grade),
-        ));
+        summary_spans.push(Span::styled(format!(" ({})", h.grade), theme::grade_style(h.grade)));
         summary_spans.push(Span::styled(
             format!(
                 "   {} critical nodes   {} critical pods   {} total restarts",
@@ -47,14 +42,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             Span::styled(
                 format!(
                     "({:>3}% req {:>3}% lim)  ",
-                    pct(
-                        resources.cpu_usage_millicores,
-                        resources.cpu_request_millicores
-                    ),
-                    pct(
-                        resources.cpu_usage_millicores,
-                        resources.cpu_limit_millicores
-                    ),
+                    pct(resources.cpu_usage_millicores, resources.cpu_request_millicores),
+                    pct(resources.cpu_usage_millicores, resources.cpu_limit_millicores),
                 ),
                 Style::default().fg(Color::White),
             ),
@@ -81,10 +70,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             ),
         ]);
 
-        f.render_widget(
-            Paragraph::new(vec![Line::from(summary_spans), resource_line]),
-            area,
-        );
+        f.render_widget(Paragraph::new(vec![Line::from(summary_spans), resource_line]), area);
     } else if app.is_loading {
         let mut spans = loading_spinner::spans(app.loading_animation_frame);
         spans.push(" Connecting to cluster...".into());
@@ -94,8 +80,5 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn pct(used: u64, total: u64) -> u8 {
-    used.saturating_mul(100)
-        .checked_div(total)
-        .map(|v| v.min(100) as u8)
-        .unwrap_or(0)
+    used.saturating_mul(100).checked_div(total).map(|v| v.min(100) as u8).unwrap_or(0)
 }

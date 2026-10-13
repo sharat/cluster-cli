@@ -12,11 +12,8 @@ use crate::ui::{format, theme};
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let is_focused = app.focused_panel == Panel::Pods;
 
-    let border_style = if is_focused {
-        theme::focused_border_style()
-    } else {
-        theme::normal_border_style()
-    };
+    let border_style =
+        if is_focused { theme::focused_border_style() } else { theme::normal_border_style() };
 
     let filter_hint = if app.overlay == Overlay::PodFilter {
         format!(" [/{}█] ", app.pod_filter)
@@ -108,9 +105,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         Constraint::Length(6),
     ];
 
-    let table = Table::new(rows, widths)
-        .header(header)
-        .row_highlight_style(theme::selected_style());
+    let table =
+        Table::new(rows, widths).header(header).row_highlight_style(theme::selected_style());
 
     let mut state = TableState::default();
     if is_focused && pod_count > 0 {
@@ -125,15 +121,10 @@ fn resource_triplet_line(pct: u8, summary: String) -> Line<'static> {
     spans.push(Span::raw(" "));
     spans.push(Span::styled(
         format!("{pct:>3}%"),
-        Style::default()
-            .fg(theme::heat_color(pct))
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(theme::heat_color(pct)).add_modifier(Modifier::BOLD),
     ));
     if !summary.is_empty() {
-        spans.push(Span::styled(
-            format!(" {summary}"),
-            Style::default().fg(Color::White),
-        ));
+        spans.push(Span::styled(format!(" {summary}"), Style::default().fg(Color::White)));
     }
     Line::from(spans)
 }

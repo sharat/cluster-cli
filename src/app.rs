@@ -177,10 +177,7 @@ impl IncidentFocus {
         }
 
         self.pod_names.contains(&pod.name)
-            || self
-                .workload_names
-                .iter()
-                .any(|name| pod_belongs_to_workload(&pod.name, name))
+            || self.workload_names.iter().any(|name| pod_belongs_to_workload(&pod.name, name))
     }
 }
 
@@ -229,10 +226,8 @@ impl AppState {
 
     pub fn update_pod_history(&mut self, pods: &[PodInfo]) {
         let active_keys: HashSet<String> = pods.iter().map(pod_history_key).collect();
-        self.pod_memory_history
-            .retain(|key, _| active_keys.contains(key));
-        self.pod_cpu_history
-            .retain(|key, _| active_keys.contains(key));
+        self.pod_memory_history.retain(|key, _| active_keys.contains(key));
+        self.pod_cpu_history.retain(|key, _| active_keys.contains(key));
 
         for pod in pods {
             let key = pod_history_key(pod);
@@ -270,9 +265,8 @@ impl AppState {
             .filter(|pod| {
                 let matches_manual = self.pod_filter.is_empty()
                     || contains_case_insensitive(&pod.name, &self.pod_filter);
-                let matches_incident = incident_focus
-                    .map(|focus| focus.matches(pod))
-                    .unwrap_or(true);
+                let matches_incident =
+                    incident_focus.map(|focus| focus.matches(pod)).unwrap_or(true);
                 matches_manual && matches_incident
             })
             .collect();
@@ -295,11 +289,8 @@ impl AppState {
 
         if let Some(snap) = &self.snapshot {
             // Filter pods by current namespace to ensure accurate summary
-            let namespace_pods: Vec<&PodInfo> = snap
-                .pods
-                .iter()
-                .filter(|p| p.namespace == self.config.namespace)
-                .collect();
+            let namespace_pods: Vec<&PodInfo> =
+                snap.pods.iter().filter(|p| p.namespace == self.config.namespace).collect();
 
             summary.pod_count = namespace_pods.len();
             for pod in namespace_pods {
@@ -345,9 +336,7 @@ impl AppState {
             .log_container
             .as_deref()
             .and_then(|selected| {
-                pod.containers
-                    .iter()
-                    .position(|container| container.name == selected)
+                pod.containers.iter().position(|container| container.name == selected)
             })
             .unwrap_or(0);
         let next_index = (current_index + 1) % pod.containers.len();
@@ -385,11 +374,7 @@ impl AppState {
 
     pub fn current_pod(&self) -> Option<&PodInfo> {
         if let AppView::PodDetail { pod_name } = &self.view {
-            self.snapshot
-                .as_ref()?
-                .pods
-                .iter()
-                .find(|p| &p.name == pod_name)
+            self.snapshot.as_ref()?.pods.iter().find(|p| &p.name == pod_name)
         } else {
             None
         }
@@ -397,11 +382,7 @@ impl AppState {
 
     pub fn current_node(&self) -> Option<&crate::data::models::NodeMetric> {
         if let AppView::NodeDetail { node_name } = &self.view {
-            self.snapshot
-                .as_ref()?
-                .nodes
-                .iter()
-                .find(|n| &n.name == node_name)
+            self.snapshot.as_ref()?.nodes.iter().find(|n| &n.name == node_name)
         } else {
             None
         }
@@ -434,19 +415,13 @@ impl AppState {
             .filter_map(IncidentTarget::workload_key)
             .map(|(_, name)| name.to_owned())
             .collect();
-        self.incident_focus = Some(IncidentFocus {
-            reason: bucket.reason.clone(),
-            pod_names,
-            workload_names,
-        });
+        self.incident_focus =
+            Some(IncidentFocus { reason: bucket.reason.clone(), pod_names, workload_names });
         self.pod_cursor = 0;
     }
 
     pub fn selected_incident(&self) -> Option<&IncidentBucket> {
-        self.snapshot
-            .as_ref()?
-            .incident_buckets
-            .get(self.event_cursor)
+        self.snapshot.as_ref()?.incident_buckets.get(self.event_cursor)
     }
 
     pub fn has_blocking_connection_issue(&self) -> bool {
@@ -556,14 +531,10 @@ impl AppState {
                     .then_with(|| a.name.cmp(&b.name))
             }
             PodSortMode::LatestIncident => {
-                let a_ts = latest_incidents
-                    .and_then(|m| m.get(&a.name))
-                    .copied()
-                    .unwrap_or(i64::MIN);
-                let b_ts = latest_incidents
-                    .and_then(|m| m.get(&b.name))
-                    .copied()
-                    .unwrap_or(i64::MIN);
+                let a_ts =
+                    latest_incidents.and_then(|m| m.get(&a.name)).copied().unwrap_or(i64::MIN);
+                let b_ts =
+                    latest_incidents.and_then(|m| m.get(&b.name)).copied().unwrap_or(i64::MIN);
                 b_ts.cmp(&a_ts)
                     .then_with(|| status_rank(&b.status).cmp(&status_rank(&a.status)))
                     .then_with(|| a.name.cmp(&b.name))
@@ -576,19 +547,13 @@ impl AppState {
 /// `db-0`), so match on the workload name followed by a dash rather than any substring.
 fn with_retry_hint(detail: &str) -> String {
     let detail = detail.trim_end();
-    let separator = if detail.ends_with(['.', '!', '?']) {
-        " "
-    } else {
-        ". "
-    };
+    let separator = if detail.ends_with(['.', '!', '?']) { " " } else { ". " };
     format!("{detail}{separator}Press `r` to retry.")
 }
 
 fn pod_belongs_to_workload(pod_name: &str, workload_name: &str) -> bool {
     pod_name == workload_name
-        || pod_name
-            .strip_prefix(workload_name)
-            .is_some_and(|rest| rest.starts_with('-'))
+        || pod_name.strip_prefix(workload_name).is_some_and(|rest| rest.starts_with('-'))
 }
 
 /// Case-insensitive substring search without allocating new strings
@@ -641,9 +606,7 @@ fn pod_history_key(pod: &PodInfo) -> String {
 }
 
 fn parse_timestamp(value: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(|timestamp| timestamp.timestamp())
+    chrono::DateTime::parse_from_rfc3339(value).ok().map(|timestamp| timestamp.timestamp())
 }
 
 fn readiness_rank(pod: &PodInfo) -> u8 {
@@ -769,9 +732,7 @@ mod tests {
                 reason: "CrashLoopBackOff".to_string(),
                 severity: IncidentSeverity::Critical,
                 occurrences: 1,
-                targets: vec![IncidentTarget::Pod {
-                    pod_name: "api".to_string(),
-                }],
+                targets: vec![IncidentTarget::Pod { pod_name: "api".to_string() }],
                 affected_resources: vec!["Pod/api".to_string()],
                 latest_timestamp: "2026-03-09T10:00:00Z".to_string(),
                 sample_message: Some("container started".to_string()),
@@ -796,22 +757,10 @@ mod tests {
         app.update_pod_history(&[pod("pod-a", "ns", 20, 40), pod("pod-b", "ns", 30, 50)]);
         app.update_pod_history(&[pod("pod-b", "ns", 35, 60)]);
 
-        assert!(
-            app.get_pod_memory_history(&pod("pod-a", "ns", 20, 40))
-                .is_none()
-        );
-        assert!(
-            app.get_pod_cpu_history(&pod("pod-a", "ns", 20, 40))
-                .is_none()
-        );
-        assert_eq!(
-            app.get_pod_memory_history(&pod("pod-b", "ns", 35, 60)),
-            Some(&vec![50, 60])
-        );
-        assert_eq!(
-            app.get_pod_cpu_history(&pod("pod-b", "ns", 35, 60)),
-            Some(&vec![30, 35])
-        );
+        assert!(app.get_pod_memory_history(&pod("pod-a", "ns", 20, 40)).is_none());
+        assert!(app.get_pod_cpu_history(&pod("pod-a", "ns", 20, 40)).is_none());
+        assert_eq!(app.get_pod_memory_history(&pod("pod-b", "ns", 35, 60)), Some(&vec![50, 60]));
+        assert_eq!(app.get_pod_cpu_history(&pod("pod-b", "ns", 35, 60)), Some(&vec![30, 35]));
     }
 
     #[test]
@@ -871,11 +820,7 @@ mod tests {
             vec![],
         ));
 
-        let names: Vec<&str> = app
-            .filtered_pods()
-            .iter()
-            .map(|pod| pod.name.as_str())
-            .collect();
+        let names: Vec<&str> = app.filtered_pods().iter().map(|pod| pod.name.as_str()).collect();
 
         assert_eq!(names, vec!["worker", "api", "batch"]);
     }
@@ -960,11 +905,7 @@ mod tests {
         ));
         app.pod_sort_mode = PodSortMode::LatestIncident;
 
-        let names: Vec<&str> = app
-            .filtered_pods()
-            .iter()
-            .map(|pod| pod.name.as_str())
-            .collect();
+        let names: Vec<&str> = app.filtered_pods().iter().map(|pod| pod.name.as_str()).collect();
 
         assert_eq!(names, vec!["batch", "worker", "api"]);
     }
@@ -975,10 +916,7 @@ mod tests {
         app.snapshot = Some(ClusterSnapshot {
             nodes: vec![],
             workloads: vec![],
-            pods: vec![
-                pod("api-server", "default", 20, 40),
-                pod("worker", "default", 10, 20),
-            ],
+            pods: vec![pod("api-server", "default", 20, 40), pod("worker", "default", 10, 20)],
             events: vec![],
             incident_buckets: vec![],
             health: crate::data::models::HealthScore {
@@ -1069,10 +1007,7 @@ mod tests {
         let filtered = app.filtered_pods();
 
         assert_eq!(
-            filtered
-                .iter()
-                .map(|pod| pod.name.as_str())
-                .collect::<Vec<_>>(),
+            filtered.iter().map(|pod| pod.name.as_str()).collect::<Vec<_>>(),
             vec!["worker", "api", "batch"]
         );
     }
@@ -1085,12 +1020,8 @@ mod tests {
             severity: IncidentSeverity::Warning,
             occurrences: 1,
             targets: vec![
-                IncidentTarget::Pod {
-                    pod_name: "api".to_string(),
-                },
-                IncidentTarget::Node {
-                    node_name: "node-a".to_string(),
-                },
+                IncidentTarget::Pod { pod_name: "api".to_string() },
+                IncidentTarget::Node { node_name: "node-a".to_string() },
             ],
             affected_resources: vec!["Node/node-a".to_string(), "Pod/api".to_string()],
             latest_timestamp: "2026-03-09T10:05:00Z".to_string(),
@@ -1099,10 +1030,7 @@ mod tests {
         app.snapshot = Some(ClusterSnapshot {
             nodes: vec![],
             workloads: vec![],
-            pods: vec![
-                pod("api", "default", 10, 10),
-                pod("worker", "default", 10, 10),
-            ],
+            pods: vec![pod("api", "default", 10, 10), pod("worker", "default", 10, 10)],
             events: vec![],
             incident_buckets: vec![bucket.clone()],
             health: HealthScore {
@@ -1142,10 +1070,7 @@ mod tests {
 
     #[test]
     fn namespace_resource_summary_aggregates_current_namespace_pods() {
-        let config = Config {
-            namespace: "default".to_string(),
-            ..Config::default()
-        };
+        let config = Config { namespace: "default".to_string(), ..Config::default() };
         let mut app = AppState::new(config);
         app.snapshot = Some(snapshot_with(
             vec![
