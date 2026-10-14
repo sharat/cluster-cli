@@ -183,6 +183,17 @@ pub struct PodInfo {
     /// Whether `kubectl top` reported usage for this pod. When false,
     /// `cpu_millicores` and `memory_mb` are 0 because nothing was measured.
     pub metrics_available: bool,
+    /// Limits of the containers that run for the pod's life.
+    pub running_limits: RunningLimits,
+}
+
+/// Combined limits of the app containers and native sidecars (regular init
+/// containers have finished by then). A resource is None when any of those
+/// containers has no limit for it, since the pod as a whole is then unbounded.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RunningLimits {
+    pub cpu_millicores: Option<u64>,
+    pub memory_mb: Option<u64>,
 }
 
 impl PodInfo {

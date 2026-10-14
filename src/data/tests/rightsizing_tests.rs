@@ -1,4 +1,4 @@
-use crate::data::models::{HealthStatus, PodInfo, PodOwner};
+use crate::data::models::{HealthStatus, PodInfo, PodOwner, RunningLimits};
 use crate::data::rightsizing::{SizingVerdict, analyze, summarize};
 
 fn deployment(name: &str) -> Option<PodOwner> {
@@ -34,6 +34,7 @@ fn pod(name: &str, owner: Option<PodOwner>, request: (u64, u64), usage: (u64, u6
         sidecar_containers: vec![],
         owner,
         metrics_available: true,
+        running_limits: Default::default(),
         node_name: Some("node-a".to_string()),
         containers: vec![],
     }
@@ -175,7 +176,7 @@ fn suggestion_is_capped_at_the_limit_when_usage_is_pinned_there() {
     // Throttled at a 200m limit with a 20m request: 200m + 30% would be 260m,
     // which Kubernetes rejects as a request above the limit.
     let mut busy = pod("busy", deployment("busy"), (20, 16), (200, 4));
-    busy.cpu_limit_millicores = 200;
+    busy.running_limits.cpu_millicores = Some(200);
     let pods = vec![busy];
 
     let sizing = analyze(&pods, current_usage);
@@ -189,10 +190,14 @@ fn suggestion_is_capped_at_the_limit_when_usage_is_pinned_there() {
 #[test]
 fn suggestion_is_not_capped_when_a_pod_has_no_limit() {
     let mut limited = pod("api-a", deployment("api"), (100, 128), (180, 100));
-    limited.cpu_limit_millicores = 150;
-    let unlimited = pod("api-b", deployment("api"), (100, 128), (180, 100));
+    limited.running_limits.cpu_millicores = Some(150);
+    // A pod with a limit on only some containers is unbounded overall, so the
+    // summed limit it reports is not a ceiling.
+    let mut partial = pod("api-b", deployment("api"), (100, 128), (180, 100));
+    partial.cpu_limit_millicores = 150;
+    partial.running_limits = RunningLimits { cpu_millicores: None, memory_mb: Some(256) };
 
-    let sizing = analyze(&[limited, unlimited], current_usage);
+    let sizing = analyze(&[limited, partial], current_usage);
 
     assert_eq!(sizing[0].suggested_cpu, Some(240));
     assert!(!sizing[0].cpu_at_limit);

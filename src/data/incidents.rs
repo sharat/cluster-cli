@@ -474,6 +474,7 @@ mod tests {
             sidecar_containers: vec![],
             owner: None,
             metrics_available: true,
+            running_limits: Default::default(),
             node_name: Some("node-a".to_string()),
             containers: vec![ContainerInfo {
                 name: "app".to_string(),

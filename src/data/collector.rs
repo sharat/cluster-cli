@@ -671,6 +671,11 @@ fn parse_pod(item: &Value, namespace: &str, top_map: &HashMap<String, (u64, u64)
     let (memory_request_mb, memory_limit_mb) =
         effective_pod_memory_resources(spec_containers, init_containers);
 
+    let running_limits = RunningLimits {
+        cpu_millicores: running_limit(spec_containers, init_containers, container_cpu),
+        memory_mb: running_limit(spec_containers, init_containers, container_memory),
+    };
+
     let metrics_available = top_map.contains_key(&name);
     let (cpu_millicores, memory_mb) = top_map.get(&name).copied().unwrap_or((0, 0));
 
@@ -741,6 +746,7 @@ fn parse_pod(item: &Value, namespace: &str, top_map: &HashMap<String, (u64, u64)
         sidecar_containers,
         owner,
         metrics_available,
+        running_limits,
     }
 }
 
@@ -1418,6 +1424,23 @@ fn effective_pod_resources(
 
     let app = app_containers.into_iter().flatten().map(&read).fold(sidecars, add);
     max(app, init_peak)
+}
+
+/// Sum of the limits of the app containers and native sidecars, or None when
+/// any of them is unlimited.
+fn running_limit(
+    app_containers: Option<&Vec<Value>>,
+    init_containers: Option<&Vec<Value>>,
+    read: impl Fn(&Value) -> (u64, u64),
+) -> Option<u64> {
+    let sidecars = init_containers.into_iter().flatten().filter(|c| is_sidecar(c));
+    let total: Option<u64> = app_containers
+        .into_iter()
+        .flatten()
+        .chain(sidecars)
+        .map(|container| Some(read(container).1).filter(|&limit| limit > 0))
+        .sum();
+    total.filter(|&limit| limit > 0)
 }
 
 fn container_cpu(container: &Value) -> (u64, u64) {
@@ -2321,6 +2344,35 @@ mod tests {
         let pod = parse_pod(&item, "default", &measured);
         assert!(pod.metrics_available);
         assert_eq!((pod.cpu_millicores, pod.memory_mb), (5, 0));
+    }
+
+    #[test]
+    fn running_limits_cover_app_containers_and_sidecars_only() {
+        let item = json!({
+            "metadata": { "name": "web" },
+            "spec": {
+                "initContainers": [
+                    { "name": "migrate",
+                      "resources": { "limits": { "cpu": "2", "memory": "2Gi" } } },
+                    { "name": "proxy", "restartPolicy": "Always",
+                      "resources": { "limits": { "cpu": "100m", "memory": "64Mi" } } }
+                ],
+                "containers": [
+                    { "name": "app", "resources": { "limits": { "cpu": "200m", "memory": "256Mi" } } },
+                    { "name": "logger", "resources": { "limits": { "memory": "32Mi" } } }
+                ]
+            },
+            "status": { "phase": "Running" }
+        });
+
+        let pod = parse_pod(&item, "default", &HashMap::new());
+
+        // The finished init container's 2-CPU limit dominates the effective
+        // pod limit but does not bound the running pod.
+        assert_eq!(pod.cpu_limit_millicores, 2000);
+        // `logger` has no CPU limit, so the running pod's CPU is unbounded.
+        assert_eq!(pod.running_limits.cpu_millicores, None);
+        assert_eq!(pod.running_limits.memory_mb, Some(256 + 32 + 64));
     }
 
     #[test]

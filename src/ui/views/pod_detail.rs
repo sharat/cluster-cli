@@ -594,6 +594,7 @@ mod tests {
             sidecar_containers: vec![container("istio-proxy")],
             owner: None,
             metrics_available: true,
+            running_limits: Default::default(),
             node_name: None,
             containers: vec![container("app")],
         }

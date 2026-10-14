@@ -256,6 +256,7 @@ mod tests {
             sidecar_containers: vec![],
             owner: Some(PodOwner { kind: "Deployment".to_string(), name: name.to_string() }),
             metrics_available: true,
+            running_limits: Default::default(),
             node_name: None,
             containers: vec![],
         }

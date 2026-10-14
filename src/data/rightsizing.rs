@@ -173,19 +173,20 @@ fn size_workload(
     let mut cpu = ResourceTotals::default();
     let mut memory = ResourceTotals::default();
     let mut measured = 0u64;
-    // Lowest per-pod limit across measured pods; None if any pod has none.
+    // Lowest running limit across measured pods; None if any pod is unbounded.
     let mut cpu_limit: Option<u64> = Some(u64::MAX);
     let mut memory_limit: Option<u64> = Some(u64::MAX);
-    let tighter =
-        |current: Option<u64>, limit: u64| current.filter(|_| limit > 0).map(|c| c.min(limit));
+    let tighter = |current: Option<u64>, limit: Option<u64>| {
+        current.zip(limit).map(|(current, limit)| current.min(limit))
+    };
     for pod in pods {
         // Compare requests with usage only where usage was measured.
         let Some((cpu_used, memory_used)) = usage(pod) else {
             continue;
         };
         measured += 1;
-        cpu_limit = tighter(cpu_limit, pod.cpu_limit_millicores);
-        memory_limit = tighter(memory_limit, pod.memory_limit_mb);
+        cpu_limit = tighter(cpu_limit, pod.running_limits.cpu_millicores);
+        memory_limit = tighter(memory_limit, pod.running_limits.memory_mb);
         cpu.usage += cpu_used;
         cpu.request += pod.cpu_request_millicores;
         memory.usage += memory_used;
