@@ -89,6 +89,7 @@ Bottom bar shows:
 | `u` | Open right-sizing view |
 | `w` | Toggle workload popup |
 | `Esc` | Clear the incident focus set by `Enter` on an incident |
+| `?` | Help: every key and marker (works in every view) |
 
 ### Namespace Management
 
@@ -309,26 +310,28 @@ Entries marked with `⚡` are **precursors** - events (like rollouts or node con
 
 ### Health Score Colors
 
-- **90-100 (A)**: Green - Excellent health
-- **75-89 (B)**: Lime - Good health
-- **60-74 (C)**: Yellow - Fair health
-- **45-59 (D)**: Orange - Poor health
-- **0-44 (F)**: Red - Critical health
+The letter grade is always shown next to the score:
+
+- **90-100 (A)**: Green, bold
+- **75-89 (B)**: Green
+- **60-74 (C)**: Yellow
+- **45-59 (D)**: Red
+- **0-44 (F)**: Red, bold
 
 ### Pod and Node Status Colors
 
-Pods and nodes are colored by their health status:
+Pods and nodes show a status marker, colored by their health status:
 
-- **Healthy**: Green
-- **Elevated**: Yellow
-- **Warning**: Orange
-- **Critical**: Red (for example, a crash-looping or OOM-killed container, including a sidecar)
+- **Healthy** (`✓`): Green
+- **Elevated** (`~`): Cyan
+- **Warning** (`!`): Yellow
+- **Critical** (`!!`): Red, bold (for example, a crash-looping or OOM-killed container, including a sidecar)
 
 ### Incident Severity
 
 - **Critical** (`!!`): Red (CrashLoopBackOff, OOMKilled, ImagePullBackOff, NodeNotReady)
 - **Warning** (`!`): Yellow (FailedScheduling, Evicted, FailedMount, FailedAttachVolume, Unhealthy)
-- **Elevated** (`~`): Light blue (other warnings)
+- **Elevated** (`~`): Cyan (other warnings)
 
 ### Resource Pressure
 
@@ -339,31 +342,31 @@ Memory/CPU bars use a gradient:
 
 Pressure threshold: **85%**
 
-## Accessibility Features
+## Accessibility
 
-### Keyboard-First Design
+### Keyboard Only
 
-All functionality is accessible via keyboard. No mouse required.
+Everything works from the keyboard; there is no mouse support to depend on. Press `?` in any view for the help screen, which lists every key and explains each marker.
 
-### Status Indicators
+### Color Is Never the Only Signal
 
-Uses both color AND text/symbols:
-- Ready/Not Ready status as text
-- Severity labels in addition to colors
-- `●` indicator for current namespace
-- `↑` indicator for focused panel
-- `⚡` precursor marker in timeline
+- Status is written as a marker as well as a color: `!!` critical, `!` warning, `~` elevated, `✓` healthy. The same marks are used for pods, nodes, incidents, and diagnosis findings.
+- The focused panel has `▶` before its title, not only a highlighted border.
+- The selected row has a `>` marker and is drawn in reverse video.
+- Right-sizing verdicts are words (`[under]`, `[over]`); a suggestion capped at a limit is marked `*`.
+- Timeline precursors are marked `⚡`, a symbol used for nothing else.
 
-### Consistent Navigation
+### Readable on Light and Dark Themes
 
-- `↑`/`↓` and `j`/`k` work everywhere
-- `Tab` always cycles sections/panels
-- `Esc` or `q` always returns/closes
-- `Enter` always selects/details
+Text uses your terminal's default foreground, and highlights use the terminal's named colors (red, yellow, green, cyan), so your color scheme decides the exact shades. Only decorative elements, such as usage bars and unfocused borders, use fixed or dim colors.
 
-### Screen Reader Considerations
+### No-Color Mode
 
-All status information is textual and available to screen readers. Color is supplementary, not the only indicator.
+Run `cluster --no-color`, or set the [`NO_COLOR`](https://no-color.org) environment variable to any non-empty value, to draw the interface without any color. Highlights are drawn in reverse video and all status stays readable from the markers above.
+
+### Screen Readers
+
+The TUI is a full-screen interface that redraws in place, which most screen readers cannot follow. For screen readers, braille displays, or scripting, use the [headless commands](headless.md) instead: `cluster status`, `cluster incidents`, `cluster pods`, and `cluster nodes` print the same health data as plain text (or JSON with `--json`).
 
 ## Overlays & Modals
 
