@@ -1,13 +1,16 @@
 # Configuration
 
-Configure cluster-cli via config file, command-line arguments, or environment variables.
+Configure cluster-cli with a config file or command-line arguments.
 
 ## Configuration File
 
 cluster-cli looks for a configuration file at:
 
-- **Linux/macOS**: `~/.config/cluster-cli/config.toml`
+- **Linux**: `~/.config/cluster-cli/config.toml`
+- **macOS**: `~/Library/Application Support/cluster-cli/config.toml`
 - **Windows**: `%APPDATA%\cluster-cli\config.toml`
+
+`cluster --info` prints the config directory for your platform.
 
 ### Example Configuration
 
@@ -15,10 +18,10 @@ cluster-cli looks for a configuration file at:
 # Kubernetes namespace to monitor
 namespace = "production"
 
-# Resource group (optional, for display/reference only)
+# Azure resource group (optional; accepted but not currently displayed)
 resource_group = "prod-rg"
 
-# Cluster name (optional, for display in header)
+# Cluster name (optional; shown in the header instead of the kubectl context name)
 cluster_name = "prod-us-east-1"
 
 # Refresh interval in seconds (1-86400)
@@ -33,20 +36,22 @@ node_pool_filter = "nodepool1"
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `namespace` | string | `""` | Kubernetes namespace to monitor |
-| `resource_group` | string | `""` | Resource group (display only) |
-| `cluster_name` | string | `""` | Cluster name (display only) |
+| `resource_group` | string | unset | Azure resource group (accepted, not currently displayed) |
+| `cluster_name` | string | unset | Cluster name shown in the header (falls back to the kubectl context name) |
 | `refresh_interval_secs` | integer | `60` | Refresh interval (1-86400 seconds) |
-| `node_pool_filter` | string | `""` | Node pool label filter |
+| `node_pool_filter` | string | unset | Node pool label filter (TUI only) |
 
 ### Namespace Resolution
 
-When `namespace` is not set or empty, cluster-cli uses this fallback chain:
+The TUI picks the namespace in this order:
 1. Command-line `--namespace` flag
 2. Config file `namespace` setting
 3. Current kubectl context namespace
 4. `"default"` namespace
 
-If none of these provide a valid namespace, the app shows a connection error with guidance.
+The TUI shows a connection error with guidance only when kubectl is missing or no context is configured; other failures to read the context namespace fall back to `"default"`.
+
+Headless subcommands and the MCP server skip step 3: they use the `-n`/`namespace` argument, then the config file, then `"default"`.
 
 ### Refresh Interval Clamping
 
@@ -71,8 +76,8 @@ cluster [OPTIONS]
 | Flag | Short | Type | Description |
 |------|-------|------|-------------|
 | `--namespace` | `-n` | `<NAMESPACE>` | Kubernetes namespace to monitor |
-| `--resource-group` | `-g` | `<RESOURCE_GROUP>` | Resource group (display only) |
-| `--cluster` | `-c` | `<CLUSTER>` | Cluster name (display only) |
+| `--resource-group` | `-g` | `<RESOURCE_GROUP>` | Azure resource group (not currently displayed) |
+| `--cluster` | `-c` | `<CLUSTER>` | Cluster name shown in the header |
 | `--refresh` | `-r` | `<SECONDS>` | Refresh interval [default: 60] |
 | `--frequency` | | `<SECONDS>` | Alias for `--refresh` |
 | `--node-pool-filter` | | `<FILTER>` | Node pool name to filter |
@@ -96,12 +101,15 @@ cluster-cli automatically detects labels from these managed Kubernetes services:
 
 | Service | Label Pattern |
 |---------|---------------|
-| **AKS** | `agentpool=<name>` |
+| **AKS** | `kubernetes.azure.com/agentpool=<name>` or `agentpool=<name>` |
 | **EKS** | `eks.amazonaws.com/nodegroup=<name>` |
 | **GKE** | `cloud.google.com/gke-nodepool=<name>` |
-| **Karpenter** | `karpenter.sh/nodepool=<name>` |
+| **Karpenter** | `karpenter.sh/nodepool=<name>` or `karpenter.sh/provisioner-name=<name>` |
 | **Cluster API** | `cluster.x-k8s.io/deployment-name=<name>` |
 | **kOps** | `kops.k8s.io/instancegroup=<name>` |
+| **Generic** | `nodepool=<name>` |
+
+The match is case-insensitive.
 
 ### Usage
 
@@ -112,17 +120,17 @@ cluster --node-pool-filter nodepool1
 # Filter to specific EKS nodegroup
 cluster --node-pool-filter prod-workers
 
-# With config file
+# With config file (Linux path)
 echo 'node_pool_filter = "nodepool1"' >> ~/.config/cluster-cli/config.toml
 ```
 
-Only nodes matching the specified pool are shown in the dashboard and included in health calculations.
+Only nodes matching the specified pool are shown in the dashboard and included in health calculations. The filter applies to the TUI; headless subcommands and the MCP server report all nodes.
 
 ## Environment Variables
 
 ### Logging
 
-cluster-cli uses the `RUST_LOG` environment variable for log level control:
+The TUI reads the `RUST_LOG` environment variable for log level control. Logging is off unless it is set:
 
 ```bash
 # Enable debug logs (stderr)
@@ -131,8 +139,8 @@ RUST_LOG=debug cluster 2>cluster.log
 # Enable trace logs
 RUST_LOG=trace cluster 2>cluster.log
 
-# Filter by module
-RUST_LOG=cluster_cli::data=debug cluster 2>cluster.log
+# Filter by module (the binary crate is named `cluster`)
+RUST_LOG=cluster::data=debug cluster 2>cluster.log
 ```
 
 **Important**: Logs go to stderr. Since stderr shares the terminal with the TUI, redirect it to a file.
@@ -143,6 +151,10 @@ cluster-cli does not read any other environment variables. It relies on:
 - kubectl configuration (via `~/.kube/config` or `KUBECONFIG`)
 - Its own config file
 - Command-line arguments
+
+### kubectl and kuberc
+
+Every kubectl process cluster-cli starts runs with `KUBECTL_KUBERC=false`, so default flags or aliases in your kuberc file cannot change the output cluster-cli parses. Older kubectl versions ignore the variable. Your own kubectl sessions are unaffected.
 
 ## kubectl Context
 
@@ -159,7 +171,7 @@ kubectl config use-context <context-name>
 kubectl config current-context
 ```
 
-cluster-cli does not provide built-in context switching. Use kubectl or the [MCP Server](mcp.md) `list_contexts` tool for context management.
+cluster-cli does not provide built-in context switching. Use kubectl to manage contexts.
 
 ## Upgrade Management
 
@@ -176,10 +188,7 @@ cluster-cli remembers how it was installed:
 cluster --check-update
 ```
 
-Queries the GitHub releases API and reports:
-- Current version
-- Latest available version
-- Whether an update is available
+Queries the GitHub releases API. If a newer release exists, it prints the current and latest versions with the upgrade command for your install method; otherwise it reports that the current version is up to date.
 
 ### Upgrading
 
@@ -188,9 +197,9 @@ cluster --upgrade
 ```
 
 Automatically upgrades using the detected installation method:
-- **curl**: Re-runs the installer from the immutable release tag
+- **curl** (or unknown): Re-runs the installer from the immutable release tag
 - **homebrew**: Runs `brew upgrade cluster-cli`
-- **cargo**: Runs `cargo install --force cluster-cli`
+- **cargo**: Runs `cargo install cluster-cli`
 
 The curl-based upgrade fetches the installer script from the currently running binary's release tag and verifies it against the bundled copy before execution.
 
@@ -208,10 +217,9 @@ Shows:
 ## Partial Configuration Files
 
 cluster-cli tolerates partial or malformed configuration files:
-- Valid fields are loaded
-- Invalid fields trigger warnings (if logging enabled)
 - Missing fields use defaults
-- Parsing errors for the entire file are logged but don't prevent startup
+- Unknown fields are ignored
+- If the file fails to parse (bad TOML syntax or a wrong value type), cluster-cli prints `warning: ignoring invalid config <path>: <error>` to stderr and starts with defaults for every field
 
 This allows incremental configuration and prevents lockout due to typos.
 
@@ -244,15 +252,16 @@ All kubectl commands are whitelisted to read-only operations:
 - `get` (nodes, pods, events, namespaces, workloads)
 - `top` (metrics)
 - `logs` (container logs)
-- `config` (context queries)
+- `config current-context` and `config view` (context queries)
 
-Mutation verbs are blocked at runtime.
+Mutation verbs are blocked at runtime, as are flags that could redirect requests or swap credentials (`--raw`, `--kubeconfig`, `--server`/`-s`, `--token`, `--as`, `--as-group`, `--as-uid`).
 
 ### Config File Permissions
 
 Recommended permissions for the config file:
 
 ```bash
+# Linux path; see Configuration File above for macOS and Windows
 chmod 600 ~/.config/cluster-cli/config.toml
 ```
 
@@ -305,34 +314,28 @@ See [Headless Mode](headless.md) for complete JSON API documentation.
 
 ### Config File Not Found
 
-If the config file doesn't exist, cluster-cli uses defaults. No error is shown unless logging is enabled:
-
-```bash
-RUST_LOG=debug cluster 2>cluster.log
-# Check cluster.log for "config file not found" message
-```
+If the config file doesn't exist, cluster-cli silently uses defaults.
 
 ### Config Parse Errors
 
-If the config file has syntax errors:
+If the config file has syntax errors or a value of the wrong type, cluster-cli prints a warning to stderr and starts with defaults for all fields:
 
-```bash
-RUST_LOG=debug cluster 2>cluster.log
-# Check cluster.log for "failed to parse config" message
+```
+warning: ignoring invalid config /home/me/.config/cluster-cli/config.toml: <parse error>
 ```
 
-The app still starts with defaults for invalid fields.
+The TUI's alternate screen can hide this line; run a headless command such as `cluster status` to see it.
 
 ### Config Not Applied
 
 Verify the config file location:
 
 ```bash
-# Linux/macOS
-cat ~/.config/cluster-cli/config.toml
-
-# Check with --info
+# Show the config directory for your platform
 cluster --info
+
+# Linux
+cat ~/.config/cluster-cli/config.toml
 ```
 
 Command-line flags override config file settings. Ensure you're not passing conflicting flags.
