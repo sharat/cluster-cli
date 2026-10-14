@@ -45,7 +45,7 @@ Use the **`update-docs` skill** at `.agents/skills/update-docs/SKILL.md`. This s
 - Renders a screenshot for PR inclusion
 
 **Hosted documentation:**
-The `docs/` folder is automatically deployed to GitHub Pages at https://sharat.github.io/cluster-cli/ via the `.github/workflows/pages.yml` workflow (triggered on pushes to `main` that touch `docs/**`).
+The `docs/` folder is published to GitHub Pages at https://sharat.github.io/cluster-cli/: the `.github/workflows/pages.yml` workflow copies it to the `gh-pages` branch, which Pages serves, on pushes to `main` that touch `docs/**`.
 
 **See:** `.agents/skills/update-docs/SKILL.md` for complete documentation update workflow.
 
