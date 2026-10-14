@@ -81,6 +81,7 @@ cluster [OPTIONS]
 | `--refresh` | `-r` | `<SECONDS>` | Refresh interval [default: 60] |
 | `--frequency` | | `<SECONDS>` | Alias for `--refresh` |
 | `--node-pool-filter` | | `<FILTER>` | Node pool name to filter |
+| `--no-color` | | flag | Draw the interface without colors |
 | `--check-update` | | flag | Check for newer release |
 | `--upgrade` | | flag | Upgrade to latest release |
 | `--info` | | flag | Show version and install info |
@@ -144,6 +145,14 @@ RUST_LOG=cluster::data=debug cluster 2>cluster.log
 ```
 
 **Important**: Logs go to stderr. Since stderr shares the terminal with the TUI, redirect it to a file.
+
+### NO_COLOR
+
+Set [`NO_COLOR`](https://no-color.org) to any non-empty value to draw the interface without colors, the same as `--no-color`. Highlights are drawn in reverse video, and every status keeps its text marker (`!!`, `!`, `~`, `✓`).
+
+```bash
+NO_COLOR=1 cluster
+```
 
 ### No Other Environment Variables
 

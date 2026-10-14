@@ -10,9 +10,9 @@ use crate::app::{AppState, AppView, LogInputMode};
 use crate::ui::components::loading_spinner;
 
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
-    let dashboard_help = "[1] Nodes  [2] Incidents  [3] Pods  [Tab] Panel  [j/k] Nav  [Enter] Drill  [w] Workload  [t] Timeline  [u] Sizing  [T] Inc→Timeline  [/] Filter  [s] Sort  [E] Export  [n/N] Namespace  [r] Refresh  [R] Rate  [q] Quit";
-    let detail_help = "[Tab] Section  [j/k] Scroll  [c] Container  [p] Previous  [/] Search  [w] Wrap  [t] Time  [E] Export  [f] Follow  [Esc/q] Back";
-    let node_help = "[j/k] Scroll  [Esc/q] Back";
+    let dashboard_help = "[?] Help  [1] Nodes  [2] Incidents  [3] Pods  [Tab] Panel  [j/k] Nav  [Enter] Drill  [w] Workload  [t] Timeline  [u] Sizing  [T] Inc→Timeline  [/] Filter  [s] Sort  [E] Export  [n/N] Namespace  [r] Refresh  [R] Rate  [q] Quit";
+    let detail_help = "[?] Help  [Tab] Section  [j/k] Scroll  [c] Container  [p] Previous  [/] Search  [w] Wrap  [t] Time  [E] Export  [f] Follow  [Esc/q] Back";
+    let node_help = "[?] Help  [j/k] Scroll  [Esc/q] Back";
 
     // Check if status message is still fresh (< 5s)
     let fresh_error = app.status_message.as_ref().filter(|(_, t)| t.elapsed().as_secs() < 5);
@@ -32,17 +32,17 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             } else if app.is_loading {
                 let mut spans = loading_spinner::spans(app.loading_animation_frame);
                 spans.push(" Loading...".into());
-                (Line::from(spans), Style::default().fg(Color::DarkGray))
+                (Line::from(spans), Style::default())
             } else {
-                let timeline_help = "[j/k] Nav  [s] Sort  [f] Filter Kind  [F] Filter Severity  [c] Clear  [q/Esc] Back";
+                let timeline_help = "[?] Help  [j/k] Nav  [s] Sort  [f] Filter Kind  [F] Filter Severity  [c] Clear  [q/Esc] Back";
                 let help = match &app.view {
                     AppView::Dashboard => dashboard_help,
                     AppView::PodDetail { .. } => detail_help,
                     AppView::NodeDetail { .. } => node_help,
                     AppView::Timeline => timeline_help,
-                    AppView::RightSizing => "[j/k] Scroll  [r] Refresh  [Esc/q] Back",
+                    AppView::RightSizing => "[?] Help  [j/k] Scroll  [r] Refresh  [Esc/q] Back",
                 };
-                (Line::from(format!(" {help} ")), Style::default().fg(Color::DarkGray))
+                (Line::from(format!(" {help} ")), Style::default())
             }
         }
     };

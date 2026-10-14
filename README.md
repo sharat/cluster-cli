@@ -109,6 +109,7 @@ Options:
                                             Node pool name filter (e.g. "nodepool1")
       --check-update                          Check for a newer release without installing it
       --upgrade                               Upgrade using the detected install method
+      --no-color                              Draw without colors (also set by NO_COLOR)
       --info                                  Show version, install method, and config directory
   -h, --help                               Print help
 ```
@@ -267,6 +268,7 @@ Command-line arguments override config file settings.
 | `Enter` | View selected item details (Pods or Nodes), or drill into the selected incident |
 | `w` | Toggle workload popup |
 | `u` | Open the right-sizing view |
+| `?` | Help: every key and marker (any view) |
 | `s` | Cycle pod sort mode |
 | `E` | Export pods to CSV |
 

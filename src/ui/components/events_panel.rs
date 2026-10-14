@@ -2,12 +2,11 @@ use chrono::{DateTime, Local};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
     widgets::{Block, Borders, List, ListItem, ListState},
 };
 
 use crate::app::{AppState, Panel};
-use crate::data::models::IncidentSeverity;
 use crate::ui::{format, theme};
 
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
@@ -19,7 +18,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let incident_count = app.snapshot.as_ref().map(|s| s.incident_buckets.len()).unwrap_or(0);
 
     let block = Block::default()
-        .title(format!(" Incident Queue ({incident_count}) "))
+        .title(theme::panel_title(&format!("Incident Queue ({incident_count})"), is_focused))
         .borders(Borders::ALL)
         .border_style(border_style);
 
@@ -31,11 +30,8 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
             .incident_buckets
             .iter()
             .map(|bucket| {
-                let (icon, style) = match bucket.severity {
-                    IncidentSeverity::Critical => ("!!", Style::default().fg(Color::Red)),
-                    IncidentSeverity::Warning => ("! ", Style::default().fg(Color::Yellow)),
-                    IncidentSeverity::Elevated => ("~ ", Style::default().fg(Color::LightBlue)),
-                };
+                let icon = theme::severity_icon(bucket.severity);
+                let style = Style::default().fg(theme::severity_color(bucket.severity));
                 let target_labels: Vec<String> = if bucket.targets.is_empty() {
                     bucket.affected_resources.clone()
                 } else {

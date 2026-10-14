@@ -168,6 +168,25 @@ for view in "${VIEWS[@]}"; do
             sleep 1
             ;;
 
+        help)
+            echo "Opening the help screen..."
+            send_keys "?"
+            sleep "$WAIT_RENDER"
+            capture_screenshot "07-help"
+            send_keys "Escape"
+            sleep 1
+            ;;
+
+        # Relaunches the app, so keep it last in the view list.
+        no-color)
+            echo "Relaunching with NO_COLOR=1..."
+            send_keys "q"
+            sleep 1
+            tmux send-keys -t cluster-e2e "NO_COLOR=1 $CLUSTER_BIN" C-m
+            sleep "$WAIT_DATA"
+            capture_screenshot "08-no-color"
+            ;;
+
         timeline)
             echo "Opening timeline view..."
             send_keys "t"

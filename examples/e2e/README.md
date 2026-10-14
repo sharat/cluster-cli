@@ -193,6 +193,8 @@ The `test-views.sh` script accepts a comma-separated list of views to capture:
 - `incidents` - Events and incidents view
 - `timeline` - Timeline view (if available on branch)
 - `rightsizing` - Right-sizing view (needs metrics-server; the CI workflow installs it in kind)
+- `help` - Help screen (`?`) with key bindings and the marker legend
+- `no-color` - Dashboard relaunched with `NO_COLOR=1`; relaunches the app, so list it last
 
 ---
 

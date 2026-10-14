@@ -91,10 +91,7 @@ fn render_connection_blocker(f: &mut Frame, area: Rect, app: &AppState) {
     f.render_widget(Paragraph::new(message).wrap(Wrap { trim: true }), rows[1]);
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(
-                "Actions: ",
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-            ),
+            Span::styled("Actions: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::styled("n", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw(" choose namespace  "),
             Span::styled("N", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
@@ -161,7 +158,7 @@ fn workload_list_item(workload: &WorkloadSummary) -> ListItem<'static> {
             Span::raw(" "),
             Span::styled(workload.name.clone(), status_style),
         ]),
-        Line::from(vec![Span::styled(workload.summary.clone(), Style::default().fg(Color::Gray))]),
+        Line::from(vec![Span::styled(workload.summary.clone(), Style::default())]),
     ])
 }
 
@@ -179,14 +176,14 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
         ]),
         Line::from(vec![Span::styled(
             format!("namespace {}", workload.namespace),
-            Style::default().fg(Color::DarkGray),
+            Style::default(),
         )]),
         Line::from(""),
     ];
 
     for (label, value) in &workload.details {
         lines.push(Line::from(vec![
-            Span::styled(format!("{label:<18}"), Style::default().fg(Color::White)),
+            Span::styled(format!("{label:<18}"), Style::default()),
             Span::raw(value.clone()),
         ]));
     }
@@ -194,19 +191,16 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![Span::styled(
         "Recent events",
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        Style::default().add_modifier(Modifier::BOLD),
     )]));
 
     if workload.recent_events.is_empty() {
-        lines.push(Line::from(vec![Span::styled(
-            "No recent workload events.",
-            Style::default().fg(Color::DarkGray),
-        )]));
+        lines.push(Line::from(vec![Span::styled("No recent workload events.", Style::default())]));
     } else {
         for event in workload.recent_events.iter().take(6) {
             let event_color = match event.event_type {
                 EventType::Warning => Color::Yellow,
-                EventType::Normal => Color::DarkGray,
+                EventType::Normal => Color::Reset,
             };
             lines.push(Line::from(vec![
                 Span::styled(
@@ -214,7 +208,7 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
                     Style::default().fg(event_color).add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(format!(" x{} ", event.count)),
-                Span::styled(event.message.clone(), Style::default().fg(Color::White)),
+                Span::styled(event.message.clone(), Style::default()),
             ]));
         }
     }
@@ -223,12 +217,7 @@ fn workload_detail_lines(workload: &WorkloadSummary) -> Vec<Line<'static>> {
 }
 
 fn health_style(status: HealthStatus) -> Style {
-    match status {
-        HealthStatus::Critical => Style::default().fg(Color::Red),
-        HealthStatus::Warning => Style::default().fg(Color::Yellow),
-        HealthStatus::Elevated => Style::default().fg(Color::LightYellow),
-        HealthStatus::Healthy => Style::default().fg(Color::Green),
-    }
+    theme::status_style(&status)
 }
 
 fn render_ns_popup(f: &mut Frame, area: Rect, app: &AppState) {
@@ -249,7 +238,7 @@ fn render_ns_popup(f: &mut Frame, area: Rect, app: &AppState) {
 
     let inner = Rect::new(popup_area.x + 1, popup_area.y + 1, popup_area.width - 2, 1);
     let text = format!("{}_", app.ns_input);
-    f.render_widget(Paragraph::new(text).style(Style::default().fg(Color::White)), inner);
+    f.render_widget(Paragraph::new(text).style(Style::default()), inner);
 }
 
 fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
@@ -274,10 +263,7 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
     if app.is_loading_namespaces {
         let mut spans = components::loading_spinner::spans(app.loading_animation_frame);
         spans.push(" Loading namespaces...".into());
-        f.render_widget(
-            Paragraph::new(Line::from(spans)).style(Style::default().fg(Color::DarkGray)),
-            inner,
-        );
+        f.render_widget(Paragraph::new(Line::from(spans)).style(Style::default()), inner);
         return;
     }
 
@@ -295,7 +281,7 @@ fn render_ns_list_popup(f: &mut Frame, area: Rect, app: &AppState) {
             } else if ns.name == app.config.namespace {
                 (Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD), "● ")
             } else {
-                (Style::default().fg(Color::Gray), "  ")
+                (Style::default(), "  ")
             };
             ListItem::new(format!("{prefix}{:<36} {:>5} pods", ns.name, ns.pod_count)).style(style)
         })
@@ -329,7 +315,7 @@ fn render_refresh_popup(f: &mut Frame, area: Rect, app: &AppState) {
 
     let inner = Rect::new(popup_area.x + 1, popup_area.y + 1, popup_area.width - 2, 1);
     let text = format!("{}_", app.refresh_input);
-    f.render_widget(Paragraph::new(text).style(Style::default().fg(Color::White)), inner);
+    f.render_widget(Paragraph::new(text).style(Style::default()), inner);
 }
 
 fn render_export_popup(f: &mut Frame, area: Rect, app: &AppState) {
@@ -350,7 +336,7 @@ fn render_export_popup(f: &mut Frame, area: Rect, app: &AppState) {
 
     let inner = Rect::new(popup_area.x + 1, popup_area.y + 1, popup_area.width - 2, 1);
     let text = format!("{}_", app.export_input);
-    f.render_widget(Paragraph::new(text).style(Style::default().fg(Color::White)), inner);
+    f.render_widget(Paragraph::new(text).style(Style::default()), inner);
 }
 
 fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
@@ -369,10 +355,8 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
 
     let ns = &app.config.namespace;
 
-    let mut spans = vec![Span::styled(
-        " cluster-cli ",
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-    )];
+    let mut spans =
+        vec![Span::styled(" cluster-cli ", Style::default().add_modifier(Modifier::BOLD))];
 
     let cluster_label = app
         .config
@@ -392,8 +376,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
         spans.push(Span::styled(format!("  pool:{node_pool}"), Style::default().fg(Color::Yellow)));
     }
 
-    spans
-        .push(Span::styled(format!("  {time}{refresh_info}  "), Style::default().fg(Color::White)));
+    spans.push(Span::styled(format!("  {time}{refresh_info}  "), Style::default()));
 
     let header = Paragraph::new(Line::from(spans));
     f.render_widget(header, area);

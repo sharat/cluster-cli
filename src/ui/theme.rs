@@ -1,45 +1,83 @@
 #![allow(dead_code)]
 
 use ratatui::{
+    buffer::Buffer,
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
 
 use crate::data::models::{
-    GRADE_A_THRESHOLD, GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, GRADE_D_THRESHOLD, HealthStatus,
-    RESOURCE_PRESSURE_PCT,
+    GRADE_B_THRESHOLD, GRADE_C_THRESHOLD, HealthStatus, IncidentSeverity, RESOURCE_PRESSURE_PCT,
 };
+
+// Text colors are the terminal's named colors rather than fixed RGB values,
+// so the user's theme keeps them readable on light and dark backgrounds.
+// Body text uses the default foreground; color only adds emphasis to
+// information that is also written out as text or a symbol.
 
 pub fn status_style(status: &HealthStatus) -> Style {
     match status {
-        HealthStatus::Critical => {
-            Style::default().fg(Color::Rgb(220, 38, 38)).add_modifier(Modifier::BOLD)
-        }
-        HealthStatus::Warning => Style::default().fg(Color::Rgb(249, 115, 22)),
-        HealthStatus::Elevated => Style::default().fg(Color::Rgb(234, 179, 8)),
-        HealthStatus::Healthy => {
-            Style::default().fg(Color::Rgb(22, 163, 74)).add_modifier(Modifier::BOLD)
-        }
+        HealthStatus::Critical => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        HealthStatus::Warning => Style::default().fg(Color::Yellow),
+        HealthStatus::Elevated => Style::default().fg(Color::Cyan),
+        HealthStatus::Healthy => Style::default().fg(Color::Green),
     }
 }
 
+/// Single-width status markers, matching the incident queue's severity marks
+/// so the meaning does not depend on color.
 pub fn status_icon(status: &HealthStatus) -> &'static str {
     match status {
-        HealthStatus::Critical => "🔥",
-        HealthStatus::Warning => "⚠ ",
-        HealthStatus::Elevated => "⚡",
+        HealthStatus::Critical => "!!",
+        HealthStatus::Warning => "! ",
+        HealthStatus::Elevated => "~ ",
         HealthStatus::Healthy => "✓ ",
+    }
+}
+
+pub fn severity_color(severity: IncidentSeverity) -> Color {
+    match severity {
+        IncidentSeverity::Critical => Color::Red,
+        IncidentSeverity::Warning => Color::Yellow,
+        IncidentSeverity::Elevated => Color::Cyan,
+    }
+}
+
+pub fn severity_icon(severity: IncidentSeverity) -> &'static str {
+    match severity {
+        IncidentSeverity::Critical => "!!",
+        IncidentSeverity::Warning => "! ",
+        IncidentSeverity::Elevated => "~ ",
     }
 }
 
 pub fn grade_style(grade: char) -> Style {
     match grade {
-        'A' => Style::default().fg(Color::Rgb(22, 163, 74)).add_modifier(Modifier::BOLD),
-        'B' => Style::default().fg(Color::Rgb(132, 204, 22)),
-        'C' => Style::default().fg(Color::Rgb(234, 179, 8)),
-        'D' => Style::default().fg(Color::Rgb(249, 115, 22)),
-        _ => Style::default().fg(Color::Rgb(220, 38, 38)).add_modifier(Modifier::BOLD),
+        'A' => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        'B' => Style::default().fg(Color::Green),
+        'C' => Style::default().fg(Color::Yellow),
+        'D' => Style::default().fg(Color::Red),
+        _ => Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
     }
+}
+
+/// Remove every color from a rendered frame for no-color mode. Cells drawn
+/// with a background color (highlights) become reverse video, so selections
+/// stay visible.
+pub fn strip_colors(buffer: &mut Buffer) {
+    for cell in buffer.content.iter_mut() {
+        if cell.bg != Color::Reset {
+            cell.modifier.insert(Modifier::REVERSED);
+        }
+        cell.set_fg(Color::Reset);
+        cell.set_bg(Color::Reset);
+    }
+}
+
+/// Panel title with a text marker on the focused panel, so focus does not
+/// rely on the border color alone.
+pub fn panel_title(title: &str, focused: bool) -> String {
+    if focused { format!(" ▶ {title} ") } else { format!(" {title} ") }
 }
 
 pub fn score_bar_color(score: u8) -> Color {
@@ -55,11 +93,12 @@ pub fn normal_border_style() -> Style {
 }
 
 pub fn header_style() -> Style {
-    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+    Style::default().add_modifier(Modifier::BOLD)
 }
 
+/// Reverse video stays visible with any terminal theme and without color.
 pub fn selected_style() -> Style {
-    Style::default().bg(Color::DarkGray).fg(Color::White).add_modifier(Modifier::BOLD)
+    Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
 }
 
 /// Color a resource-usage cell by raw percentage (used in pod table CPU/Mem columns)
@@ -88,16 +127,12 @@ pub fn heat_color(pct: u8) -> Color {
 /// Score colour, banded by the same thresholds as the letter grade so the bar
 /// always matches `grade_style`.
 pub fn health_color(score: u8) -> Color {
-    if score >= GRADE_A_THRESHOLD {
-        Color::Rgb(22, 163, 74)
-    } else if score >= GRADE_B_THRESHOLD {
-        Color::Rgb(132, 204, 22)
+    if score >= GRADE_B_THRESHOLD {
+        Color::Green
     } else if score >= GRADE_C_THRESHOLD {
-        Color::Rgb(234, 179, 8)
-    } else if score >= GRADE_D_THRESHOLD {
-        Color::Rgb(249, 115, 22)
+        Color::Yellow
     } else {
-        Color::Rgb(220, 38, 38)
+        Color::Red
     }
 }
 
@@ -275,9 +310,49 @@ pub fn log_level_style(line: &str) -> Style {
         Style::default().fg(Color::Red)
     } else if line_upper.contains("WARN") {
         Style::default().fg(Color::Yellow)
-    } else if line_upper.contains("INFO") {
-        Style::default().fg(Color::White)
     } else {
-        Style::default().fg(Color::Gray)
+        Style::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{buffer::Buffer, layout::Rect};
+
+    use super::*;
+
+    #[test]
+    fn strip_colors_keeps_highlights_as_reverse_video() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 2, 1));
+        buffer[(0, 0)].set_symbol("a").set_fg(Color::Red);
+        buffer[(1, 0)].set_symbol("b").set_fg(Color::Green).set_bg(Color::DarkGray);
+
+        strip_colors(&mut buffer);
+
+        for x in 0..2 {
+            assert_eq!((buffer[(x, 0)].fg, buffer[(x, 0)].bg), (Color::Reset, Color::Reset));
+        }
+        assert!(!buffer[(0, 0)].modifier.contains(Modifier::REVERSED));
+        assert!(buffer[(1, 0)].modifier.contains(Modifier::REVERSED));
+        assert_eq!(buffer[(1, 0)].symbol(), "b");
+    }
+
+    #[test]
+    fn focused_panels_are_marked_in_text() {
+        assert_eq!(panel_title("Pods (3)", true), " ▶ Pods (3) ");
+        assert_eq!(panel_title("Pods (3)", false), " Pods (3) ");
+    }
+
+    #[test]
+    fn status_icons_are_single_width_and_distinct() {
+        let icons = [
+            HealthStatus::Critical,
+            HealthStatus::Warning,
+            HealthStatus::Elevated,
+            HealthStatus::Healthy,
+        ]
+        .map(|status| status_icon(&status));
+        assert!(icons.iter().all(|icon| Span::raw(*icon).width() == 2), "{icons:?}");
+        assert!(!icons.iter().any(|icon| icon.contains('⚡')), "⚡ marks timeline precursors");
     }
 }

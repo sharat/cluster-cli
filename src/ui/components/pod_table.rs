@@ -1,7 +1,7 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Row, Table, TableState},
 };
@@ -33,12 +33,15 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let pod_count = pods.len();
 
     let block = Block::default()
-        .title(format!(
-            " Pods ({})  [sort: {}]  {}{} ",
-            pod_count,
-            app.pod_sort_mode.label(),
-            filter_hint.trim(),
-            incident_hint
+        .title(theme::panel_title(
+            &format!(
+                "Pods ({})  [sort: {}]  {}{}",
+                pod_count,
+                app.pod_sort_mode.label(),
+                filter_hint.trim(),
+                incident_hint
+            ),
+            is_focused,
         ))
         .borders(Borders::ALL)
         .border_style(border_style);
@@ -105,8 +108,10 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         Constraint::Length(6),
     ];
 
-    let table =
-        Table::new(rows, widths).header(header).row_highlight_style(theme::selected_style());
+    let table = Table::new(rows, widths)
+        .header(header)
+        .row_highlight_style(theme::selected_style())
+        .highlight_symbol("> ");
 
     let mut state = TableState::default();
     if is_focused && pod_count > 0 {
@@ -124,7 +129,7 @@ fn resource_triplet_line(pct: u8, summary: String) -> Line<'static> {
         Style::default().fg(theme::heat_color(pct)).add_modifier(Modifier::BOLD),
     ));
     if !summary.is_empty() {
-        spans.push(Span::styled(format!(" {summary}"), Style::default().fg(Color::White)));
+        spans.push(Span::styled(format!(" {summary}"), Style::default()));
     }
     Line::from(spans)
 }
