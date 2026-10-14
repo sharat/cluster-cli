@@ -372,6 +372,7 @@ Press `u` on the dashboard to compare what each workload requests with what it u
 - Usage is the peak seen during the session (from `kubectl top`), so one quiet sample does not understate a busy workload
 - Verdicts: **under** (using more than requested), **over** (using under 30% of a request of at least 50m CPU or 64Mi memory), **no requests**, **no metrics**, or **ok**
 - Suggested per-pod requests are current usage plus 30% headroom, and the summary shows the CPU and memory that following them would free
+- A suggestion never exceeds the container limits; one capped at the limit is marked `*`, since usage pinned at a limit means the limit needs raising too
 - Needs metrics-server in the cluster; without it the view explains that usage is unavailable
 
 ### Pod Diagnosis

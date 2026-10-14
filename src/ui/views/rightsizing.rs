@@ -105,7 +105,7 @@ fn render_summary(f: &mut Frame, area: Rect, workloads: &[WorkloadSizing]) {
             ]),
             Line::styled(
                 format!(
-                    "  over = using under {OVERPROVISIONED_PCT}% of the request; suggestions are usage + {HEADROOM_PCT}% headroom, per pod; \"at limit\" = raise the limit too"
+                    "  over = using under {OVERPROVISIONED_PCT}% of the request; suggestions are usage + {HEADROOM_PCT}% headroom, per pod"
                 ),
                 Style::default().fg(Color::DarkGray),
             ),
@@ -115,10 +115,13 @@ fn render_summary(f: &mut Frame, area: Rect, workloads: &[WorkloadSizing]) {
 }
 
 fn render_table(f: &mut Frame, area: Rect, app: &AppState, workloads: &[WorkloadSizing]) {
-    let block = Block::default()
+    let mut block = Block::default()
         .title(format!(" Workloads ({}) ", workloads.len()))
         .borders(Borders::ALL)
         .border_style(theme::focused_border_style());
+    if workloads.iter().any(|w| w.cpu_at_limit || w.memory_at_limit) {
+        block = block.title_bottom(Line::from(AT_LIMIT_NOTE).right_aligned());
+    }
 
     let header = Row::new([
         "Verdict",
@@ -202,14 +205,18 @@ fn usage_cell(totals: ResourceTotals, fmt: fn(u64) -> String) -> String {
     format!("{usage} / {}{}", fmt(totals.request), pct_suffix(totals))
 }
 
+/// Explains the marker on a suggestion capped at the limit.
+const AT_LIMIT_NOTE: &str =
+    " * capped at the limit: usage is pinned there, so raise the limit too ";
+
 fn suggestion(workload: &WorkloadSizing) -> String {
     let parts: Vec<String> = [
         workload.suggested_cpu.map(|cpu| {
-            let note = if workload.cpu_at_limit { " (at limit)" } else { "" };
+            let note = if workload.cpu_at_limit { "*" } else { "" };
             format!("cpu {}{note}", format::cpu(cpu))
         }),
         workload.suggested_memory.map(|mem| {
-            let note = if workload.memory_at_limit { " (at limit)" } else { "" };
+            let note = if workload.memory_at_limit { "*" } else { "" };
             format!("mem {}{note}", format::memory(mem))
         }),
     ]
@@ -309,6 +316,19 @@ mod tests {
         assert!(text.contains("20m / 500m (4%)"));
         assert!(text.contains("cpu 30m, mem 80Mi"));
         assert!(text.contains("Reclaimable by following the suggestions  CPU 470m  Mem 432Mi"));
+        assert!(!text.contains("capped at the limit"), "no note without a capped suggestion");
+    }
+
+    #[test]
+    fn marks_suggestions_capped_at_the_limit() {
+        let mut busy = pod("busy-worker", (20, 16), (200, 40));
+        busy.running_limits.cpu_millicores = Some(200);
+        busy.running_limits.memory_mb = Some(32);
+
+        let text = rendered(vec![busy]);
+
+        assert!(text.contains("cpu 200m*, mem 32Mi*"), "{text}");
+        assert!(text.contains("* capped at the limit"), "{text}");
     }
 
     #[test]
