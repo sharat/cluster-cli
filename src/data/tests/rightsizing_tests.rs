@@ -169,3 +169,31 @@ fn measured_zero_memory_is_usage_not_missing_metrics() {
     assert_eq!(sizing[0].verdict, SizingVerdict::OverProvisioned);
     assert_eq!(sizing[0].suggested_memory, Some(16));
 }
+
+#[test]
+fn suggestion_is_capped_at_the_limit_when_usage_is_pinned_there() {
+    // Throttled at a 200m limit with a 20m request: 200m + 30% would be 260m,
+    // which Kubernetes rejects as a request above the limit.
+    let mut busy = pod("busy", deployment("busy"), (20, 16), (200, 4));
+    busy.cpu_limit_millicores = 200;
+    let pods = vec![busy];
+
+    let sizing = analyze(&pods, current_usage);
+
+    assert_eq!(sizing[0].verdict, SizingVerdict::UnderProvisioned);
+    assert_eq!(sizing[0].suggested_cpu, Some(200));
+    assert!(sizing[0].cpu_at_limit);
+    assert!(!sizing[0].memory_at_limit);
+}
+
+#[test]
+fn suggestion_is_not_capped_when_a_pod_has_no_limit() {
+    let mut limited = pod("api-a", deployment("api"), (100, 128), (180, 100));
+    limited.cpu_limit_millicores = 150;
+    let unlimited = pod("api-b", deployment("api"), (100, 128), (180, 100));
+
+    let sizing = analyze(&[limited, unlimited], current_usage);
+
+    assert_eq!(sizing[0].suggested_cpu, Some(240));
+    assert!(!sizing[0].cpu_at_limit);
+}

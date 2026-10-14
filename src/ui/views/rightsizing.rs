@@ -105,7 +105,7 @@ fn render_summary(f: &mut Frame, area: Rect, workloads: &[WorkloadSizing]) {
             ]),
             Line::styled(
                 format!(
-                    "  over = using under {OVERPROVISIONED_PCT}% of the request; suggestions are usage + {HEADROOM_PCT}% headroom, per pod"
+                    "  over = using under {OVERPROVISIONED_PCT}% of the request; suggestions are usage + {HEADROOM_PCT}% headroom, per pod; \"at limit\" = raise the limit too"
                 ),
                 Style::default().fg(Color::DarkGray),
             ),
@@ -204,8 +204,14 @@ fn usage_cell(totals: ResourceTotals, fmt: fn(u64) -> String) -> String {
 
 fn suggestion(workload: &WorkloadSizing) -> String {
     let parts: Vec<String> = [
-        workload.suggested_cpu.map(|cpu| format!("cpu {}", format::cpu(cpu))),
-        workload.suggested_memory.map(|mem| format!("mem {}", format::memory(mem))),
+        workload.suggested_cpu.map(|cpu| {
+            let note = if workload.cpu_at_limit { " (at limit)" } else { "" };
+            format!("cpu {}{note}", format::cpu(cpu))
+        }),
+        workload.suggested_memory.map(|mem| {
+            let note = if workload.memory_at_limit { " (at limit)" } else { "" };
+            format!("mem {}{note}", format::memory(mem))
+        }),
     ]
     .into_iter()
     .flatten()

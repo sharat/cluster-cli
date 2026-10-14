@@ -80,6 +80,11 @@ pub struct WorkloadSizing {
     pub suggested_cpu: Option<u64>,
     /// Suggested per-pod memory request (MB) when the current one is off.
     pub suggested_memory: Option<u64>,
+    /// The CPU suggestion was capped at the pods' CPU limit: usage is pinned
+    /// at the limit (throttled), so the limit needs raising too.
+    pub cpu_at_limit: bool,
+    /// The memory suggestion was capped at the pods' memory limit.
+    pub memory_at_limit: bool,
 }
 
 impl WorkloadSizing {
@@ -168,12 +173,19 @@ fn size_workload(
     let mut cpu = ResourceTotals::default();
     let mut memory = ResourceTotals::default();
     let mut measured = 0u64;
+    // Lowest per-pod limit across measured pods; None if any pod has none.
+    let mut cpu_limit: Option<u64> = Some(u64::MAX);
+    let mut memory_limit: Option<u64> = Some(u64::MAX);
+    let tighter =
+        |current: Option<u64>, limit: u64| current.filter(|_| limit > 0).map(|c| c.min(limit));
     for pod in pods {
         // Compare requests with usage only where usage was measured.
         let Some((cpu_used, memory_used)) = usage(pod) else {
             continue;
         };
         measured += 1;
+        cpu_limit = tighter(cpu_limit, pod.cpu_limit_millicores);
+        memory_limit = tighter(memory_limit, pod.memory_limit_mb);
         cpu.usage += cpu_used;
         cpu.request += pod.cpu_request_millicores;
         memory.usage += memory_used;
@@ -199,8 +211,16 @@ fn size_workload(
         SizingVerdict::Ok
     };
 
-    let suggest = |totals: ResourceTotals, step: u64, off: bool| {
-        off.then(|| suggested_request(totals.usage.div_ceil(count.max(1)), step))
+    // A request may not exceed the limit; cap there and say so, since usage
+    // pinned at a limit means the true need is higher than observed.
+    let suggest = |totals: ResourceTotals, step: u64, off: bool, limit: Option<u64>| {
+        off.then(|| {
+            let wanted = suggested_request(totals.usage.div_ceil(count.max(1)), step);
+            match limit.filter(|&limit| limit != u64::MAX && wanted > limit) {
+                Some(limit) => (limit, true),
+                None => (wanted, false),
+            }
+        })
     };
     let (suggest_cpu, suggest_memory) = match verdict {
         SizingVerdict::NoRequests => (true, true),
@@ -210,6 +230,8 @@ fn size_workload(
         }
         SizingVerdict::NoMetrics | SizingVerdict::Ok => (false, false),
     };
+    let cpu_suggestion = suggest(cpu, CPU_STEP_MILLICORES, suggest_cpu, cpu_limit);
+    let memory_suggestion = suggest(memory, MEMORY_STEP_MB, suggest_memory, memory_limit);
 
     WorkloadSizing {
         owner,
@@ -219,8 +241,10 @@ fn size_workload(
         cpu,
         memory,
         verdict,
-        suggested_cpu: suggest(cpu, CPU_STEP_MILLICORES, suggest_cpu),
-        suggested_memory: suggest(memory, MEMORY_STEP_MB, suggest_memory),
+        suggested_cpu: cpu_suggestion.map(|(value, _)| value),
+        suggested_memory: memory_suggestion.map(|(value, _)| value),
+        cpu_at_limit: cpu_suggestion.is_some_and(|(_, capped)| capped),
+        memory_at_limit: memory_suggestion.is_some_and(|(_, capped)| capped),
     }
 }
 
