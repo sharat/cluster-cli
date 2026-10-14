@@ -17,6 +17,8 @@ kubectl cluster-info
 kubectl get nodes
 ```
 
+CPU/memory usage and the right-sizing view need metrics-server in the cluster (`kubectl top nodes` should work). Without it, cluster-cli still shows status, health, and incidents.
+
 ## 3. Launch cluster-cli
 
 ```bash
@@ -27,17 +29,21 @@ The TUI will launch and display your cluster's health dashboard.
 
 ## First Look: The Dashboard
 
-When you first launch cluster-cli, you'll see three panels:
+When you first launch cluster-cli, you'll see the health score, then three panels: Nodes and the Incident Queue side by side, and the Pods table below them:
 
 ```
-┌─ Nodes ────────────────┐┌─ Incidents ────────────┐┌─ Pods ─────────────────┐
-│ node-1     Ready  85%  ││ CrashLoopBackOff    (3)││ api-6d4f9-x2k  Running │
-│ node-2     Ready  72%  ││ FailedScheduling    (2)││ worker-0       Running │
-└────────────────────────┘└────────────────────────┘└────────────────────────┘
+┌─ Nodes (2) ──────────────┐┌─ Incident Queue (2) ──────────────┐
+│ node-1     Ready  85%    ││ CrashLoopBackOff    (3)           │
+│ node-2     Ready  72%    ││ FailedScheduling    (2)           │
+└──────────────────────────┘└───────────────────────────────────┘
+┌─ Pods ────────────────────────────────────────────────────────┐
+│ api-6d4f9-x2k  Running                                        │
+│ worker-0       Running                                        │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 - **Nodes**: CPU/memory usage and health status
-- **Incidents**: Ranked problems requiring attention
+- **Incident Queue**: Ranked problems requiring attention
 - **Pods**: Pod status and resource consumption
 
 ## Essential Keyboard Shortcuts
@@ -50,7 +56,8 @@ When you first launch cluster-cli, you'll see three panels:
 
 ### Views
 - `t` - Open timeline
-- `T` - Open timeline filtered to selected incident
+- `T` - Open timeline for the selected incident (Incident Queue focused)
+- `u` - Open the right-sizing view (needs metrics-server)
 - `w` - Toggle workload popup
 
 ### Namespace
@@ -74,10 +81,10 @@ When you first launch cluster-cli, you'll see three panels:
 
 In pod detail view:
 - `Tab` - Cycle sections (Overview → Events → Logs)
-- `f` - Follow logs
-- `c` - Switch containers (multi-container pods)
-- `/` - Search logs
-- `Esc` - Return to dashboard
+- `f` - Follow logs (Logs section)
+- `c` - Switch containers, including native sidecars (Logs section)
+- `/` - Search logs (Logs section)
+- `Esc` or `q` - Return to dashboard
 
 ### View Node Details
 
@@ -89,15 +96,15 @@ Node detail shows:
 - Hardware specs (CPU, memory capacity)
 - System info (kernel, OS, container runtime, kubelet version)
 - Real-time resource usage
-- Conditions (Ready, MemoryPressure, DiskPressure, PIDPressure)
+- Conditions (Ready, MemoryPressure, DiskPressure, PIDPressure, NetworkUnavailable) and scheduling state
 
 ### Investigate an Incident
 
-1. Navigate to the Incidents panel (press `2`)
+1. Navigate to the Incident Queue (press `2`)
 2. Select an incident
 3. Press `Enter` to jump to the related resource
 
-Or press `T` to open the timeline filtered to that incident's context.
+Or press `T` to open the timeline for that incident.
 
 ### Switch Namespace
 
@@ -126,10 +133,12 @@ Press `s` to cycle through sort modes:
 ### Export Pod Data
 
 1. Press `E` in the dashboard
-2. Enter a filename (or accept the suggested default)
+2. Enter a filename (or accept the suggested default, `<context>-<namespace>-<timestamp>.csv`)
 3. Press `Enter`
 
-CSV file includes: name, namespace, phase, restarts, age, node, CPU, memory, status.
+The file is written to the current directory; the name cannot include a path, and an existing file is never overwritten.
+
+CSV columns: `status` (health and phase), `pod`, `cpu_pct`, `cpu_use`, `cpu_req`, `cpu_lim`, `mem_pct`, `mem_use`, `mem_req`, `mem_lim`, `restarts`, `age`.
 
 ## Command-Line Usage
 
@@ -186,7 +195,7 @@ You can also check out the [Kubernetes Examples](https://github.com/kubernetes/e
 
 ## Configuration File
 
-For persistent settings, create `~/.config/cluster-cli/config.toml`:
+For persistent settings, create `config.toml` in the config directory (`~/.config/cluster-cli/` on Linux, `~/Library/Application Support/cluster-cli/` on macOS; `cluster --info` prints it):
 
 ```toml
 namespace = "production"

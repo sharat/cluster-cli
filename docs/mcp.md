@@ -17,7 +17,9 @@ cluster-cli includes a built-in MCP server that exposes read-only Kubernetes clu
 cluster mcp
 ```
 
-The server runs in the foreground, reading JSON-RPC requests from stdin and writing responses to stdout. Logs are written to stderr.
+The server runs in the foreground, reading one JSON-RPC request per line from stdin and writing one response per line to stdout. A startup line and request parse errors are written to stderr.
+
+When a tool call omits `namespace`, the server uses the config file `namespace`, then `"default"`. It does not read the namespace from the kubectl context.
 
 **Important**: The MCP server uses your current kubectl context. Switch contexts before starting:
 
@@ -52,6 +54,8 @@ Get overall cluster health score, grade, and critical resource counts.
   }
 }
 ```
+
+`findings` is present only with `verbose=true`. Its shape matches `cluster status --json --verbose` (see [Headless Mode](headless.md#cluster-status)).
 
 **Example prompts**:
 - "What's the health of my production cluster?"
@@ -107,8 +111,13 @@ List all pods with status, resource usage, and readiness.
       "namespace": "production",
       "phase": "Running",
       "restarts": 2,
+      "age": "3h",
+      "node": "node-1",
       "cpu_millicores": 150,
       "memory_mb": 512,
+      "cpu_pct": 30,
+      "memory_pct": 50,
+      "status": "healthy",
       "is_ready": true,
       "crash_looping": false,
       "oom_killed": false,
@@ -118,6 +127,8 @@ List all pods with status, resource usage, and readiness.
 }
 ```
 
+Fields match `cluster pods --json` (see [Headless Mode](headless.md#cluster-pods)). `containers` is present only with `verbose=true` and lists app containers and native sidecars (init containers with `restartPolicy: Always`). Restarts, readiness, `crash_looping`, and `oom_killed` include sidecars.
+
 **Example prompts**:
 - "List all pods in production"
 - "Show me pods that are crash looping"
@@ -125,13 +136,13 @@ List all pods with status, resource usage, and readiness.
 
 ### describe_pod
 
-Get detailed information about a specific pod including containers, status, and events.
+Get detailed information about a specific pod: the same fields as `list_pods`, always with containers. Events are not included; use `explain_pod` for an event-based diagnosis.
 
 **Parameters**:
 - `pod_name` (string, **required**): Name of the pod
 - `namespace` (string, optional): Kubernetes namespace
 
-**Returns**:
+**Returns** (pod fields abbreviated):
 ```json
 {
   "version": "1.0.0",
@@ -139,10 +150,15 @@ Get detailed information about a specific pod including containers, status, and 
     "name": "api-6d4f9-x2k",
     "namespace": "production",
     "phase": "Running",
+    "restarts": 2,
+    "status": "critical",
+    "is_ready": false,
+    "crash_looping": false,
+    "oom_killed": true,
     "containers": [
       {
         "name": "app",
-        "ready": true,
+        "ready": false,
         "restart_count": 2,
         "state": "Running",
         "last_termination_reason": "OOMKilled",
@@ -153,6 +169,8 @@ Get detailed information about a specific pod including containers, status, and 
 }
 ```
 
+`containers` lists app containers and native sidecars. Regular init containers are not listed.
+
 **Example prompts**:
 - "Describe the api pod"
 - "Show me details for worker-0"
@@ -160,7 +178,7 @@ Get detailed information about a specific pod including containers, status, and 
 
 ### explain_pod
 
-Explain the likely cause of pod issues by analyzing state, events, and related incidents.
+Explain the likely cause of pod issues by analyzing the pod's container states, its events, its node, and related incidents. It uses the same rule-based diagnosis as the pod detail view and makes no extra kubectl calls beyond the snapshot.
 
 **Parameters**:
 - `pod_name` (string, **required**): Name of the pod
@@ -172,14 +190,32 @@ Explain the likely cause of pod issues by analyzing state, events, and related i
   "version": "1.0.0",
   "data": {
     "pod_name": "api-6d4f9-x2k",
-    "explanation": "Pod: api-6d4f9-x2k\nPhase: Running\nReady: false\n\nIssue: Container was OOMKilled\nLikely cause: Memory usage (512 MB) exceeded limits. Consider increasing memory limits.\n\nRelated incident: OOMKilled (3 occurrences)\n  Container was OOMKilled",
+    "explanation": "Pod: api-6d4f9-x2k\nPhase: Running\nReady: false\n\nIssue (critical): Container app was OOMKilled\nLikely cause: Memory use exceeded its 512 MB limit; raise the limit or reduce usage\nNext: kubectl logs api-6d4f9-x2k -n production --previous\n\nRelated incident: OOMKilled (1 occurrences)\n  container was terminated by the kernel OOM killer",
     "phase": "Running",
     "crash_looping": false,
     "oom_killed": true,
-    "restarts": 2
+    "restarts": 2,
+    "findings": [
+      {
+        "severity": "critical",
+        "issue": "Container app was OOMKilled",
+        "likely_cause": "Memory use exceeded its 512 MB limit; raise the limit or reduce usage",
+        "next_command": "kubectl logs api-6d4f9-x2k -n production --previous"
+      }
+    ]
   }
 }
 ```
+
+`findings` is ordered most severe first and is empty when no problems are detected (the explanation then says "No problems detected"). Each finding has:
+- `severity`: `critical`, `warning`, or `elevated`
+- `issue`: what is wrong
+- `likely_cause`: the most likely cause
+- `next_command`: a read-only kubectl command to run next (`kubectl describe pod`, `kubectl logs --previous`, `kubectl get events --field-selector ...`, `kubectl top pod --containers`, or `kubectl describe node`)
+
+The diagnosis covers app containers, native sidecars, and init containers (image pull failures, config and start errors, OOM kills, crash loops with exit-code hints, repeated restarts), pending pods (scheduling and volume failures, a running init container or a sidecar that has not started), failed and evicted pods, failing liveness and readiness probes, problems on the pod's node, and memory or CPU at 85% or more of its limit.
+
+`explanation` is a plain-text rendering of the same findings plus any incidents that target the pod.
 
 **Example prompts**:
 - "Why is the api pod failing?"
@@ -193,8 +229,8 @@ Fetch recent logs from a pod container.
 **Parameters**:
 - `pod_name` (string, **required**): Name of the pod
 - `namespace` (string, optional): Kubernetes namespace
-- `container` (string, optional): Container name (required for multi-container pods)
-- `tail` (integer, optional): Number of lines to fetch from the end (default: 100, max: 10000)
+- `container` (string, optional): Container name (required for multi-container pods, including pods with native sidecars)
+- `tail` (integer, optional): Number of lines to fetch from the end (default: 100; the input schema advertises a maximum of 10000)
 
 **Returns**:
 ```json
@@ -208,6 +244,8 @@ Fetch recent logs from a pod container.
   }
 }
 ```
+
+`lines` echoes the requested `tail`, and `container` is `null` when not given.
 
 **Example prompts**:
 - "Show me logs for the api pod"
@@ -235,13 +273,18 @@ List all nodes with CPU/memory usage, conditions, and health status.
       "memory_mb": 13500,
       "memory_capacity_mb": 16000,
       "memory_pct": 84,
-      "status": "healthy",
+      "status": "warning",
+      "unhealthy_conditions": 0,
+      "cordoned": false,
+      "draining": false,
       "node_info": {...},
       "conditions": {...}
     }
   ]
 }
 ```
+
+Fields match `cluster nodes --json` (see [Headless Mode](headless.md#cluster-nodes)). `conditions` is present only with `verbose=true`. All nodes are listed; `node_pool_filter` does not apply.
 
 **Example prompts**:
 - "List all nodes"
@@ -260,10 +303,11 @@ List available kubectl contexts and show the current context.
   "version": "1.0.0",
   "data": {
     "current": "prod-cluster",
-    "contexts": "prod-cluster\ndev-cluster\nstaging-cluster"
+    "contexts": ["prod-cluster", "dev-cluster", "staging-cluster"]
   }
 }
 ```
+
 
 **Example prompts**:
 - "What kubectl contexts are available?"
@@ -272,7 +316,7 @@ List available kubectl contexts and show the current context.
 
 ## Cursor Configuration
 
-Add to `.cursor/mcp_config.json` in your workspace or home directory:
+Add to `.cursor/mcp.json` in your workspace, or `~/.cursor/mcp.json` for all workspaces:
 
 ```json
 {
@@ -334,7 +378,7 @@ which cluster
 
 After adding the configuration:
 1. Restart Claude Desktop
-2. Look for the 🔌 icon showing connected MCP servers
+2. Check that cluster-cli appears among the connected MCP servers
 3. cluster-cli tools will appear in the tools list
 
 **Example queries in Claude**:
@@ -344,14 +388,13 @@ After adding the configuration:
 
 ## VS Code Configuration
 
-Install the MCP extension for VS Code, then configure:
-
-Add to `.vscode/settings.json`:
+Add to `.vscode/mcp.json` in your workspace:
 
 ```json
 {
-  "mcp.servers": {
+  "servers": {
     "cluster-cli": {
+      "type": "stdio",
       "command": "cluster",
       "args": ["mcp"]
     }
@@ -363,8 +406,9 @@ Or with absolute path:
 
 ```json
 {
-  "mcp.servers": {
+  "servers": {
     "cluster-cli": {
+      "type": "stdio",
       "command": "/home/user/.local/bin/cluster",
       "args": ["mcp"]
     }
@@ -374,22 +418,26 @@ Or with absolute path:
 
 ## Multi-Cluster Setup
 
-To work with multiple clusters, create separate MCP server entries:
+To work with multiple clusters, create separate MCP server entries, each pointing kubectl at its own kubeconfig through `KUBECONFIG`:
 
 ```json
 {
   "mcpServers": {
     "cluster-prod": {
-      "command": "bash",
-      "args": ["-c", "kubectl config use-context prod-cluster && cluster mcp"]
+      "command": "cluster",
+      "args": ["mcp"],
+      "env": { "KUBECONFIG": "/Users/username/.kube/prod-config" }
     },
     "cluster-dev": {
-      "command": "bash",
-      "args": ["-c", "kubectl config use-context dev-cluster && cluster mcp"]
+      "command": "cluster",
+      "args": ["mcp"],
+      "env": { "KUBECONFIG": "/Users/username/.kube/dev-config" }
     }
   }
 }
 ```
+
+Avoid running `kubectl config use-context` in the server command: it changes the current context in the shared kubeconfig, so the last server started would switch every other server to its cluster.
 
 Then specify which server to use:
 - "@cluster-prod what's the health?"
@@ -399,13 +447,13 @@ Then specify which server to use:
 
 ### Read-Only Access
 
-The MCP server only exposes read-only operations:
+The MCP server only runs read-only kubectl commands, enforced by a whitelist:
 - `get` (cluster state)
 - `top` (metrics)
 - `logs` (read logs)
-- `config` (read context)
+- `config current-context` and `config view` (read context)
 
-No mutation operations are available. Your cluster is safe.
+Mutation verbs are rejected, as are flags that could redirect requests or swap credentials (`--raw`, `--kubeconfig`, `--server`, `--token`, `--as`). kubectl runs with `KUBECTL_KUBERC=false`, so kuberc aliases and default flags do not apply.
 
 ### Credential Access
 
@@ -423,7 +471,7 @@ The MCP server:
 
 ### RBAC Requirements
 
-The MCP server requires these Kubernetes permissions:
+The MCP tools read nodes, pods, pod logs, events, and metrics. The role below also covers the TUI, which additionally reads namespaces and workloads:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -434,6 +482,9 @@ rules:
   - apiGroups: [""]
     resources: ["nodes", "pods", "events", "namespaces"]
     verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
   - apiGroups: ["apps"]
     resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
     verbs: ["get", "list"]
@@ -490,8 +541,8 @@ rules:
 
 ### Slow Responses
 
-- MCP tools fetch data from kubectl with 30-second timeouts
-- Large clusters may take longer
+- Each kubectl command the MCP tools run has a 30-second timeout
+- Most tools fetch a full snapshot (all nodes, plus pods and events in one namespace), so large clusters may take longer
 - Use namespace filtering to reduce data volume
 
 ### Context Issues
@@ -502,7 +553,7 @@ kubectl config use-context <context>
 # Then restart the MCP server
 ```
 
-For multi-cluster setups, use shell scripts in the MCP config (see Multi-Cluster Setup above).
+For multi-cluster setups, give each server entry its own `KUBECONFIG` (see Multi-Cluster Setup above).
 
 ## Example Workflows
 
@@ -519,7 +570,7 @@ For multi-cluster setups, use shell scripts in the MCP config (see Multi-Cluster
 **AI uses**:
 1. `list_incidents` → Find CrashLoopBackOff incidents
 2. `describe_pod` → Get pod details
-3. `explain_pod` → Analyze the issue
+3. `explain_pod` → Get findings with likely causes and next commands
 4. `get_logs` → Fetch recent logs
 
 ### Resource Monitoring

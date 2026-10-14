@@ -3,6 +3,7 @@
 ## Prerequisites
 
 - **kubectl** configured with cluster access
+- **metrics-server** in the cluster (optional; needed for CPU/memory usage and the right-sizing view)
 - **Terminal** with truecolor support (recommended)
 - **Rust 1.85+** (only for building from source)
 
@@ -19,15 +20,19 @@ This installs to `~/.local/bin` by default (no sudo required) and records the in
 ### Custom Install Directory
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | INSTALL_DIR=$HOME/.local/bin bash
+curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash -s -- --install-dir /usr/local/bin
 ```
 
+The installer uses `sudo` only when the directory is not writable.
+
 The installer will:
-1. Detect your platform (Linux x86_64, macOS ARM64, Windows x86_64)
+1. Detect your platform (Linux x86_64, macOS ARM64, Windows x86_64 under Git Bash/MSYS/Cygwin)
 2. Download the latest release binary
 3. Verify SHA256 checksum
 4. Install to the specified directory
 5. Record the install method for `cluster --upgrade`
+
+macOS Intel binaries are not published; build from source or use `cargo install cluster-cli`.
 
 ## Build from Source
 
@@ -108,7 +113,7 @@ The `--info` flag shows:
 cluster --upgrade
 ```
 
-This uses the detected installation method (curl, homebrew, or cargo) to upgrade to the latest release.
+This uses the detected installation method (curl, homebrew, or cargo) to upgrade to the latest release. When the method is unknown, it falls back to the install script.
 
 ### Check for Updates
 
@@ -128,24 +133,25 @@ Download the latest release from [GitHub Releases](https://github.com/sharat/clu
 
 ```bash
 rm ~/.local/bin/cluster
-rm -rf ~/.config/cluster-cli/
+rm -rf ~/.config/cluster-cli/   # Linux; see Configuration Directory below
 ```
 
 ### Cargo-based installation
 
 ```bash
 cargo uninstall cluster-cli
-rm -rf ~/.config/cluster-cli/
+rm -rf ~/.config/cluster-cli/   # Linux; see Configuration Directory below
 ```
 
 ## Configuration Directory
 
 cluster-cli stores configuration at:
 
-- **Linux/macOS**: `~/.config/cluster-cli/`
+- **Linux**: `~/.config/cluster-cli/`
+- **macOS**: `~/Library/Application Support/cluster-cli/`
 - **Windows**: `%APPDATA%\cluster-cli\`
 
-No files are created until you modify settings or the app saves install metadata.
+cluster-cli never writes `config.toml`; you create it. The directory otherwise holds only the recorded install method, written by the installer or after `cluster --upgrade`.
 
 ## Next Steps
 

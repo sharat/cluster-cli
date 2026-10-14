@@ -15,64 +15,68 @@ The incident timeline provides a chronological view of cluster events, container
 
 ### From Dashboard
 
-- Press `t` to open the timeline (all events)
-- Press `T` on a selected incident to open timeline filtered to that incident
+- Press `t` to open the timeline (all entries)
+- Press `T` with the Incident Queue focused to open the timeline for the selected incident. The header shows the incident's reason, and when the incident's first target is a pod, a namespace filter for that pod's namespace is applied. Press `c` to clear it.
 
 ### Timeline View
 
 ```
 ┌─ Incident Timeline ──────────────────────────────────────────────────────┐
-│ Filters: None  |  Sort: Newest First                                      │
-├──────────────────────────────────────────────────────────────────────────┤
-│ 2026-10-14 06:35:00  [CRITICAL]  CrashLoop       Pod/api-6d4f9-x2k       │
-│ ⚡ 2026-10-14 06:30:00  [ELEVATED]  Rollout         Deployment/api         │
-│ 2026-10-14 06:25:00  [WARNING]   SchedulingFail Pod/worker-0             │
-│ 2026-10-14 06:20:00  [CRITICAL]  OOMKilled       Pod/api-6d4f9/app       │
-│ ⚡ 2026-10-14 06:15:00  [WARNING]   NodeCondition   Node/node-1            │
-│ 2026-10-14 06:10:00  [ELEVATED]  Restart         Pod/nginx-abc/nginx     │
+│ Filters: None  |  Sort: Newest First                                     │
 └──────────────────────────────────────────────────────────────────────────┘
-│ ↑/k ↓/j: Navigate  s: Sort  f: Filter Kind  F: Filter Severity  q: Back │
+┌─ Timeline (6 entries) ───────────────────────────────────────────────────┐
+│ 0s ago     [CRITICAL] [CrashLoop]     Pod/api-6d4f9-x2k  Pod is in Cra…  │
+│ 0s ago     [CRITICAL] [OOMKilled]     Pod/api-6d4f9-x2k/app  Container…  │
+│ 0s ago     [ELEVATED] [Restart]       Pod/nginx-abc/nginx  Container r…  │
+│ 0s ago     [CRITICAL] [NodeCondition] Node/node-1  Node is NotReady      │
+│ 4m ago     [ELEVATED] [Rollout]       ⚡ Deployment/api  Scaled up rep…  │
+│ 12m ago    [WARNING]  [SchedulingFail] Pod/worker-0  0/3 nodes are av…   │
+└──────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│ 1/6 | q Back | ↑/k/↓/j Scroll | s Sort | f Filter Kind | F Filter Sev…   │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
+Each row shows the time (relative, such as `5m ago`, for the last 24 hours, otherwise `MM-DD HH:MM`), the severity, the kind, a `⚡` precursor marker, the resource, the namespace when known, and the message.
+
 ## Timeline Entry Types
 
-### Event
-Generic Kubernetes warning events not matching specific patterns.
+Every Kubernetes event in the snapshot (Warning and Normal) becomes one entry, with its kind chosen from the event's reason and message. Pod and node status add further entries.
 
-**Source**: Kubernetes events API  
-**Severity**: Typically Elevated, sometimes Warning
+Event severity: Normal events are Elevated. Warning events are Critical for OOMKilled, CrashLoopBackOff, or NodeNotReady reasons (or "oomkilled" in the message); Warning for FailedScheduling, Evicted, FailedMount, FailedAttachVolume, Unhealthy, and BackOff; otherwise Elevated.
+
+### Event
+Kubernetes events not matching a more specific kind.
+
+**Source**: Kubernetes events  
+**Severity**: From the event (see above)
 
 ### ContainerRestart
-Container restart detected in pod status.
+Container with a non-zero restart count, one entry per container. Covers app containers and native sidecars (init containers with `restartPolicy: Always`).
 
-**Source**: Pod container restart counts  
+**Source**: Container restart counts in pod status  
 **Severity**:
-- 0-2 restarts: Elevated
+- 1-2 restarts: Elevated
 - 3-5 restarts: Warning
 - 6+ restarts: Critical
 
 ### OOMKilled
 Container terminated by the kernel OOM killer due to memory limits.
 
-**Source**: Container termination reason  
-**Severity**: Always Critical
-
+**Source**: Last termination reason of app containers and native sidecars (Critical), and events with an OOMKilled reason or message  
 **Indicates**: Memory limit too low, memory leak, or resource pressure
 
 ### CrashLoop
 Pod is in CrashLoopBackOff state.
 
-**Source**: Pod phase and crash_looping flag  
-**Severity**: Always Critical
-
+**Source**: The pod's crash-looping flag, set when an app container, native sidecar, or init container is in CrashLoopBackOff (Critical), and events with a CrashLoopBackOff or BackOff reason  
 **Indicates**: Application crash, configuration error, missing dependencies
 
 ### NodeConditionChange
-Node condition became unhealthy (NotReady, MemoryPressure, DiskPressure, PIDPressure).
+Node condition is unhealthy (NotReady, MemoryPressure, DiskPressure, PIDPressure), or an event about a Node.
 
-**Source**: Node conditions  
-**Severity**:
+**Source**: Node conditions and Node events  
+**Severity** (from node conditions):
 - NotReady: Critical
 - MemoryPressure: Warning
 - DiskPressure: Warning
@@ -91,21 +95,20 @@ Pod cannot be scheduled on any node.
 ### ImagePullFailure
 Container cannot pull its image.
 
-**Source**: ImagePullBackOff and ErrImagePull events  
-**Severity**: Critical
+**Source**: Events whose message mentions ImagePullBackOff or ErrImagePull, or `Failed` events about pulling an image (`BackOff` events are classified as CrashLoop)  
+**Severity**: From the event (usually Elevated for `Failed` events)
 
 **Causes**: Image not found, registry auth failure, network issues
 
 ### Rollout
-Deployment, StatefulSet, DaemonSet, or ReplicaSet rollout event.
+Deployment, StatefulSet, DaemonSet, or ReplicaSet rollout event. A rollout event also appears once as a regular entry of its own kind.
 
-**Source**: Deployment/ReplicaSet events  
+**Source**: Events on Deployments, ReplicaSets, StatefulSets, and DaemonSets  
 **Types**:
-- **NewRevision**: New deployment revision created
-- **ImageChange**: Container image updated
-- **ScaledUp**: Replicas increased
-- **ScaledDown**: Replicas decreased
-- **Failed**: Rollout failure (ProgressDeadlineExceeded, etc.)
+- **ScaledUp / ScaledDown**: `ScalingReplicaSet` events, or "scaled up"/"scaled down" in the message
+- **ImageChange**: Message mentions an image being updated or changed
+- **NewRevision**: `NewRevision` or `RollingUpdate` reason, or "revision" in the message
+- **Failed**: `ProgressDeadlineExceeded` or `FailedCreate` reason, or "exceeded its progress deadline" in the message
 
 **Severity**:
 - NewRevision, ImageChange, ScaledUp, ScaledDown: Elevated
@@ -125,11 +128,13 @@ An entry is marked as a precursor if:
    - Rollout (deployments often cause issues)
    - NodeConditionChange (node issues affect pods)
 
-2. **It happened before a critical incident**
+2. **It happened before a critical incident**: a Critical CrashLoop, OOMKilled, ImagePullFailure, or SchedulingFailure entry
 
-3. **It's within the precursor window** (default: 10 minutes)
+3. **It's within the precursor window** (10 minutes)
 
-4. **For rollouts**: It affects the same workload
+4. **For rollouts**: It affects the same workload. The workload is matched on the first dash-separated part of the resource name (`api` for `Deployment/api` and `Pod/api-6d4f9-x2k`)
+
+Both timestamps must parse as RFC 3339.
 
 ### Example
 
@@ -152,7 +157,6 @@ The rollout at 06:30 is marked as a precursor because:
 |-----|--------|
 | `↑` / `k` | Move up |
 | `↓` / `j` | Move down |
-| `Enter` | Show entry details |
 | `s` | Toggle sort order (newest ↔ oldest) |
 | `f` | Cycle kind filter |
 | `F` | Cycle severity filter |
@@ -179,11 +183,11 @@ Press `s` to toggle.
 
 #### Kind Filter (Press `f`)
 
-Cycle through:
+Cycle through (the header shows the active filter as `Kind: <label>`):
 - **All**: Show all entry types
 - **Event**: Only generic events
 - **Restart**: Only container restarts
-- **OOM**: Only OOMKilled terminations
+- **OOMKilled**: Only OOMKilled terminations
 - **CrashLoop**: Only crash loops
 - **NodeCondition**: Only node condition changes
 - **SchedulingFail**: Only scheduling failures
@@ -200,29 +204,9 @@ Cycle through:
 
 #### Clear Filters (Press `c`)
 
-Reset all filters to show everything.
+Reset the kind, severity, and namespace filters to show everything. Leaving the timeline with `q`/`Esc` also clears them.
 
-## Entry Details
-
-Press `Enter` on a timeline entry to see full details:
-
-```
-┌─ Entry Details ──────────────────────────────────────────────────────────┐
-│                                                                           │
-│ Type: CrashLoop                                                           │
-│ Severity: Critical                                                        │
-│ Timestamp: 2026-10-14T06:35:00Z                                           │
-│ Resource: Pod/api-6d4f9-x2k                                               │
-│ Namespace: production                                                     │
-│ Message: Pod is in CrashLoopBackOff                                       │
-│                                                                           │
-│ Details:                                                                  │
-│   Pod: api-6d4f9-x2k                                                      │
-│   Restarts: 5                                                             │
-│                                                                           │
-│ Press Esc or q to close                                                   │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+There is no separate details view; each row shows the entry's message inline.
 
 ## Timeline Building
 
@@ -230,48 +214,47 @@ Press `Enter` on a timeline entry to see full details:
 
 The timeline is built from:
 
-1. **Kubernetes Events**: Warning and normal events from the cluster
-2. **Pod Status**: Container restarts, crash loops, OOMKilled markers
-3. **Node Status**: Node condition changes
-4. **Workload Events**: Deployment, StatefulSet, DaemonSet rollouts
+1. **Kubernetes Events**: Warning and Normal events in the current namespace
+2. **Pod Status**: Container restarts, crash loops, OOMKilled markers (including native sidecars)
+3. **Node Status**: Unhealthy node conditions
+4. **Workload Events**: Deployment, ReplicaSet, StatefulSet, and DaemonSet events, as Rollout entries
+
+The timeline is rebuilt from the latest snapshot on every refresh.
 
 ### Timestamp Handling
 
-- **Events**: Use event timestamp from Kubernetes
-- **Pod/Container Status**: Estimated as current time (kubectl doesn't provide exact restart timestamps)
-- **Node Conditions**: Estimated as current time
+- **Events**: `lastTimestamp`, or for events written through the newer `events.k8s.io` API (such as the scheduler's FailedScheduling), `series.lastObservedTime` or `eventTime`, then `firstTimestamp` or the creation time
+- **Pod/Container Status**: Current time when the timeline is built (kubectl doesn't provide exact restart timestamps)
+- **Node Conditions**: Current time when the timeline is built
 
 Timestamps are sorted using RFC3339 parsing with fallback to string comparison.
 
 ### Entry Limits
 
 The timeline shows:
-- **All events** from the current snapshot
+- **Events** from the current snapshot: the 50 most recent per refresh, with Warning events kept ahead of Normal ones
 - **All pod incidents** (restarts, crashes, OOM)
-- **All node conditions**
-- **All workload rollouts**
+- **All unhealthy node conditions**
+- **All workload rollouts** found in those events
 
-No arbitrary limits. Filter to focus.
+Filter to focus.
 
 ## Correlation Analysis
 
 ### Workload Grouping
 
-Entries are internally grouped by:
+`group_timeline_entries()` in `src/data/timeline.rs` can group entries by:
 - **Workload key**: Extracted from resource names (e.g., "api" from "api-6d4f9-x2k")
 - **Namespace**: Shared namespace
-- **Time window**: Events within N seconds (default: 5 minutes)
+- **Time window**: Entries within a caller-supplied number of seconds
 
-This powers future features like:
-- "Show me all incidents related to the API deployment"
-- "Group timeline entries by service"
-- "Find correlated failures"
+The timeline view does not use it yet; entries are shown as a flat list.
 
 ### Time Window
 
-The precursor window is **10 minutes** by default. An event must occur within 10 minutes before an incident to be considered a precursor.
+The precursor window is **10 minutes**. An entry must occur within 10 minutes before an incident to be considered a precursor.
 
-This is configurable in the code (`src/data/timeline.rs`):
+The window is set where the timeline is built, in `src/app.rs`, and is not user-configurable:
 ```rust
 mark_precursors(&mut entries, 600); // 600 seconds = 10 minutes
 ```
@@ -281,16 +264,15 @@ mark_precursors(&mut entries, 600); // 600 seconds = 10 minutes
 ### Investigating a CrashLoopBackOff
 
 1. Navigate to incident in dashboard
-2. Press `T` to open timeline filtered to that incident
+2. Press `T` to open the timeline for that incident
 3. Look for precursor events (marked with `⚡`)
-4. Check rollouts or node condition changes before the crash
-5. Press `Enter` on the rollout to see details
+4. Check rollouts or node condition changes before the crash and read their messages
 
 ### Finding the Cause of OOMKills
 
 1. Open timeline with `t`
-2. Press `F` to filter to Critical severity
-3. Press `f` to filter to OOM entries
+2. Press `F` once to filter to Critical severity
+3. Press `f` until the header shows `Kind: OOMKilled` (three presses)
 4. Look at the timeline before each OOM
 5. Check for:
    - Recent rollouts (image changes, scaling)
@@ -300,17 +282,17 @@ mark_precursors(&mut entries, 600); // 600 seconds = 10 minutes
 ### Tracking Deployment Rollout Impact
 
 1. Open timeline with `t`
-2. Press `f` to filter to Rollout entries
+2. Press `f` until the header shows `Kind: Rollout` (eight presses)
 3. Note the rollout timestamp
-4. Switch filter to All (`f` several times)
+4. Press `c` to clear the filter
 5. Look for incidents shortly after the rollout
 
 ### Correlating Node Issues with Pod Failures
 
 1. Open timeline with `t`
-2. Press `f` to filter to NodeCondition
+2. Press `f` until the header shows `Kind: NodeCondition` (five presses)
 3. Note nodes with NotReady or MemoryPressure
-4. Switch to All entries
+4. Press `c` to show all entries
 5. Look for pod evictions or scheduling failures after node issues
 
 ## Timeline Limitations
@@ -385,14 +367,14 @@ Key functions:
 - `build_timeline()`: Constructs timeline from snapshot
 - `mark_precursors()`: Identifies precursor events
 - `filter_timeline_entries()`: Applies kind/severity filters
-- `group_timeline_entries()`: Groups correlated entries (future feature)
+- `group_timeline_entries()`: Groups correlated entries (not yet used by the UI)
 
 ### Performance
 
 Timeline building is fast:
 - O(n log n) sorting
 - O(n) filtering
-- O(n²) precursor detection (bounded by time window)
+- O(incidents × entries) precursor detection
 
 No performance issues even with hundreds of events.
 

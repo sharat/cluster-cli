@@ -45,11 +45,12 @@ cluster status --json
     "critical_pods": 2,
     "total_restarts": 5,
     "context": "prod-cluster",
-    "namespace": "production",
-    "findings": null
+    "namespace": "production"
   }
 }
 ```
+
+`findings` is omitted unless `--verbose` is set.
 
 #### With Verbose Flag
 
@@ -57,7 +58,7 @@ cluster status --json
 cluster status --json --verbose
 ```
 
-Includes detailed findings array:
+Includes a findings array: critical node and pod counts, a restart finding when total restarts exceed 10, and the top 5 incidents:
 
 ```json
 {
@@ -120,8 +121,7 @@ Returns top 10 incidents by default:
       "targets": [
         {
           "kind": "Pod",
-          "name": "api-6d4f9-x2k",
-          "container": null
+          "name": "api-6d4f9-x2k"
         }
       ],
       "latest_timestamp": "2026-10-14T06:30:00Z",
@@ -135,8 +135,7 @@ Returns top 10 incidents by default:
       "targets": [
         {
           "kind": "Pod",
-          "name": "worker-0",
-          "container": null
+          "name": "worker-0"
         }
       ],
       "latest_timestamp": "2026-10-14T06:25:00Z",
@@ -145,6 +144,8 @@ Returns top 10 incidents by default:
   ]
 }
 ```
+
+`severity` is `critical`, `warning`, or `elevated`. A target's `kind` is `Pod`, `Node`, `Container`, or a workload kind such as `Deployment`; `container` appears only on `Container` targets (whose `name` is the pod name), and `sample_message` only when one exists. `latest_timestamp` is an empty string for incidents derived from pod or node status rather than events.
 
 #### With Verbose Flag
 
@@ -173,7 +174,7 @@ cluster pods --json
       "namespace": "production",
       "phase": "Running",
       "restarts": 2,
-      "age": "3h15m",
+      "age": "3h",
       "node": "node-1",
       "cpu_millicores": 150,
       "memory_mb": 512,
@@ -182,12 +183,16 @@ cluster pods --json
       "status": "healthy",
       "is_ready": true,
       "crash_looping": false,
-      "oom_killed": false,
-      "containers": null
+      "oom_killed": false
     }
   ]
 }
 ```
+
+- `cpu_millicores` and `memory_mb` are current usage from `kubectl top` (0 without metrics-server).
+- `cpu_pct` and `memory_pct` are usage as a percentage of the pod's effective CPU and memory limits, or 0 when no limit is set. Effective limits include native sidecars and init containers the way Kubernetes computes them.
+- `restarts`, `is_ready`, `crash_looping`, and `oom_killed` include native sidecars (init containers with `restartPolicy: Always`); `crash_looping` is also set when a regular init container is in CrashLoopBackOff.
+- `status` is `healthy`, `elevated`, `warning`, or `critical`. `age` is a single unit (`45s`, `12m`, `3h`, `2d`).
 
 #### With Verbose Flag
 
@@ -195,7 +200,7 @@ cluster pods --json
 cluster pods --json --verbose
 ```
 
-Includes per-container details:
+Includes per-container details for app containers and native sidecars (regular init containers are not listed):
 
 ```json
 {
@@ -206,7 +211,7 @@ Includes per-container details:
       "namespace": "production",
       "phase": "Running",
       "restarts": 2,
-      "age": "3h15m",
+      "age": "3h",
       "node": "node-1",
       "cpu_millicores": 150,
       "memory_mb": 512,
@@ -226,18 +231,18 @@ Includes per-container details:
           "last_exit_code": 137
         },
         {
-          "name": "sidecar",
+          "name": "log-shipper",
           "ready": true,
           "restart_count": 0,
-          "state": "Running",
-          "last_termination_reason": null,
-          "last_exit_code": null
+          "state": "Running"
         }
       ]
     }
   ]
 }
 ```
+
+`state` is `Running`, `Waiting (<reason>)`, `Terminated (<reason>)`, or `Unknown`. `last_termination_reason` and `last_exit_code` come from the container's last termination (or its current one if it is terminated) and are omitted when there is none.
 
 ### cluster nodes
 
@@ -262,16 +267,27 @@ cluster nodes --json
       "memory_mb": 13500,
       "memory_capacity_mb": 16000,
       "memory_pct": 84,
-      "status": "healthy",
+      "status": "warning",
       "unhealthy_conditions": 0,
       "cordoned": false,
       "draining": false,
-      "node_info": null,
-      "conditions": null
+      "node_info": {
+        "kernel_version": "5.15.0-1051-gcp",
+        "os_image": "Ubuntu 22.04.3 LTS",
+        "container_runtime": "containerd://1.7.2",
+        "kubelet_version": "v1.28.3-gke.1286000",
+        "architecture": "amd64",
+        "operating_system": "linux"
+      }
     }
   ]
 }
 ```
+
+- `cpu_capacity` is allocatable CPU in millicores; `cpu_pct` and `memory_pct` are usage relative to allocatable CPU and memory. `memory_capacity_mb` is the node's total memory capacity.
+- `status` is `critical` when the node is NotReady or has an unhealthy condition, otherwise it follows memory usage (`elevated` from 60%, `warning` from 75%, `critical` from 85%).
+- `node_info` is omitted when the node reports no system info. `draining` is currently always `false`.
+- Headless commands ignore `node_pool_filter` and report every node.
 
 #### With Verbose Flag
 
@@ -279,7 +295,7 @@ cluster nodes --json
 cluster nodes --json --verbose
 ```
 
-Includes node info and full conditions:
+Adds the node conditions:
 
 ```json
 {
@@ -294,7 +310,7 @@ Includes node info and full conditions:
       "memory_mb": 13500,
       "memory_capacity_mb": 16000,
       "memory_pct": 84,
-      "status": "healthy",
+      "status": "warning",
       "unhealthy_conditions": 0,
       "cordoned": false,
       "draining": false,
@@ -331,15 +347,17 @@ cluster logs <pod-name> [OPTIONS]
 | Flag | Short | Type | Description |
 |------|-------|------|-------------|
 | `--container` | `-c` | `<NAME>` | Container name (required for multi-container pods) |
-| `--tail` | `-n` | `<LINES>` | Number of lines to show [default: 100] |
+| `--tail` | | `<LINES>` | Number of lines to show [default: 100] |
 | `--follow` | `-f` | flag | Follow log output (live streaming) |
 | `--timestamps` | | flag | Include Kubernetes timestamps |
+| `--namespace` | `-n` | `<NAMESPACE>` | Kubernetes namespace (defaults to the config file namespace) |
+| `--context` | | `<CONTEXT>` | kubectl context (passed to `kubectl logs`) |
 
 #### Examples
 
 ```bash
 # Get last 100 lines
-cluster logs api-6d4f9-x2k
+cluster logs api-6d4f9-x2k --namespace production
 
 # Get last 500 lines from specific container
 cluster logs api-6d4f9-x2k -c app --tail 500
@@ -347,11 +365,11 @@ cluster logs api-6d4f9-x2k -c app --tail 500
 # Follow logs with timestamps
 cluster logs api-6d4f9-x2k --follow --timestamps
 
-# Specific container in multi-container pod
-cluster logs worker-0 -c sidecar -n 200
+# Native sidecar container in a multi-container pod
+cluster logs worker-0 -c log-shipper --tail 200
 ```
 
-Output is plain text (not JSON):
+`cluster logs` runs `kubectl logs` directly and streams its output. Output is plain text (not JSON):
 ```
 2026-10-14T06:30:15.123Z Starting application...
 2026-10-14T06:30:16.456Z Connected to database
@@ -360,10 +378,10 @@ Output is plain text (not JSON):
 
 ## kubectl Context Options
 
-All headless commands support kubectl context and namespace flags:
+All headless commands accept kubectl context and namespace flags:
 
 ```bash
-# Use specific context (currently not implemented in underlying collector)
+# Use specific context (accepted, but ignored by status/incidents/pods/nodes)
 cluster status --json --context prod-cluster
 
 # Use specific namespace
@@ -373,7 +391,9 @@ cluster status --json -n production
 cluster pods --json --context dev-cluster -n development
 ```
 
-**Note**: The `--context` flag is accepted but not yet passed to kubectl commands. Set your kubectl context before running cluster-cli:
+The namespace comes from `-n`/`--namespace`, then the config file `namespace`, then `"default"`. Unlike the TUI, headless commands do not read the namespace from the kubectl context.
+
+**Note**: `--context` is passed to kubectl only by `cluster logs`. `status`, `incidents`, `pods`, and `nodes` accept it but always use the current kubectl context. Set your kubectl context before running them:
 
 ```bash
 kubectl config use-context <context-name>
@@ -390,7 +410,7 @@ cluster status --json
 
 HEALTH=$(cluster status --json -n production | jq -r '.data.score')
 
-if [ "$HEALTH" -ge 80 ]; then
+if [ "$HEALTH" -ge 75 ]; then
   echo "✓ Cluster health: $HEALTH (OK)"
   exit 0
 else
@@ -413,7 +433,7 @@ Output:
 ```
 CRITICAL: CrashLoopBackOff (5x) - Pod/api-6d4f9-x2k
 WARNING: FailedScheduling (3x) - Pod/worker-0
-ELEVATED: BackOff (2x) - Pod/nginx-abc
+ELEVATED: FailedCreate (2x) - ReplicaSet/api-6d4f9
 ```
 
 ### Export All Pod Data
@@ -482,7 +502,7 @@ jobs:
           fi
 
       - name: Upload health report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: health-report
           path: health.json
@@ -514,10 +534,12 @@ cluster-health-check:
 
 ## Timeout Handling
 
-All kubectl commands have a 30-second timeout. If a command exceeds this:
+Each kubectl command has a 30-second timeout, and the snapshot fetch for `status`, `incidents`, `pods`, and `nodes` has a 30-second overall timeout. If a command exceeds this:
 - The command is terminated
 - An error is returned
 - Retry with `kubectl` manually to diagnose network/API issues
+
+kubectl runs with `KUBECTL_KUBERC=false`, so kuberc defaults cannot change the output cluster-cli parses.
 
 ## Error Handling
 
@@ -534,9 +556,8 @@ cluster status --json 2>errors.log
 
 ### Fetching Concurrency
 
-All data (nodes, pods, events) is fetched concurrently with a 30-second overall timeout. For large clusters:
+All data (nodes, pods, events) is fetched concurrently with a 30-second overall timeout. Every command fetches the same snapshot (all nodes, plus pods and the 50 most recent events in one namespace, Warnings kept first). For large clusters:
 - Use namespace filtering: `-n <namespace>`
-- Reduce concurrent requests by fetching specific subsets
 - Cache results and re-query periodically
 
 ### JSON Parsing
