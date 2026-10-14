@@ -26,8 +26,9 @@ pub fn diagnose_pod(pod: &PodInfo, snapshot: &ClusterSnapshot) -> Vec<PodFinding
         snapshot.events.iter().filter(|e| e.kind == "Pod" && e.name == pod.name).collect();
     let mut findings = Vec::new();
 
-    for container in &pod.containers {
-        if let Some(finding) = diagnose_container(pod, container, &events) {
+    let init = pod.init_containers.iter().map(|c| (c, true));
+    for (container, is_init) in init.chain(pod.containers.iter().map(|c| (c, false))) {
+        if let Some(finding) = diagnose_container(pod, container, is_init, &events) {
             findings.push(finding);
         }
     }
@@ -55,9 +56,11 @@ pub fn diagnose_pod(pod: &PodInfo, snapshot: &ClusterSnapshot) -> Vec<PodFinding
 fn diagnose_container(
     pod: &PodInfo,
     container: &ContainerInfo,
+    is_init: bool,
     events: &[&ClusterEvent],
 ) -> Option<PodFinding> {
     let name = &container.name;
+    let label = if is_init { "Init container" } else { "Container" };
     let waiting = waiting_reason(&container.state);
     let last_reason = container.last_termination_reason.as_deref();
 
@@ -68,7 +71,7 @@ fn diagnose_container(
             });
             return Some(PodFinding {
                 severity: IncidentSeverity::Critical,
-                issue: format!("Container {name} cannot pull its image"),
+                issue: format!("{label} {name} cannot pull its image"),
                 likely_cause: detail.unwrap_or_else(|| {
                     "The image name or tag is wrong, or the registry needs credentials \
                      (imagePullSecrets)"
@@ -80,7 +83,7 @@ fn diagnose_container(
         Some("CreateContainerConfigError") => {
             return Some(PodFinding {
                 severity: IncidentSeverity::Critical,
-                issue: format!("Container {name} has a configuration error"),
+                issue: format!("{label} {name} has a configuration error"),
                 likely_cause: "A referenced ConfigMap, Secret, or key does not exist".to_string(),
                 next_command: describe_pod(pod),
             });
@@ -88,7 +91,7 @@ fn diagnose_container(
         Some("CreateContainerError" | "RunContainerError") => {
             return Some(PodFinding {
                 severity: IncidentSeverity::Critical,
-                issue: format!("Container {name} could not be started"),
+                issue: format!("{label} {name} could not be started"),
                 likely_cause: "The runtime rejected the container; check command, args, and \
                                volume mounts"
                     .to_string(),
@@ -99,19 +102,19 @@ fn diagnose_container(
     }
 
     if last_reason == Some("OOMKilled") {
-        let likely_cause = if pod.memory_limit_mb > 0 {
+        let likely_cause = if container.memory_limit_mb > 0 {
             format!(
-                "Memory use exceeded the {} MB limit; raise the limit or reduce usage",
-                pod.memory_limit_mb
+                "Memory use exceeded its {} MB limit; raise the limit or reduce usage",
+                container.memory_limit_mb
             )
         } else {
             "No memory limit is set, so the node killed it while low on memory".to_string()
         };
         return Some(PodFinding {
             severity: IncidentSeverity::Critical,
-            issue: format!("Container {name} was OOMKilled"),
+            issue: format!("{label} {name} was OOMKilled"),
             likely_cause,
-            next_command: previous_logs(pod, container),
+            next_command: previous_logs(pod, container, is_init),
         });
     }
 
@@ -119,11 +122,11 @@ fn diagnose_container(
         return Some(PodFinding {
             severity: IncidentSeverity::Critical,
             issue: format!(
-                "Container {name} is crash-looping ({} restarts)",
+                "{label} {name} is crash-looping ({} restarts)",
                 container.restart_count
             ),
             likely_cause: exit_code_cause(container.last_exit_code),
-            next_command: previous_logs(pod, container),
+            next_command: previous_logs(pod, container, is_init),
         });
     }
 
@@ -132,12 +135,12 @@ fn diagnose_container(
         return Some(PodFinding {
             severity: IncidentSeverity::Elevated,
             issue: format!(
-                "Container {name} restarted {} time(s) (last: {}{exit})",
+                "{label} {name} restarted {} time(s) (last: {}{exit})",
                 container.restart_count,
                 last_reason.unwrap_or("unknown")
             ),
             likely_cause: exit_code_cause(container.last_exit_code),
-            next_command: previous_logs(pod, container),
+            next_command: previous_logs(pod, container, is_init),
         });
     }
 
@@ -167,21 +170,25 @@ fn diagnose_phase(pod: &PodInfo, events: &[&ClusterEvent]) -> Option<PodFinding>
             }
             // Container-level waiting reasons (image pulls etc.) already explain
             // a scheduled pod that is still pending.
-            if pod.containers.iter().any(|c| {
+            if pod.init_containers.iter().chain(&pod.containers).any(|c| {
                 waiting_reason(&c.state)
                     .is_some_and(|r| r != "ContainerCreating" && r != "PodInitializing")
             }) {
                 return None;
             }
+            let running_init = pod.init_containers.iter().find(|c| c.state == "Running");
             let likely_cause = if pod.node_name.is_none() {
-                "Waiting for the scheduler to place it on a node"
+                "Waiting for the scheduler to place it on a node".to_string()
+            } else if let Some(init) = running_init {
+                format!("Init container {} is still running", init.name)
             } else {
                 "Scheduled; containers are still being created (image pull or volume setup)"
+                    .to_string()
             };
             Some(PodFinding {
                 severity: IncidentSeverity::Warning,
                 issue: "Pod is pending".to_string(),
-                likely_cause: likely_cause.to_string(),
+                likely_cause,
                 next_command: pod_events(pod),
             })
         }
@@ -348,25 +355,22 @@ fn event_message(
     events: &[&ClusterEvent],
     matches: impl Fn(&ClusterEvent) -> bool,
 ) -> Option<String> {
-    // Events are sorted oldest first; the latest one is the most relevant.
-    events.iter().rev().find(|e| matches(e)).map(|e| e.message.clone())
+    // fetch_events stores events newest first, so the first match is the latest.
+    events.iter().find(|e| matches(e)).map(|e| e.message.clone())
 }
 
-fn container_flag(pod: &PodInfo, container: &ContainerInfo) -> String {
-    if pod.containers.len() > 1 { format!(" -c {}", container.name) } else { String::new() }
+fn previous_logs(pod: &PodInfo, container: &ContainerInfo, is_init: bool) -> String {
+    // kubectl defaults to the first app container, so name any other one.
+    let flag = if is_init || pod.containers.len() > 1 {
+        format!(" -c {}", container.name)
+    } else {
+        String::new()
+    };
+    format!("kubectl logs {} -n {}{flag} --previous", pod.name, pod.namespace)
 }
 
 fn describe_pod(pod: &PodInfo) -> String {
     format!("kubectl describe pod {} -n {}", pod.name, pod.namespace)
-}
-
-fn previous_logs(pod: &PodInfo, container: &ContainerInfo) -> String {
-    format!(
-        "kubectl logs {} -n {}{} --previous",
-        pod.name,
-        pod.namespace,
-        container_flag(pod, container)
-    )
 }
 
 fn pod_events(pod: &PodInfo) -> String {

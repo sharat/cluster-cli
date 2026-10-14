@@ -35,6 +35,7 @@ fn oom_killed_reports_memory_limit_and_skips_pressure_warning() {
     let mut pod = create_test_pod();
     pod.oom_killed = true;
     pod.memory_limit_mb = 256;
+    pod.containers[0].memory_limit_mb = 256;
     pod.memory_pct = 99;
     pod.containers[0].restart_count = 2;
     pod.containers[0].last_termination_reason = Some("OOMKilled".to_string());
@@ -44,7 +45,7 @@ fn oom_killed_reports_memory_limit_and_skips_pressure_warning() {
 
     assert_eq!(findings.len(), 1);
     assert!(findings[0].issue.contains("OOMKilled"));
-    assert!(findings[0].likely_cause.contains("256 MB limit"));
+    assert!(findings[0].likely_cause.contains("its 256 MB limit"));
 }
 
 #[test]
@@ -148,6 +149,83 @@ fn events_for_other_pods_are_ignored() {
     assert!(findings.is_empty());
 }
 
+#[test]
+fn oom_cause_uses_the_killed_containers_own_limit() {
+    let mut pod = create_test_pod();
+    pod.memory_limit_mb = 1024; // pod-wide sum, not the sidecar's limit
+    let mut sidecar = pod.containers[0].clone();
+    sidecar.name = "proxy".to_string();
+    sidecar.memory_limit_mb = 0;
+    sidecar.restart_count = 1;
+    sidecar.last_termination_reason = Some("OOMKilled".to_string());
+    pod.containers[0].memory_limit_mb = 1024;
+    pod.containers.push(sidecar);
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].issue, "Container proxy was OOMKilled");
+    assert!(findings[0].likely_cause.contains("No memory limit is set"));
+}
+
+#[test]
+fn quotes_the_latest_matching_event() {
+    let mut pod = create_test_pod();
+    pod.phase = "Pending".to_string();
+    pod.node_name = None;
+    pod.containers.clear();
+    // fetch_events stores events newest first.
+    let events = vec![
+        pod_event("FailedScheduling", "0/3 nodes are available: 3 node(s) had untolerated taint"),
+        pod_event("FailedScheduling", "0/3 nodes are available: 3 Insufficient memory."),
+    ];
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], events));
+
+    assert_eq!(findings[0].likely_cause, "Nodes have taints the pod does not tolerate");
+}
+
+#[test]
+fn failing_init_container_is_reported_instead_of_still_starting() {
+    let mut pod = create_test_pod();
+    pod.phase = "Pending".to_string();
+    pod.is_ready = false;
+    pod.containers[0].ready = false;
+    pod.containers[0].state = "Waiting (PodInitializing)".to_string();
+    pod.init_containers = vec![ContainerInfo {
+        name: "migrate".to_string(),
+        ready: false,
+        restart_count: 5,
+        state: "Waiting (CrashLoopBackOff)".to_string(),
+        last_termination_reason: Some("Error".to_string()),
+        last_exit_code: Some(2),
+        memory_limit_mb: 0,
+    }];
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
+
+    assert_eq!(findings.len(), 1, "pending phase should not add a second finding: {findings:?}");
+    assert_eq!(findings[0].issue, "Init container migrate is crash-looping (5 restarts)");
+    assert_eq!(findings[0].next_command, "kubectl logs api-7d9f -n prod -c migrate --previous");
+}
+
+#[test]
+fn running_init_container_explains_a_pending_pod() {
+    let mut pod = create_test_pod();
+    pod.phase = "Pending".to_string();
+    pod.is_ready = false;
+    pod.containers[0].state = "Waiting (PodInitializing)".to_string();
+    let mut init = pod.containers[0].clone();
+    init.name = "wait-for-db".to_string();
+    init.state = "Running".to_string();
+    pod.init_containers = vec![init];
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].likely_cause, "Init container wait-for-db is still running");
+}
+
 fn create_test_pod() -> PodInfo {
     PodInfo {
         uid: "uid-1".to_string(),
@@ -172,6 +250,7 @@ fn create_test_pod() -> PodInfo {
         is_ready: true,
         crash_looping: false,
         oom_killed: false,
+        init_containers: vec![],
         node_name: Some("node-a".to_string()),
         containers: vec![ContainerInfo {
             name: "app".to_string(),
@@ -180,6 +259,7 @@ fn create_test_pod() -> PodInfo {
             state: "Running".to_string(),
             last_termination_reason: None,
             last_exit_code: None,
+            memory_limit_mb: 0,
         }],
     }
 }

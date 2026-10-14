@@ -189,6 +189,7 @@ mod tests {
             is_ready: false,
             crash_looping: true,
             oom_killed: true,
+            init_containers: vec![],
             node_name: Some("node-1".to_string()),
             containers: vec![],
         }];
@@ -270,6 +271,7 @@ mod tests {
             is_ready: true,
             crash_looping: false,
             oom_killed: false,
+            init_containers: vec![],
             node_name: Some("node-1".to_string()),
             containers: vec![],
         }];

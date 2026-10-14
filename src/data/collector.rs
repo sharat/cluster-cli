@@ -677,7 +677,11 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<(Vec<PodInfo>, Option<Str
 
             let container_statuses =
                 item.pointer("/status/containerStatuses").and_then(|v| v.as_array());
-            let containers = extract_container_info(container_statuses);
+            let containers = extract_container_info(container_statuses, spec_containers);
+            let init_container_info = extract_container_info(
+                item.pointer("/status/initContainerStatuses").and_then(|v| v.as_array()),
+                init_containers,
+            );
             let total_containers = container_statuses.map(|arr| arr.len() as u32).unwrap_or(0);
             let ready_containers = container_statuses
                 .map(|arr| {
@@ -732,6 +736,7 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<(Vec<PodInfo>, Option<Str
                 oom_killed,
                 node_name,
                 containers,
+                init_containers: init_container_info,
             });
         }
     }
@@ -1482,17 +1487,31 @@ fn derive_pod_status(
     }
 }
 
-fn extract_container_info(container_statuses: Option<&Vec<Value>>) -> Vec<ContainerInfo> {
+fn extract_container_info(
+    container_statuses: Option<&Vec<Value>>,
+    spec_containers: Option<&Vec<Value>>,
+) -> Vec<ContainerInfo> {
+    let memory_limit_mb = |name: &str| {
+        spec_containers
+            .into_iter()
+            .flatten()
+            .find(|c| c.get("name").and_then(|v| v.as_str()) == Some(name))
+            .and_then(|c| c.pointer("/resources/limits/memory").and_then(|v| v.as_str()))
+            .map(parse_memory_mb)
+            .unwrap_or(0)
+    };
+
     container_statuses
         .map(|statuses| {
             statuses
                 .iter()
-                .map(|status| ContainerInfo {
-                    name: status
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string(),
+                .map(|status| {
+                    let name = status.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    (name, status)
+                })
+                .map(|(name, status)| ContainerInfo {
+                    name: name.to_string(),
+                    memory_limit_mb: memory_limit_mb(name),
                     ready: status.get("ready").and_then(|v| v.as_bool()).unwrap_or(false),
                     restart_count: status.get("restartCount").and_then(|v| v.as_u64()).unwrap_or(0)
                         as u32,
@@ -1981,8 +2000,8 @@ mod tests {
         collect_hpas, collect_ingresses, collect_jobs, collect_pdbs, collect_pvcs,
         collect_services, deployment_rollout_status, derive_node_status, derive_pod_status,
         effective_pod_cpu_resources, effective_pod_memory_resources, ensure_readonly_kubectl_args,
-        namespace_pod_counts, parse_cpu, parse_memory_mb, parse_workload_resource_result,
-        requested_namespace, workload_health,
+        extract_container_info, namespace_pod_counts, parse_cpu, parse_memory_mb,
+        parse_workload_resource_result, requested_namespace, workload_health,
     };
     use crate::data::models::{
         ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
@@ -2315,6 +2334,26 @@ mod tests {
         assert_eq!(parse_cpu("1.5"), 1500);
         assert_eq!(parse_cpu(""), 0);
         assert_eq!(parse_cpu("abc"), 0);
+    }
+
+    #[test]
+    fn extract_container_info_reads_each_containers_own_memory_limit() {
+        let spec = serde_json::json!([
+            {"name": "app", "resources": {"limits": {"memory": "512Mi"}}},
+            {"name": "proxy"}
+        ]);
+        let statuses = serde_json::json!([
+            {"name": "app", "ready": true, "restartCount": 0, "state": {"running": {}}},
+            {"name": "proxy", "ready": false, "restartCount": 2,
+             "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+             "lastState": {"terminated": {"reason": "OOMKilled", "exitCode": 137}}}
+        ]);
+
+        let containers = extract_container_info(statuses.as_array(), spec.as_array());
+
+        assert_eq!(containers[0].memory_limit_mb, 512);
+        assert_eq!(containers[1].memory_limit_mb, 0);
+        assert_eq!(containers[1].last_termination_reason.as_deref(), Some("OOMKilled"));
     }
 
     #[test]

@@ -741,6 +741,7 @@ mod tests {
             is_ready: true,
             crash_looping: false,
             oom_killed: false,
+            init_containers: vec![],
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
@@ -749,6 +750,7 @@ mod tests {
                 state: "Running".to_string(),
                 last_termination_reason: None,
                 last_exit_code: None,
+                memory_limit_mb: 0,
             }],
         }
     }
@@ -789,6 +791,7 @@ mod tests {
             is_ready: spec.ready,
             crash_looping: false,
             oom_killed: false,
+            init_containers: vec![],
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
@@ -797,6 +800,7 @@ mod tests {
                 state: "Running".to_string(),
                 last_termination_reason: None,
                 last_exit_code: None,
+                memory_limit_mb: 0,
             }],
         }
     }
@@ -1214,6 +1218,7 @@ mod tests {
             state: "Running".to_string(),
             last_termination_reason: None,
             last_exit_code: None,
+            memory_limit_mb: 0,
         });
         app.snapshot = Some(snapshot_with(vec![multi_container_pod], vec![]));
         app.enter_pod_detail("api".to_string());
