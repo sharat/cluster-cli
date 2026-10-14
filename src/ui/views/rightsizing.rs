@@ -158,7 +158,8 @@ fn render_table(f: &mut Frame, area: Rect, app: &AppState, workloads: &[Workload
         [
             Constraint::Length(14),
             Constraint::Fill(2),
-            Constraint::Length(5),
+            // Fits "measured/total" up to three digits each.
+            Constraint::Length(8),
             Constraint::Length(20),
             Constraint::Length(22),
             Constraint::Fill(2),
@@ -341,5 +342,17 @@ mod tests {
 
         key(&mut app, KeyCode::Char('k'));
         assert_eq!(app.sizing_scroll, max - 1, "k moves the list right away");
+    }
+
+    #[test]
+    fn partial_metrics_show_the_full_measured_ratio() {
+        let mut pods: Vec<PodInfo> = (0..120).map(|_| pod("web", (100, 128), (60, 90))).collect();
+        for pod in pods.iter_mut().skip(12) {
+            pod.metrics_available = false;
+        }
+
+        let text = rendered(pods);
+
+        assert!(text.contains(" 12/120 "), "{text}");
     }
 }
