@@ -107,6 +107,23 @@ for view in "${VIEWS[@]}"; do
             sleep 1
             ;;
             
+        # Opens the next few pods after pod-detail's, so the Diagnosis panel is
+        # captured for several failure types (worst pods sort first).
+        diagnosis)
+            echo "Capturing pod diagnosis for more pods..."
+            for n in 2 3 4; do
+                send_keys "3"
+                sleep 1
+                send_keys "Down"
+                sleep 1
+                send_keys "C-m"
+                sleep "$WAIT_RENDER"
+                capture_screenshot "02-pod-detail-$n"
+                send_keys "Escape"
+                sleep 1
+            done
+            ;;
+
         node-detail)
             echo "Navigating to node detail view..."
             send_keys "1"
