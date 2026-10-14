@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Show events written through the newer events API (such as the scheduler's FailedScheduling) in the events panel, incidents, and diagnosis; they have no `lastTimestamp`, so sorting by it dropped them once a namespace had more than 50 events
+- Keep Warning events ahead of Normal ones when trimming to the 50 most recent, so a busy namespace's routine events (Pulled, Created, Started) no longer push an older warning such as FailedScheduling out of the events panel, incidents, and diagnosis
 
 ## [0.3.4] - 2026-10-07
 

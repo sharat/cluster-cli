@@ -1559,7 +1559,7 @@ pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
 }
 
 /// Parse a `kubectl get events -o json` list, newest first, keeping at most
-/// `MAX_EVENTS_PER_FETCH`.
+/// `MAX_EVENTS_PER_FETCH` (Warnings first).
 ///
 /// Sorting happens here rather than with `--sort-by=.lastTimestamp`: events
 /// written through the events.k8s.io API (e.g. the scheduler's
@@ -1607,7 +1607,21 @@ fn parse_events(json: &Value) -> Vec<ClusterEvent> {
 
     // Newest first; events without a parseable time go last.
     events.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
-    events.into_iter().take(MAX_EVENTS_PER_FETCH).map(|(_, event)| event).collect()
+
+    // Fill the cap with Warnings before Normals: incidents and diagnosis are
+    // built from Warnings, and in a busy namespace a few minutes of Normal
+    // churn (Pulled, Created, Started, ScalingReplicaSet...) would otherwise
+    // push out a single older Warning such as FailedScheduling.
+    let (warnings, normals): (Vec<_>, Vec<_>) =
+        events.into_iter().partition(|(_, event)| event.event_type == EventType::Warning);
+    let normal_slots = MAX_EVENTS_PER_FETCH.saturating_sub(warnings.len());
+    let mut kept: Vec<_> = warnings
+        .into_iter()
+        .take(MAX_EVENTS_PER_FETCH)
+        .chain(normals.into_iter().take(normal_slots))
+        .collect();
+    kept.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
+    kept.into_iter().map(|(_, event)| event).collect()
 }
 
 pub async fn fetch_namespaces() -> Result<Vec<NamespaceSummary>> {
@@ -2016,8 +2030,8 @@ mod tests {
         parse_workload_resource_result, requested_namespace, workload_health,
     };
     use crate::data::models::{
-        ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
-        WorkloadSummary,
+        ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus,
+        MAX_EVENTS_PER_FETCH, WorkloadKind, WorkloadSummary,
     };
     use serde_json::json;
 
@@ -2371,6 +2385,26 @@ mod tests {
         assert_eq!(names, vec!["web", "api", "old"]);
         assert_eq!(events[0].count, 9);
         assert_eq!(events[0].timestamp, "2026-10-14T06:50:00.000000Z");
+    }
+
+    #[test]
+    fn parse_events_keeps_an_older_warning_over_newer_normal_events() {
+        let mut items = vec![serde_json::json!({
+            "involvedObject": {"kind": "Pod", "name": "stuck"}, "reason": "FailedScheduling",
+            "message": "0/1 nodes are available", "type": "Warning",
+            "eventTime": "2026-10-14T06:00:00.000000Z"
+        })];
+        for i in 0..MAX_EVENTS_PER_FETCH + 20 {
+            items.push(serde_json::json!({
+                "involvedObject": {"kind": "Pod", "name": format!("web-{i}")}, "reason": "Pulled",
+                "message": "pulled", "type": "Normal", "lastTimestamp": "2026-10-14T06:05:00Z"
+            }));
+        }
+
+        let events = parse_events(&serde_json::json!({ "items": items }));
+
+        assert_eq!(events.len(), MAX_EVENTS_PER_FETCH);
+        assert_eq!(events.last().map(|e| e.reason.as_str()), Some("FailedScheduling"));
     }
 
     #[test]
