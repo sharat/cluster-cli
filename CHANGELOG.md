@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- GitHub Pages landing page uses a high-contrast near-monochrome palette and no longer has a gradient hero block
+
 ## [0.4.0] - 2026-10-14
 
 ### Added
