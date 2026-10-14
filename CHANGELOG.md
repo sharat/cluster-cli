@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Documentation landing page (`docs/index.html`): replace the gradient hero background with the page's existing minimal, solid color palette, fixing WCAG color-contrast failures on the hero heading, tagline, and buttons
+
 ## [0.4.0] - 2026-10-14
 
 ### Added

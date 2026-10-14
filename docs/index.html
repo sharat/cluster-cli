@@ -38,9 +38,7 @@
         }
 
         :root {
-            /* Light mode (default) */
-            --gradient-start: #3730a3; /* indigo-800 */
-            --gradient-end: #0f766e; /* teal-700 */
+            /* Light mode (default) - minimal, high-contrast palette */
             --bg-primary: #ffffff;
             --bg-secondary: #f8fafc; /* slate-50 */
             --bg-tertiary: #f1f5f9; /* slate-100 */
@@ -48,8 +46,12 @@
             --text-secondary: #475569; /* slate-600 */
             --text-muted: #64748b; /* slate-500 */
             --border: #e2e8f0; /* slate-200 */
-            --accent: #0f766e; /* teal-700 */
+            --accent: #0f766e; /* teal-700, used for text/borders - adjusted per mode for contrast */
+            --accent-solid: #0f766e; /* teal-700, fixed - used for filled button backgrounds */
+            --accent-dark: #115e59; /* teal-800, fixed - hover state for filled buttons */
             --accent-light: #14b8a6; /* teal-500 */
+            --accent-contrast: #ffffff; /* text placed on --accent-solid backgrounds */
+            --success: #047857; /* emerald-700, WCAG AA against white text */
             --code-bg: #1e293b; /* slate-800 */
             --code-text: #f1f5f9; /* slate-100 */
             --shadow: rgba(0, 0, 0, 0.1);
@@ -64,6 +66,7 @@
                 --text-secondary: #cbd5e1; /* slate-300 */
                 --text-muted: #94a3b8; /* slate-400 */
                 --border: #334155; /* slate-700 */
+                --accent: #2dd4bf; /* teal-400, higher contrast as text/border against dark backgrounds */
                 --code-bg: #0f172a; /* slate-900 */
                 --code-text: #e2e8f0; /* slate-200 */
                 --shadow: rgba(0, 0, 0, 0.3);
@@ -151,13 +154,15 @@
 
         /* Hero Section */
         .hero {
-            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
-            color: white;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            color: var(--text-primary);
             padding: 6rem 2rem;
             text-align: center;
         }
 
         .hero h1 {
+            color: var(--accent);
             font-size: 3.5rem;
             font-weight: 700;
             margin-bottom: 1rem;
@@ -165,16 +170,15 @@
         }
 
         .hero p {
-            color: white;
+            color: var(--text-secondary);
             font-size: 1.25rem;
             margin-bottom: 2rem;
-            opacity: 0.95;
             animation: fadeInUp 0.8s ease-out 0.2s both;
         }
 
         .install-command {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 1.5rem;
             padding-right: 5.5rem; /* keep the command clear of the Copy button */
@@ -185,7 +189,7 @@
         }
 
         .install-command pre {
-            color: #e2e8f0;
+            color: var(--text-primary);
             font-size: 1rem;
             overflow-x: auto;
         }
@@ -194,24 +198,25 @@
             position: absolute;
             top: 0.75rem;
             right: 0.75rem;
-            background: rgba(255, 255, 255, 0.2);
+            background: var(--accent-solid);
             border: none;
-            color: white;
+            color: var(--accent-contrast);
             padding: 0.5rem 1rem;
             border-radius: 4px;
             cursor: pointer;
             font-size: 0.875rem;
-            font-weight: 500;
+            font-weight: 600;
             transition: background 0.2s;
         }
 
         .copy-button:hover, .copy-button:focus {
-            background: rgba(255, 255, 255, 0.3);
-            outline: 2px solid white;
+            background: var(--accent-dark);
+            outline: 2px solid var(--accent-dark);
+            outline-offset: 2px;
         }
 
         .copy-button.copied {
-            background: #10b981;
+            background: var(--success);
         }
 
         .cta-buttons {
@@ -232,26 +237,27 @@
         }
 
         .btn-primary {
-            background: white;
-            color: var(--gradient-start);
+            background: var(--accent-solid);
+            color: var(--accent-contrast);
         }
 
         .btn-primary:hover, .btn-primary:focus {
+            background: var(--accent-dark);
             transform: translateY(-2px);
             box-shadow: 0 8px 16px var(--shadow);
-            outline: 2px solid white;
+            outline: 2px solid var(--accent-dark);
             outline-offset: 2px;
         }
 
         .btn-secondary {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: var(--bg-primary);
+            color: var(--accent);
+            border: 1px solid var(--border);
         }
 
         .btn-secondary:hover, .btn-secondary:focus {
-            background: rgba(255, 255, 255, 0.3);
-            outline: 2px solid white;
+            background: var(--bg-tertiary);
+            outline: 2px solid var(--accent);
             outline-offset: 2px;
         }
 

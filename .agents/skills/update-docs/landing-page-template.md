@@ -23,6 +23,7 @@ Canonical structure and style tokens for `docs/index.html`.
   
   <main>
     <section class="hero">
+      - Minimal, solid background (no gradient) - same neutral tokens as the rest of the page
       - Title: cluster-cli
       - Tagline
       - Install command with copy button
@@ -81,10 +82,17 @@ Canonical structure and style tokens for `docs/index.html`.
 
 ## Color Tokens
 
+Minimal, solid palette - no gradients. The hero section uses the same
+neutral backgrounds and text colors as the rest of the page; only the
+filled buttons and the copy-to-clipboard affordance use a solid accent
+color. `--accent` is a text/border token and is tuned per color scheme
+for contrast; `--accent-solid` is a fixed value used only for filled
+button backgrounds (paired with `--accent-contrast` text), since those
+buttons carry their own background and don't need to adapt to the page
+theme.
+
 ### Light Mode (Default)
 ```css
---gradient-start: #3730a3;  /* indigo-800 */
---gradient-end: #0f766e;    /* teal-700 */
 --bg-primary: #ffffff;
 --bg-secondary: #f8fafc;    /* slate-50 */
 --bg-tertiary: #f1f5f9;     /* slate-100 */
@@ -92,8 +100,12 @@ Canonical structure and style tokens for `docs/index.html`.
 --text-secondary: #475569;  /* slate-600 */
 --text-muted: #64748b;      /* slate-500 */
 --border: #e2e8f0;          /* slate-200 */
---accent: #0f766e;          /* teal-700 */
+--accent: #0f766e;          /* teal-700, text/border */
+--accent-solid: #0f766e;    /* teal-700, fixed - filled button backgrounds */
+--accent-dark: #115e59;     /* teal-800, fixed - hover state for filled buttons */
 --accent-light: #14b8a6;    /* teal-500 */
+--accent-contrast: #ffffff; /* text on --accent-solid backgrounds */
+--success: #047857;         /* emerald-700, "Copied!" state - WCAG AA on white text */
 --code-bg: #1e293b;         /* slate-800 */
 --code-text: #f1f5f9;       /* slate-100 */
 --shadow: rgba(0, 0, 0, 0.1);
@@ -108,10 +120,15 @@ Canonical structure and style tokens for `docs/index.html`.
 --text-secondary: #cbd5e1;  /* slate-300 */
 --text-muted: #94a3b8;      /* slate-400 */
 --border: #334155;          /* slate-700 */
+--accent: #2dd4bf;          /* teal-400, higher contrast as text/border on dark backgrounds */
 --code-bg: #0f172a;         /* slate-900 */
 --code-text: #e2e8f0;       /* slate-200 */
 --shadow: rgba(0, 0, 0, 0.3);
 ```
+
+`--accent-solid`, `--accent-dark`, `--accent-light`, `--accent-contrast`, and
+`--success` are not overridden in dark mode - they stay fixed since filled
+buttons carry their own background and remain legible in both themes.
 
 ## Typography
 
@@ -194,7 +211,7 @@ Canonical structure and style tokens for `docs/index.html`.
 
 ## Section Order (Critical)
 
-1. Hero (gradient background)
+1. Hero (minimal/solid background, no gradient)
 2. Features
 3. Terminal Demo
 4. Install
