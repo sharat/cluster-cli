@@ -649,6 +649,7 @@ fn parse_pod(item: &Value, namespace: &str, top_map: &HashMap<String, (u64, u64)
         item.pointer("/status/phase").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
 
     let node_name = item.pointer("/spec/nodeName").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let owner = pod_owner(item);
 
     let age = item
         .pointer("/metadata/creationTimestamp")
@@ -737,7 +738,35 @@ fn parse_pod(item: &Value, namespace: &str, top_map: &HashMap<String, (u64, u64)
         containers,
         init_containers: init_container_info,
         sidecar_containers,
+        owner,
     }
+}
+
+/// The pod's controlling owner, with a ReplicaSet named `<deployment>-<hash>`
+/// (hash from the pod-template-hash label) resolved to its Deployment.
+fn pod_owner(item: &Value) -> Option<PodOwner> {
+    let owners = item.pointer("/metadata/ownerReferences")?.as_array()?;
+    let owner = owners
+        .iter()
+        .find(|o| o.get("controller").and_then(|v| v.as_bool()) == Some(true))
+        .or_else(|| owners.first())?;
+    let kind = owner.get("kind")?.as_str()?;
+    let name = owner.get("name")?.as_str()?;
+
+    if kind == "ReplicaSet" {
+        let hash = item
+            .pointer("/metadata/labels/pod-template-hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let deployment = Some(hash)
+            .filter(|h| !h.is_empty())
+            .and_then(|h| name.strip_suffix(h))
+            .and_then(|n| n.strip_suffix('-'));
+        if let Some(deployment) = deployment {
+            return Some(PodOwner { kind: "Deployment".to_string(), name: deployment.to_string() });
+        }
+    }
+    Some(PodOwner { kind: kind.to_string(), name: name.to_string() })
 }
 
 pub struct WorkloadCollection {
@@ -2226,6 +2255,41 @@ mod tests {
         // add it: max(migrate 500m, app + sidecar 700m).
         let init = vec![migrate, sidecar];
         assert_eq!(effective_pod_cpu_resources(Some(&app), Some(&init)), (700, 0));
+    }
+
+    #[test]
+    fn parse_pod_resolves_owners_to_their_workload() {
+        let owned = |kind: &str, name: &str, hash: Option<&str>| {
+            let mut labels = serde_json::Map::new();
+            if let Some(hash) = hash {
+                labels.insert("pod-template-hash".to_string(), json!(hash));
+            }
+            json!({
+                "metadata": {
+                    "name": "p", "labels": labels,
+                    "ownerReferences": [{ "kind": kind, "name": name, "controller": true }]
+                },
+                "status": { "phase": "Running" }
+            })
+        };
+        let owner = |item: serde_json::Value| {
+            parse_pod(&item, "default", &HashMap::new()).owner.map(|o| (o.kind, o.name))
+        };
+
+        assert_eq!(
+            owner(owned("ReplicaSet", "web-api-6d4f9c8b7", Some("6d4f9c8b7"))),
+            Some(("Deployment".to_string(), "web-api".to_string()))
+        );
+        // A ReplicaSet that does not follow the Deployment naming stays as is.
+        assert_eq!(
+            owner(owned("ReplicaSet", "standalone", None)),
+            Some(("ReplicaSet".to_string(), "standalone".to_string()))
+        );
+        assert_eq!(
+            owner(owned("StatefulSet", "db", None)),
+            Some(("StatefulSet".to_string(), "db".to_string()))
+        );
+        assert_eq!(owner(json!({ "metadata": { "name": "bare" } })), None);
     }
 
     #[test]

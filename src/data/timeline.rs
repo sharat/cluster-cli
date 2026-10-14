@@ -903,6 +903,7 @@ mod tests {
             oom_killed: false,
             init_containers: vec![],
             sidecar_containers: vec![],
+            owner: None,
             node_name: Some("node-a".to_string()),
             containers: vec![ContainerInfo {
                 name: "app".to_string(),

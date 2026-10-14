@@ -1,0 +1,27 @@
+# Under-provisioned for the right-sizing view: burns CPU well above its request.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: busy-worker
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: busy-worker
+  template:
+    metadata:
+      labels:
+        app: busy-worker
+    spec:
+      containers:
+      - name: worker
+        image: busybox:1.37
+        command: ["sh", "-c", "while :; do :; done"]
+        resources:
+          requests:
+            cpu: 20m
+            memory: 16Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi

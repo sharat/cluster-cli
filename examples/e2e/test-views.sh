@@ -159,6 +159,15 @@ for view in "${VIEWS[@]}"; do
             sleep 1
             ;;
             
+        rightsizing)
+            echo "Opening right-sizing view..."
+            send_keys "u"
+            sleep "$WAIT_RENDER"
+            capture_screenshot "06-rightsizing"
+            send_keys "Escape"
+            sleep 1
+            ;;
+
         timeline)
             echo "Opening timeline view..."
             send_keys "t"

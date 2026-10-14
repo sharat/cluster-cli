@@ -27,6 +27,7 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
         AppView::PodDetail { .. } => handle_pod_detail_key(app, key),
         AppView::NodeDetail { .. } => handle_node_detail_key(app, key),
         AppView::Timeline => handle_timeline_key(app, key),
+        AppView::RightSizing => handle_rightsizing_key(app, key),
     }
 }
 
@@ -278,6 +279,9 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
         }
         KeyCode::Char('t') => {
             app.enter_timeline_view();
+        }
+        KeyCode::Char('u') => {
+            app.enter_rightsizing_view();
         }
         KeyCode::Esc => {
             if app.incident_focus.is_some() {
@@ -602,6 +606,25 @@ fn handle_node_detail_key(app: &mut AppState, key: KeyEvent) -> Option<AppComman
         }
         KeyCode::Char('k') | KeyCode::Up => {
             app.detail_scroll = app.detail_scroll.saturating_sub(1);
+        }
+        _ => {}
+    }
+    None
+}
+
+fn handle_rightsizing_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => app.view = AppView::Dashboard,
+        KeyCode::Char('j') | KeyCode::Down => {
+            let rows = app.rightsizing().len();
+            app.sizing_scroll = (app.sizing_scroll + 1).min(rows.saturating_sub(1));
+        }
+        KeyCode::Char('k') | KeyCode::Up => app.sizing_scroll = app.sizing_scroll.saturating_sub(1),
+        KeyCode::Char('r') => {
+            app.is_loading = true;
+            return Some(AppCommand::Fetch(FetchCommand::RefreshAll {
+                namespace: app.config.namespace.clone(),
+            }));
         }
         _ => {}
     }
@@ -1268,6 +1291,7 @@ mod tests {
             oom_killed: false,
             init_containers: vec![],
             sidecar_containers: vec![],
+            owner: None,
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
