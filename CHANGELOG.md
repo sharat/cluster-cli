@@ -21,8 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Precursor highlighting (⚡) that automatically identifies events (rollouts, node condition changes) that likely caused incidents within a configurable time window (default 10 minutes)
 - Keyboard shortcuts: `t` to open timeline from dashboard, `T` to open timeline filtered to selected incident from incident queue, `s` to toggle sort order, `f`/`F` to cycle filters
 - Accessible severity labels in timeline (not color-only)
+- Diagnosis panel in pod detail that explains why a pod is unhealthy, with a likely cause and the next read-only `kubectl` command for each finding (crash loops with exit-code hints, OOM kills, image pull and config errors, scheduling and volume failures, evictions, failing probes, node problems, and resources near their limits)
 
 ### Changed
+- MCP `explain_pod` uses the same diagnosis as the pod detail view and now returns structured `findings` with severity, likely cause, and next command
 - Upgrade Rust toolchain from 1.94.1 to 1.99.0
 - Upgrade to Rust edition 2024
 - Update all dependencies to latest compatible versions

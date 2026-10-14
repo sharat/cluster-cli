@@ -7,7 +7,8 @@ use ratatui::{
 };
 
 use crate::app::{AppState, AppView, PodDetailSection};
-use crate::data::models::{ContainerInfo, EventType, PodInfo};
+use crate::data::diagnosis::{PodFinding, diagnose_pod};
+use crate::data::models::{ContainerInfo, EventType, IncidentSeverity, PodInfo};
 use crate::ui::{components, format, theme};
 use std::collections::HashMap;
 
@@ -17,22 +18,96 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         _ => return,
     };
 
+    let findings = match (app.current_pod(), &app.snapshot) {
+        (Some(pod), Some(snapshot)) => diagnose_pod(pod, snapshot),
+        _ => Vec::new(),
+    };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // header
-            Constraint::Length(12), // overview
-            Constraint::Length(8),  // events
-            Constraint::Fill(1),    // logs
-            Constraint::Length(1),  // status bar
+            Constraint::Length(1),                           // header
+            Constraint::Length(12),                          // overview
+            Constraint::Length(diagnosis_height(&findings)), // diagnosis
+            Constraint::Length(8),                           // events
+            Constraint::Fill(1),                             // logs
+            Constraint::Length(1),                           // status bar
         ])
         .split(area);
 
     render_header(f, chunks[0], app, &pod_name);
     render_overview(f, chunks[1], app);
-    render_events(f, chunks[2], app, &pod_name);
-    components::log_viewer::render(f, chunks[3], app);
-    components::status_bar::render(f, chunks[4], app);
+    render_diagnosis(f, chunks[2], &findings);
+    render_events(f, chunks[3], app, &pod_name);
+    components::log_viewer::render(f, chunks[4], app);
+    components::status_bar::render(f, chunks[5], app);
+}
+
+/// Findings shown before the rest are summarized as "... N more", so a badly
+/// broken pod cannot push the events and logs panels off screen.
+const MAX_VISIBLE_FINDINGS: usize = 3;
+
+fn diagnosis_height(findings: &[PodFinding]) -> u16 {
+    if findings.is_empty() {
+        return 3;
+    }
+    let visible = findings.len().min(MAX_VISIBLE_FINDINGS);
+    let more = usize::from(findings.len() > MAX_VISIBLE_FINDINGS);
+    (visible * 3 + more + 2) as u16
+}
+
+fn render_diagnosis(f: &mut Frame, area: Rect, findings: &[PodFinding]) {
+    let block = Block::default()
+        .title(" Diagnosis ")
+        .borders(Borders::ALL)
+        .border_style(theme::normal_border_style());
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if findings.is_empty() {
+        f.render_widget(
+            Paragraph::new(Line::styled(
+                "  ✓ No problems detected",
+                Style::default().fg(Color::Green),
+            )),
+            inner,
+        );
+        return;
+    }
+
+    let mut lines = Vec::new();
+    for finding in findings.iter().take(MAX_VISIBLE_FINDINGS) {
+        let color = match finding.severity {
+            IncidentSeverity::Critical => Color::Red,
+            IncidentSeverity::Warning => Color::Yellow,
+            IncidentSeverity::Elevated => Color::Rgb(255, 165, 0),
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("  [{}] ", finding.severity.label().to_uppercase()),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                finding.issue.clone(),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::styled(
+            format!("      Likely cause: {}", finding.likely_cause),
+            Style::default().fg(Color::Gray),
+        ));
+        lines.push(Line::styled(
+            format!("      $ {}", finding.next_command),
+            Style::default().fg(Color::Cyan),
+        ));
+    }
+    if findings.len() > MAX_VISIBLE_FINDINGS {
+        lines.push(Line::styled(
+            format!("  ... {} more finding(s)", findings.len() - MAX_VISIBLE_FINDINGS),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    f.render_widget(Paragraph::new(lines), inner);
 }
 
 fn render_header(f: &mut Frame, area: Rect, app: &AppState, pod_name: &str) {
@@ -296,4 +371,51 @@ fn history_line(label: &str, history: Option<&Vec<u8>>) -> Line<'static> {
     ];
     spans.extend(theme::sparkline(history, 24).spans);
     Line::from(spans)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_diagnosis;
+    use crate::data::diagnosis::PodFinding;
+    use crate::data::models::IncidentSeverity;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn rendered_text(findings: &[PodFinding]) -> String {
+        let height = super::diagnosis_height(findings);
+        let mut terminal = Terminal::new(TestBackend::new(90, height)).unwrap();
+        terminal.draw(|f| render_diagnosis(f, f.area(), findings)).unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..buffer.area.height)
+            .map(|y| (0..buffer.area.width).map(|x| buffer[(x, y)].symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn finding(issue: &str) -> PodFinding {
+        PodFinding {
+            severity: IncidentSeverity::Critical,
+            issue: issue.to_string(),
+            likely_cause: "The command was not found (exit 127)".to_string(),
+            next_command: "kubectl logs api -n prod --previous".to_string(),
+        }
+    }
+
+    #[test]
+    fn diagnosis_panel_shows_issue_cause_and_command() {
+        let text = rendered_text(&[finding("Container app is crash-looping (7 restarts)")]);
+        assert!(text.contains("[CRITICAL] Container app is crash-looping (7 restarts)"));
+        assert!(text.contains("Likely cause: The command was not found (exit 127)"));
+        assert!(text.contains("$ kubectl logs api -n prod --previous"));
+    }
+
+    #[test]
+    fn diagnosis_panel_reports_healthy_pod_and_caps_long_lists() {
+        assert!(rendered_text(&[]).contains("No problems detected"));
+
+        let findings: Vec<_> = (0..5).map(|i| finding(&format!("issue {i}"))).collect();
+        let text = rendered_text(&findings);
+        assert!(text.contains("issue 2"));
+        assert!(!text.contains("issue 3"));
+        assert!(text.contains("... 2 more finding(s)"));
+    }
 }

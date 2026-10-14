@@ -1,4 +1,5 @@
 pub mod collector;
+pub mod diagnosis;
 pub mod fetcher;
 pub mod health;
 pub mod incidents;
