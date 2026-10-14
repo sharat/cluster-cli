@@ -39,20 +39,30 @@
 
         :root {
             /* Light mode (default) */
-            --gradient-start: #3730a3; /* indigo-800 */
-            --gradient-end: #0f766e; /* teal-700 */
             --bg-primary: #ffffff;
             --bg-secondary: #f8fafc; /* slate-50 */
             --bg-tertiary: #f1f5f9; /* slate-100 */
             --text-primary: #0f172a; /* slate-900 */
-            --text-secondary: #475569; /* slate-600 */
-            --text-muted: #64748b; /* slate-500 */
+            --text-secondary: #334155; /* slate-700 */
+            --text-muted: #475569; /* slate-600 */
             --border: #e2e8f0; /* slate-200 */
-            --accent: #0f766e; /* teal-700 */
-            --accent-light: #14b8a6; /* teal-500 */
-            --code-bg: #1e293b; /* slate-800 */
-            --code-text: #f1f5f9; /* slate-100 */
-            --shadow: rgba(0, 0, 0, 0.1);
+            --border-hover: #94a3b8; /* slate-400 */
+            --accent: #0f172a; /* slate-900 */
+            --accent-link: #0369a1; /* sky-700 - high contrast on light bg */
+            --focus-ring: #0284c7; /* sky-600 */
+            --code-bg: #0f172a; /* slate-900 */
+            --code-text: #f8fafc; /* slate-50 */
+            --hero-bg: #f8fafc; /* slate-50 */
+            --hero-border: #e2e8f0; /* slate-200 */
+            --btn-primary-bg: #0f172a;
+            --btn-primary-text: #ffffff;
+            --btn-secondary-bg: #ffffff;
+            --btn-secondary-text: #0f172a;
+            --btn-secondary-border: #cbd5e1; /* slate-300 */
+            --copy-btn-bg: #1e293b; /* slate-800 */
+            --copy-btn-text: #f8fafc; /* slate-50 */
+            --copy-btn-border: #334155; /* slate-700 */
+            --shadow: rgba(0, 0, 0, 0.05);
         }
 
         @media (prefers-color-scheme: dark) {
@@ -60,13 +70,27 @@
                 --bg-primary: #0f172a; /* slate-900 */
                 --bg-secondary: #1e293b; /* slate-800 */
                 --bg-tertiary: #334155; /* slate-700 */
-                --text-primary: #f1f5f9; /* slate-100 */
+                --text-primary: #f8fafc; /* slate-50 */
                 --text-secondary: #cbd5e1; /* slate-300 */
                 --text-muted: #94a3b8; /* slate-400 */
                 --border: #334155; /* slate-700 */
-                --code-bg: #0f172a; /* slate-900 */
-                --code-text: #e2e8f0; /* slate-200 */
-                --shadow: rgba(0, 0, 0, 0.3);
+                --border-hover: #64748b; /* slate-500 */
+                --accent: #f8fafc; /* slate-50 */
+                --accent-link: #38bdf8; /* sky-400 - high contrast on dark bg */
+                --focus-ring: #38bdf8; /* sky-400 */
+                --code-bg: #0b1120; /* deep slate-950 */
+                --code-text: #f8fafc; /* slate-50 */
+                --hero-bg: #1e293b; /* slate-800 */
+                --hero-border: #334155; /* slate-700 */
+                --btn-primary-bg: #f8fafc;
+                --btn-primary-text: #0f172a;
+                --btn-secondary-bg: #0f172a;
+                --btn-secondary-text: #f8fafc;
+                --btn-secondary-border: #475569; /* slate-600 */
+                --copy-btn-bg: #334155; /* slate-700 */
+                --copy-btn-text: #f8fafc; /* slate-50 */
+                --copy-btn-border: #475569; /* slate-600 */
+                --shadow: rgba(0, 0, 0, 0.25);
             }
         }
 
@@ -125,7 +149,7 @@
         .logo {
             font-size: 1.5rem;
             font-weight: 700;
-            color: var(--accent);
+            color: var(--text-primary);
             text-decoration: none;
         }
 
@@ -143,75 +167,79 @@
         }
 
         .nav-links a:hover, .nav-links a:focus {
-            color: var(--accent);
-            outline: 2px solid var(--accent);
-            outline-offset: 4px;
-            border-radius: 4px;
+            color: var(--text-primary);
+            text-decoration: underline;
+            text-underline-offset: 4px;
         }
 
         /* Hero Section */
         .hero {
-            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
-            color: white;
-            padding: 6rem 2rem;
+            background: var(--hero-bg);
+            color: var(--text-primary);
+            border-bottom: 1px solid var(--hero-border);
+            padding: 5rem 2rem;
             text-align: center;
         }
 
         .hero h1 {
             font-size: 3.5rem;
             font-weight: 700;
+            color: var(--text-primary);
             margin-bottom: 1rem;
-            animation: fadeInUp 0.8s ease-out;
         }
 
         .hero p {
-            color: white;
+            color: var(--text-secondary);
             font-size: 1.25rem;
-            margin-bottom: 2rem;
-            opacity: 0.95;
-            animation: fadeInUp 0.8s ease-out 0.2s both;
+            max-width: 720px;
+            margin: 0 auto 2rem;
         }
 
         .install-command {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
             border-radius: 8px;
-            padding: 1.5rem;
+            padding: 1.25rem 1.5rem;
             padding-right: 5.5rem; /* keep the command clear of the Copy button */
             margin: 2rem auto;
-            max-width: 700px;
+            max-width: 820px;
             position: relative;
-            animation: fadeInUp 0.8s ease-out 0.4s both;
+            text-align: left;
         }
 
         .install-command pre {
-            color: #e2e8f0;
-            font-size: 1rem;
+            color: var(--code-text);
+            font-size: 0.95rem;
             overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
         }
 
         .copy-button {
             position: absolute;
             top: 0.75rem;
             right: 0.75rem;
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            color: white;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
+            background: var(--copy-btn-bg);
+            border: 1px solid var(--copy-btn-border);
+            color: var(--copy-btn-text);
+            padding: 0.4rem 0.85rem;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 0.875rem;
+            font-size: 0.8125rem;
             font-weight: 500;
-            transition: background 0.2s;
+            transition: background 0.2s, border-color 0.2s;
         }
 
         .copy-button:hover, .copy-button:focus {
-            background: rgba(255, 255, 255, 0.3);
-            outline: 2px solid white;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border-color: var(--border-hover);
         }
 
         .copy-button.copied {
-            background: #10b981;
+            background: #15803d; /* green-700 - high contrast with white text */
+            color: #ffffff;
+            border-color: #15803d;
         }
 
         .cta-buttons {
@@ -219,7 +247,6 @@
             gap: 1rem;
             justify-content: center;
             margin-top: 2rem;
-            animation: fadeInUp 0.8s ease-out 0.6s both;
         }
 
         .btn {
@@ -232,27 +259,28 @@
         }
 
         .btn-primary {
-            background: white;
-            color: var(--gradient-start);
+            background: var(--btn-primary-bg);
+            color: var(--btn-primary-text);
+            border: 1px solid var(--btn-primary-bg);
         }
 
         .btn-primary:hover, .btn-primary:focus {
             transform: translateY(-2px);
-            box-shadow: 0 8px 16px var(--shadow);
-            outline: 2px solid white;
-            outline-offset: 2px;
+            box-shadow: 0 4px 12px var(--shadow);
+            opacity: 0.92;
         }
 
         .btn-secondary {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: var(--btn-secondary-bg);
+            color: var(--btn-secondary-text);
+            border: 1px solid var(--btn-secondary-border);
         }
 
         .btn-secondary:hover, .btn-secondary:focus {
-            background: rgba(255, 255, 255, 0.3);
-            outline: 2px solid white;
-            outline-offset: 2px;
+            background: var(--bg-tertiary);
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px var(--shadow);
         }
 
         /* Main Content */
@@ -264,16 +292,11 @@
 
         section {
             margin-bottom: 6rem;
-            opacity: 0;
-            transform: translateY(20px);
-            animation: fadeInUp 0.6s ease-out forwards;
         }
 
-        section:nth-child(1) { animation-delay: 0.1s; }
-        section:nth-child(2) { animation-delay: 0.2s; }
-        section:nth-child(3) { animation-delay: 0.3s; }
-        section:nth-child(4) { animation-delay: 0.4s; }
-        section:nth-child(5) { animation-delay: 0.5s; }
+        @media (prefers-reduced-motion: no-preference) {
+            /* Keep initial state visible; no opacity fade that interferes with accessibility or headless capture */
+        }
 
         h2 {
             font-size: 2.5rem;
@@ -285,12 +308,16 @@
             font-size: 1.5rem;
             margin-top: 2rem;
             margin-bottom: 0.5rem;
-            color: var(--accent);
+            color: var(--text-primary);
         }
 
         p {
             color: var(--text-secondary);
             margin-bottom: 1rem;
+        }
+
+        a {
+            color: var(--accent-link);
         }
 
         /* Features Grid */
@@ -306,11 +333,12 @@
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 2rem;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
         }
 
         .feature-card:hover {
             transform: translateY(-4px);
+            border-color: var(--border-hover);
             box-shadow: 0 8px 24px var(--shadow);
         }
 
@@ -328,6 +356,7 @@
         /* Terminal Mock */
         .terminal-container {
             background: var(--code-bg);
+            border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1rem;
             margin: 2rem 0;
@@ -358,15 +387,15 @@
         }
 
         .terminal-prompt {
-            color: #10b981;
+            color: #4ade80; /* green-400 - high contrast on dark code bg */
         }
 
         .terminal-command {
-            color: #60a5fa;
+            color: #38bdf8; /* sky-400 - high contrast on dark code bg */
         }
 
         .terminal-output {
-            color: #cbd5e1;
+            color: #cbd5e1; /* slate-300 */
         }
 
         .terminal-cursor {
@@ -385,8 +414,10 @@
         .code-block {
             background: var(--code-bg);
             color: var(--code-text);
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 1.5rem;
+            padding-right: 5.5rem; /* keep code clear of copy button */
             margin: 1rem 0;
             position: relative;
             overflow-x: auto;
@@ -420,20 +451,21 @@
             font-family: 'Geist Mono', monospace;
             font-size: 0.875rem;
             font-weight: 600;
+            color: var(--text-primary);
             margin-right: 0.5rem;
         }
 
         /* MCP Section (Last) */
         .mcp-section {
             background: var(--bg-secondary);
-            border: 2px solid var(--accent-light);
+            border: 1px solid var(--border);
             border-radius: 12px;
             padding: 3rem;
             margin-top: 4rem;
         }
 
         .mcp-section h2 {
-            color: var(--accent);
+            color: var(--text-primary);
         }
 
         /* Footer */
@@ -446,19 +478,20 @@
         }
 
         footer a {
-            color: var(--accent);
-            text-decoration: none;
+            color: var(--text-secondary);
+            text-decoration: underline;
+            text-underline-offset: 4px;
         }
 
         footer a:hover, footer a:focus {
-            text-decoration: underline;
+            color: var(--text-primary);
         }
 
         /* Animations */
         @keyframes fadeInUp {
             from {
-                opacity: 0;
-                transform: translateY(20px);
+                opacity: 0.2;
+                transform: translateY(12px);
             }
             to {
                 opacity: 1;
@@ -500,7 +533,7 @@
         }
 
         :focus-visible {
-            outline: 2px solid var(--accent);
+            outline: 2px solid var(--focus-ring);
             outline-offset: 2px;
         }
     </style>

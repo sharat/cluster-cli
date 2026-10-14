@@ -83,20 +83,30 @@ Canonical structure and style tokens for `docs/index.html`.
 
 ### Light Mode (Default)
 ```css
---gradient-start: #3730a3;  /* indigo-800 */
---gradient-end: #0f766e;    /* teal-700 */
 --bg-primary: #ffffff;
 --bg-secondary: #f8fafc;    /* slate-50 */
 --bg-tertiary: #f1f5f9;     /* slate-100 */
 --text-primary: #0f172a;    /* slate-900 */
---text-secondary: #475569;  /* slate-600 */
---text-muted: #64748b;      /* slate-500 */
+--text-secondary: #334155;  /* slate-700 */
+--text-muted: #475569;      /* slate-600 */
 --border: #e2e8f0;          /* slate-200 */
---accent: #0f766e;          /* teal-700 */
---accent-light: #14b8a6;    /* teal-500 */
---code-bg: #1e293b;         /* slate-800 */
---code-text: #f1f5f9;       /* slate-100 */
---shadow: rgba(0, 0, 0, 0.1);
+--border-hover: #94a3b8;    /* slate-400 */
+--accent: #0f172a;          /* slate-900 */
+--accent-link: #0369a1;     /* sky-700 */
+--focus-ring: #0284c7;      /* sky-600 */
+--code-bg: #0f172a;         /* slate-900 */
+--code-text: #f8fafc;       /* slate-50 */
+--hero-bg: #f8fafc;         /* slate-50 */
+--hero-border: #e2e8f0;     /* slate-200 */
+--btn-primary-bg: #0f172a;
+--btn-primary-text: #ffffff;
+--btn-secondary-bg: #ffffff;
+--btn-secondary-text: #0f172a;
+--btn-secondary-border: #cbd5e1;
+--copy-btn-bg: #1e293b;
+--copy-btn-text: #f8fafc;
+--copy-btn-border: #334155;
+--shadow: rgba(0, 0, 0, 0.05);
 ```
 
 ### Dark Mode (@media prefers-color-scheme: dark)
@@ -104,13 +114,27 @@ Canonical structure and style tokens for `docs/index.html`.
 --bg-primary: #0f172a;      /* slate-900 */
 --bg-secondary: #1e293b;    /* slate-800 */
 --bg-tertiary: #334155;     /* slate-700 */
---text-primary: #f1f5f9;    /* slate-100 */
+--text-primary: #f8fafc;    /* slate-50 */
 --text-secondary: #cbd5e1;  /* slate-300 */
 --text-muted: #94a3b8;      /* slate-400 */
 --border: #334155;          /* slate-700 */
---code-bg: #0f172a;         /* slate-900 */
---code-text: #e2e8f0;       /* slate-200 */
---shadow: rgba(0, 0, 0, 0.3);
+--border-hover: #64748b;    /* slate-500 */
+--accent: #f8fafc;          /* slate-50 */
+--accent-link: #38bdf8;     /* sky-400 */
+--focus-ring: #38bdf8;      /* sky-400 */
+--code-bg: #0b1120;         /* slate-950 */
+--code-text: #f8fafc;       /* slate-50 */
+--hero-bg: #1e293b;         /* slate-800 */
+--hero-border: #334155;     /* slate-700 */
+--btn-primary-bg: #f8fafc;
+--btn-primary-text: #0f172a;
+--btn-secondary-bg: #0f172a;
+--btn-secondary-text: #f8fafc;
+--btn-secondary-border: #475569;
+--copy-btn-bg: #334155;
+--copy-btn-text: #f8fafc;
+--copy-btn-border: #475569;
+--shadow: rgba(0, 0, 0, 0.25);
 ```
 
 ## Typography
@@ -194,7 +218,7 @@ Canonical structure and style tokens for `docs/index.html`.
 
 ## Section Order (Critical)
 
-1. Hero (gradient background)
+1. Hero (minimal clean background)
 2. Features
 3. Terminal Demo
 4. Install

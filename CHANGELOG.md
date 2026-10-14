@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Improve accessibility and color contrast on GitHub Pages landing page (`docs/index.html`) by removing heavy gradient block in favor of a minimal, clean slate palette meeting WCAG AA/AAA standards
+
 ## [0.4.0] - 2026-10-14
 
 ### Added

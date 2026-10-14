@@ -54,7 +54,7 @@ Update `docs/index.html` using the structure from `landing-page-template.md`:
 **Requirements**:
 - Self-contained HTML (inline CSS and JS)
 - Fonts: Geist Sans (text) and Geist Mono (code) from Google Fonts
-- Gradient theme: deep indigo (`#3730a3`) to teal (`#0f766e`)
+- Minimalist high-contrast theme: Slate palette with WCAG AAA / AA compliant contrast
 - Dark mode: respect `prefers-color-scheme`
 - Reduced motion: respect `prefers-reduced-motion`
 - WCAG AA contrast requirements
