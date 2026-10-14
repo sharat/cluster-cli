@@ -239,6 +239,12 @@
             color: #ffffff;
         }
 
+        @media (prefers-color-scheme: dark) {
+            .btn-primary {
+                color: var(--bg-primary);
+            }
+        }
+
         .btn-primary:hover, .btn-primary:focus {
             background: var(--accent-hover);
             box-shadow: 0 4px 12px var(--shadow);
