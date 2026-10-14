@@ -1267,6 +1267,7 @@ mod tests {
             crash_looping: false,
             oom_killed: false,
             init_containers: vec![],
+            sidecar_containers: vec![],
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
@@ -1276,6 +1277,7 @@ mod tests {
                 last_termination_reason: None,
                 last_exit_code: None,
                 memory_limit_mb: 0,
+                started: true,
             }],
         }
     }

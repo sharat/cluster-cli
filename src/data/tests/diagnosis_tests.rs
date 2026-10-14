@@ -226,6 +226,7 @@ fn failing_init_container_is_reported_instead_of_still_starting() {
         last_termination_reason: Some("Error".to_string()),
         last_exit_code: Some(2),
         memory_limit_mb: 0,
+        started: true,
     }];
 
     let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
@@ -265,6 +266,7 @@ fn init_container_that_completed_after_an_earlier_oom_is_not_reported() {
             last_termination_reason: Some("OOMKilled".to_string()),
             last_exit_code: Some(137),
             memory_limit_mb: 64,
+            started: true,
         }],
         ..create_test_pod()
     };
@@ -285,12 +287,75 @@ fn started_native_sidecar_is_not_blamed_for_a_pending_pod() {
     sidecar.name = "istio-proxy".to_string();
     sidecar.state = "Running".to_string();
     sidecar.ready = true;
-    pod.init_containers = vec![sidecar];
+    pod.sidecar_containers = vec![sidecar];
 
     let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
 
     assert_eq!(findings.len(), 1);
     assert!(findings[0].likely_cause.starts_with("Scheduled; containers are still being created"));
+}
+
+#[test]
+fn unstarted_sidecar_explains_a_pending_pod() {
+    let mut pod = create_test_pod();
+    pod.phase = "Pending".to_string();
+    pod.is_ready = false;
+    pod.containers[0].ready = false;
+    pod.containers[0].state = "Waiting (PodInitializing)".to_string();
+    let mut sidecar = pod.containers[0].clone();
+    sidecar.name = "istio-proxy".to_string();
+    sidecar.state = "Running".to_string();
+    sidecar.ready = false;
+    sidecar.started = false;
+    pod.sidecar_containers = vec![sidecar];
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(
+        findings[0].likely_cause,
+        "Sidecar container istio-proxy has not started yet (startup probe still running)"
+    );
+}
+
+#[test]
+fn started_but_unready_sidecar_is_not_blamed_for_a_pending_pod() {
+    // kubelet waits for a sidecar to start, not to become ready.
+    let mut pod = create_test_pod();
+    pod.phase = "Pending".to_string();
+    pod.is_ready = false;
+    pod.containers[0].ready = false;
+    pod.containers[0].state = "Waiting (ContainerCreating)".to_string();
+    let mut sidecar = pod.containers[0].clone();
+    sidecar.name = "istio-proxy".to_string();
+    sidecar.state = "Running".to_string();
+    sidecar.ready = false;
+    sidecar.started = true;
+    pod.sidecar_containers = vec![sidecar];
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
+
+    assert_eq!(findings.len(), 1);
+    assert!(findings[0].likely_cause.starts_with("Scheduled; containers are still being created"));
+}
+
+#[test]
+fn crash_looping_sidecar_is_reported_with_its_own_logs_command() {
+    let mut pod = create_test_pod();
+    let mut sidecar = pod.containers[0].clone();
+    sidecar.name = "istio-proxy".to_string();
+    sidecar.ready = false;
+    sidecar.restart_count = 6;
+    sidecar.state = "Waiting (CrashLoopBackOff)".to_string();
+    sidecar.last_termination_reason = Some("Error".to_string());
+    sidecar.last_exit_code = Some(1);
+    pod.sidecar_containers = vec![sidecar];
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].issue, "Sidecar container istio-proxy is crash-looping (6 restarts)");
+    assert_eq!(findings[0].next_command, "kubectl logs api-7d9f -n prod -c istio-proxy --previous");
 }
 
 fn create_test_pod() -> PodInfo {
@@ -318,6 +383,7 @@ fn create_test_pod() -> PodInfo {
         crash_looping: false,
         oom_killed: false,
         init_containers: vec![],
+        sidecar_containers: vec![],
         node_name: Some("node-a".to_string()),
         containers: vec![ContainerInfo {
             name: "app".to_string(),
@@ -327,6 +393,7 @@ fn create_test_pod() -> PodInfo {
             last_termination_reason: None,
             last_exit_code: None,
             memory_limit_mb: 0,
+            started: true,
         }],
     }
 }

@@ -26,9 +26,14 @@ pub fn diagnose_pod(pod: &PodInfo, snapshot: &ClusterSnapshot) -> Vec<PodFinding
         snapshot.events.iter().filter(|e| e.kind == "Pod" && e.name == pod.name).collect();
     let mut findings = Vec::new();
 
-    let init = pod.init_containers.iter().map(|c| (c, true));
-    for (container, is_init) in init.chain(pod.containers.iter().map(|c| (c, false))) {
-        if let Some(finding) = diagnose_container(pod, container, is_init, &events) {
+    let all_containers = pod
+        .init_containers
+        .iter()
+        .map(|c| (c, ContainerKind::Init))
+        .chain(pod.sidecar_containers.iter().map(|c| (c, ContainerKind::Sidecar)))
+        .chain(pod.containers.iter().map(|c| (c, ContainerKind::App)));
+    for (container, kind) in all_containers {
+        if let Some(finding) = diagnose_container(pod, container, kind, &events) {
             findings.push(finding);
         }
     }
@@ -53,18 +58,29 @@ pub fn diagnose_pod(pod: &PodInfo, snapshot: &ClusterSnapshot) -> Vec<PodFinding
     findings
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContainerKind {
+    App,
+    Init,
+    Sidecar,
+}
+
 fn diagnose_container(
     pod: &PodInfo,
     container: &ContainerInfo,
-    is_init: bool,
+    kind: ContainerKind,
     events: &[&ClusterEvent],
 ) -> Option<PodFinding> {
     let name = &container.name;
-    let label = if is_init { "Init container" } else { "Container" };
+    let label = match kind {
+        ContainerKind::App => "Container",
+        ContainerKind::Init => "Init container",
+        ContainerKind::Sidecar => "Sidecar container",
+    };
     // A completed init container has done its job. Its last_termination_reason
     // comes from lastState, i.e. an earlier failed attempt, so it would
     // otherwise be reported as failing.
-    if is_init && container.state == "Terminated (Completed)" {
+    if kind == ContainerKind::Init && container.state == "Terminated (Completed)" {
         return None;
     }
     let waiting = waiting_reason(&container.state);
@@ -109,7 +125,7 @@ fn diagnose_container(
         _ => {}
     }
 
-    if last_reason == Some("OOMKilled") {
+    if last_reason == Some("OOMKilled") || container.state == "Terminated (OOMKilled)" {
         let likely_cause = if container.memory_limit_mb > 0 {
             format!(
                 "Memory use exceeded its {} MB limit; raise the limit or reduce usage",
@@ -122,7 +138,7 @@ fn diagnose_container(
             severity: IncidentSeverity::Critical,
             issue: format!("{label} {name} was OOMKilled"),
             likely_cause,
-            next_command: previous_logs(pod, container, is_init),
+            next_command: previous_logs(pod, container, kind),
         });
     }
 
@@ -134,7 +150,7 @@ fn diagnose_container(
                 container.restart_count
             ),
             likely_cause: exit_code_cause(container.last_exit_code),
-            next_command: previous_logs(pod, container, is_init),
+            next_command: previous_logs(pod, container, kind),
         });
     }
 
@@ -148,7 +164,7 @@ fn diagnose_container(
                 last_reason.unwrap_or("unknown")
             ),
             likely_cause: exit_code_cause(container.last_exit_code),
-            next_command: previous_logs(pod, container, is_init),
+            next_command: previous_logs(pod, container, kind),
         });
     }
 
@@ -178,20 +194,29 @@ fn diagnose_phase(pod: &PodInfo, events: &[&ClusterEvent]) -> Option<PodFinding>
             }
             // Container-level waiting reasons (image pulls etc.) already explain
             // a scheduled pod that is still pending.
-            if pod.init_containers.iter().chain(&pod.containers).any(|c| {
+            let all = pod.init_containers.iter().chain(&pod.sidecar_containers);
+            if all.chain(&pod.containers).any(|c| {
                 waiting_reason(&c.state)
                     .is_some_and(|r| r != "ContainerCreating" && r != "PodInitializing")
             }) {
                 return None;
             }
-            // A started native sidecar (restartPolicy: Always) stays Running and
-            // ready for the pod's life, so only an unready one can be blocking.
+            // A regular init container that is Running has not finished yet. A
+            // sidecar holds back later containers only until it has *started*
+            // (startup probe passed); readiness does not gate them.
             let running_init =
                 pod.init_containers.iter().find(|c| c.state == "Running" && !c.ready);
+            let unstarted_sidecar =
+                pod.sidecar_containers.iter().find(|c| c.state == "Running" && !c.started);
             let likely_cause = if pod.node_name.is_none() {
                 "Waiting for the scheduler to place it on a node".to_string()
             } else if let Some(init) = running_init {
                 format!("Init container {} is still running", init.name)
+            } else if let Some(sidecar) = unstarted_sidecar {
+                format!(
+                    "Sidecar container {} has not started yet (startup probe still running)",
+                    sidecar.name
+                )
             } else {
                 "Scheduled; containers are still being created (image pull or volume setup)"
                     .to_string()
@@ -295,7 +320,9 @@ fn diagnose_node(pod: &PodInfo, snapshot: &ClusterSnapshot) -> Option<PodFinding
 fn diagnose_resources(pod: &PodInfo) -> Vec<PodFinding> {
     let mut findings = Vec::new();
     let oom_reported = pod.oom_killed
-        || pod.containers.iter().any(|c| c.last_termination_reason.as_deref() == Some("OOMKilled"));
+        || pod
+            .running_containers()
+            .any(|c| c.last_termination_reason.as_deref() == Some("OOMKilled"));
 
     if pod.memory_limit_mb > 0 && pod.memory_pct >= RESOURCE_PRESSURE_PCT && !oom_reported {
         findings.push(PodFinding {
@@ -397,9 +424,9 @@ fn event_message(
     events.iter().find(|e| matches(e)).map(|e| e.message.clone())
 }
 
-fn previous_logs(pod: &PodInfo, container: &ContainerInfo, is_init: bool) -> String {
+fn previous_logs(pod: &PodInfo, container: &ContainerInfo, kind: ContainerKind) -> String {
     // kubectl defaults to the first app container, so name any other one.
-    let flag = if is_init || pod.containers.len() > 1 {
+    let flag = if kind != ContainerKind::App || pod.containers.len() > 1 {
         format!(" -c {}", container.name)
     } else {
         String::new()
