@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-14
+
 ### Added
 - Headless JSON API: `cluster status --json`, `cluster incidents --json`, `cluster pods --json`, `cluster nodes --json`, and `cluster logs <pod>` with `--verbose` flag for detailed output
 - MCP (Model Context Protocol) server: `cluster mcp` exposes read-only tools for AI agents (Cursor, Claude Desktop) over stdio
