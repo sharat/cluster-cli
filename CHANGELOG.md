@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add cargo-deny security audit to CI pipeline
 - Add cross-platform test job to CI (Ubuntu, macOS, Windows)
 
+### Fixed
+- Show events written through the newer events API (such as the scheduler's FailedScheduling) in the events panel, incidents, and diagnosis; they have no `lastTimestamp`, so sorting by it dropped them once a namespace had more than 50 events
+
 ## [0.3.4] - 2026-10-07
 
 ### Fixed

@@ -1553,49 +1553,61 @@ fn summarize_container_state(status: &Value) -> String {
 }
 
 pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
-    let output = run_cmd(
-        "kubectl",
-        &["get", "events", "-n", namespace, "--sort-by=.lastTimestamp", "-o", "json"],
-    )
-    .await?;
-
+    let output = run_cmd("kubectl", &["get", "events", "-n", namespace, "-o", "json"]).await?;
     let json: Value = serde_json::from_str(&output)?;
-    let mut events = Vec::new();
+    Ok(parse_events(&json))
+}
 
-    if let Some(items) = json.get("items").and_then(|v| v.as_array()) {
-        for item in items.iter().rev().take(MAX_EVENTS_PER_FETCH) {
-            let kind = item
-                .pointer("/involvedObject/kind")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
+/// Parse a `kubectl get events -o json` list, newest first, keeping at most
+/// `MAX_EVENTS_PER_FETCH`.
+///
+/// Sorting happens here rather than with `--sort-by=.lastTimestamp`: events
+/// written through the events.k8s.io API (e.g. the scheduler's
+/// FailedScheduling) leave `lastTimestamp` empty and carry their time in
+/// `series.lastObservedTime` or `eventTime`, so kubectl would sort them as the
+/// oldest and they would be cut off.
+fn parse_events(json: &Value) -> Vec<ClusterEvent> {
+    let Some(items) = json.get("items").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+
+    let mut events: Vec<(Option<chrono::DateTime<chrono::FixedOffset>>, ClusterEvent)> = items
+        .iter()
+        .map(|item| {
+            let str_at =
+                |path: &str| item.pointer(path).and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+            let timestamp = str_at("/lastTimestamp")
+                .or_else(|| str_at("/series/lastObservedTime"))
+                .or_else(|| str_at("/eventTime"))
+                .or_else(|| str_at("/firstTimestamp"))
+                .or_else(|| str_at("/metadata/creationTimestamp"))
+                .unwrap_or("")
                 .to_string();
-
-            let name = item
-                .pointer("/involvedObject/name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
-                .to_string();
-
-            let reason = item.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-            let message = item.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-            let event_type = if item.get("type").and_then(|v| v.as_str()) == Some("Warning") {
-                EventType::Warning
-            } else {
-                EventType::Normal
+            let count = item
+                .get("count")
+                .and_then(|v| v.as_u64())
+                .or_else(|| item.pointer("/series/count").and_then(|v| v.as_u64()))
+                .unwrap_or(1) as u32;
+            let event = ClusterEvent {
+                kind: str_at("/involvedObject/kind").unwrap_or("Unknown").to_string(),
+                name: str_at("/involvedObject/name").unwrap_or("Unknown").to_string(),
+                reason: str_at("/reason").unwrap_or("").to_string(),
+                message: str_at("/message").unwrap_or("").to_string(),
+                event_type: if str_at("/type") == Some("Warning") {
+                    EventType::Warning
+                } else {
+                    EventType::Normal
+                },
+                count,
+                timestamp,
             };
+            (chrono::DateTime::parse_from_rfc3339(&event.timestamp).ok(), event)
+        })
+        .collect();
 
-            let count = item.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
-
-            let timestamp =
-                item.get("lastTimestamp").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-            events.push(ClusterEvent { kind, name, reason, message, event_type, count, timestamp });
-        }
-    }
-
-    Ok(events)
+    // Newest first; events without a parseable time go last.
+    events.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
+    events.into_iter().take(MAX_EVENTS_PER_FETCH).map(|(_, event)| event).collect()
 }
 
 pub async fn fetch_namespaces() -> Result<Vec<NamespaceSummary>> {
@@ -2000,7 +2012,7 @@ mod tests {
         collect_hpas, collect_ingresses, collect_jobs, collect_pdbs, collect_pvcs,
         collect_services, deployment_rollout_status, derive_node_status, derive_pod_status,
         effective_pod_cpu_resources, effective_pod_memory_resources, ensure_readonly_kubectl_args,
-        extract_container_info, namespace_pod_counts, parse_cpu, parse_memory_mb,
+        extract_container_info, namespace_pod_counts, parse_cpu, parse_events, parse_memory_mb,
         parse_workload_resource_result, requested_namespace, workload_health,
     };
     use crate::data::models::{
@@ -2334,6 +2346,31 @@ mod tests {
         assert_eq!(parse_cpu("1.5"), 1500);
         assert_eq!(parse_cpu(""), 0);
         assert_eq!(parse_cpu("abc"), 0);
+    }
+
+    #[test]
+    fn parse_events_orders_events_api_events_by_their_real_time() {
+        // The scheduler writes through events.k8s.io: no lastTimestamp, time in
+        // eventTime/series. kubectl --sort-by=.lastTimestamp put these first.
+        let json = serde_json::json!({"items": [
+            {"involvedObject": {"kind": "Pod", "name": "web"}, "reason": "FailedScheduling",
+             "message": "0/1 nodes are available: 1 Insufficient memory.", "type": "Warning",
+             "lastTimestamp": null, "eventTime": "2026-10-14T06:40:00.000000Z",
+             "series": {"count": 9, "lastObservedTime": "2026-10-14T06:50:00.000000Z"}},
+            {"involvedObject": {"kind": "Pod", "name": "api"}, "reason": "Pulled",
+             "message": "pulled", "type": "Normal", "count": 1,
+             "lastTimestamp": "2026-10-14T06:45:00Z"},
+            {"involvedObject": {"kind": "Pod", "name": "old"}, "reason": "Scheduled",
+             "message": "assigned", "type": "Normal", "lastTimestamp": null,
+             "eventTime": "2026-10-14T06:00:00.000000Z"}
+        ]});
+
+        let events = parse_events(&json);
+
+        let names: Vec<&str> = events.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["web", "api", "old"]);
+        assert_eq!(events[0].count, 9);
+        assert_eq!(events[0].timestamp, "2026-10-14T06:50:00.000000Z");
     }
 
     #[test]

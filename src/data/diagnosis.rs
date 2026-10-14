@@ -66,13 +66,15 @@ fn diagnose_container(
 
     match waiting {
         Some("ImagePullBackOff" | "ErrImagePull" | "InvalidImageName") => {
+            // kubelet also emits a bare "Error: ImagePullBackOff" Failed event;
+            // only the "Failed to pull image" one says why.
             let detail = event_message(events, |e| {
-                e.reason == "Failed" && e.message.to_lowercase().contains("image")
+                e.reason == "Failed" && e.message.starts_with("Failed to pull image")
             });
             return Some(PodFinding {
                 severity: IncidentSeverity::Critical,
                 issue: format!("{label} {name} cannot pull its image"),
-                likely_cause: detail.unwrap_or_else(|| {
+                likely_cause: detail.as_deref().map(image_pull_cause).unwrap_or_else(|| {
                     "The image name or tag is wrong, or the registry needs credentials \
                      (imagePullSecrets)"
                         .to_string()
@@ -326,6 +328,33 @@ fn exit_code_cause(code: Option<i32>) -> String {
         Some(143) => "Terminated by SIGTERM (exit 143), often a failed liveness probe".to_string(),
         Some(code) => format!("The application exited with an error (exit {code}); check its logs"),
         None => "The container keeps exiting shortly after starting; check its logs".to_string(),
+    }
+}
+
+/// Summarize a kubelet "Failed to pull image" message, whose useful part is
+/// usually at the end of a long runtime error chain.
+fn image_pull_cause(message: &str) -> String {
+    let image = message.split('"').nth(1).unwrap_or("the image");
+    let lower = message.to_lowercase();
+    if lower.contains("not found")
+        || lower.contains("does not exist")
+        || lower.contains("manifest unknown")
+    {
+        format!(
+            "Image {image} does not exist, or the registry needs credentials (imagePullSecrets)"
+        )
+    } else if lower.contains("unauthorized")
+        || lower.contains("denied")
+        || lower.contains("authentication required")
+    {
+        format!("The registry denied access to {image}; check imagePullSecrets")
+    } else if lower.contains("timeout")
+        || lower.contains("no such host")
+        || lower.contains("connection refused")
+    {
+        format!("The registry for {image} could not be reached from the node")
+    } else {
+        message.to_string()
     }
 }
 

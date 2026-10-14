@@ -66,6 +66,32 @@ fn image_pull_failure_uses_event_message() {
 }
 
 #[test]
+fn image_pull_cause_skips_the_generic_error_event_and_summarizes_the_real_one() {
+    let mut pod = create_test_pod();
+    pod.is_ready = false;
+    pod.phase = "Pending".to_string();
+    pod.containers[0].state = "Waiting (ImagePullBackOff)".to_string();
+    // Newest first, as kubectl reports from a kind cluster.
+    let events = vec![
+        pod_event("Failed", "Error: ImagePullBackOff"),
+        pod_event(
+            "Failed",
+            "Failed to pull image \"nonexistent/image:v1\": failed to pull and unpack image \
+             \"docker.io/nonexistent/image:v1\": failed to resolve reference: pull access denied, \
+             repository does not exist or may require authorization",
+        ),
+    ];
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], events));
+
+    assert_eq!(
+        findings[0].likely_cause,
+        "Image nonexistent/image:v1 does not exist, or the registry needs credentials \
+         (imagePullSecrets)"
+    );
+}
+
+#[test]
 fn unschedulable_pod_explains_insufficient_memory() {
     let mut pod = create_test_pod();
     pod.phase = "Pending".to_string();
