@@ -11,7 +11,7 @@ NC='\033[0m' # No Color
 REPO="sharat/cluster-cli"
 BINARY_NAME="cluster"
 # Default to user-local bin directory to avoid sudo
-INSTALL_DIR="${HOME}/.local/bin"
+INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 
 # Print error and exit
 error() {

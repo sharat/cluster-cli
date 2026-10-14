@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add cross-platform test job to CI (Ubuntu, macOS, Windows)
 
 ### Fixed
+- `cluster logs -n <namespace>` selects the namespace; `-n` was claimed by both `--namespace` and `--tail` (use `--tail` for the line count)
+- MCP `list_contexts` works; the read-only kubectl whitelist rejected the `kubectl config get-contexts` it runs
+- `install.sh` honors `INSTALL_DIR` from the environment instead of always installing to `~/.local/bin`
 - Keep pod detail container columns separated: long container names and states such as `Waiting (CrashLoopBackOff)` no longer run into the next column
 - Keep the logs panel usable in pod detail on short terminals (under 33 rows) by compacting the overview and events panels
 - Count native sidecars in pod CPU and memory requests and limits the way Kubernetes does (added to the app containers and to later init containers) instead of taking the largest init container

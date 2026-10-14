@@ -135,7 +135,7 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
 
     match args {
         ["get", ..] | ["top", ..] | ["logs", ..] => Ok(()),
-        ["config", "current-context", ..] | ["config", "view", ..] => Ok(()),
+        ["config", "current-context" | "view" | "get-contexts", ..] => Ok(()),
         [] => anyhow::bail!("kubectl command is empty"),
         _ => anyhow::bail!("Rejected non-read-only kubectl command: kubectl {}", args.join(" ")),
     }
@@ -2049,6 +2049,10 @@ mod tests {
         assert!(ensure_readonly_kubectl_args("kubectl", &["top", "nodes"]).is_ok());
         assert!(ensure_readonly_kubectl_args("kubectl", &["logs", "pod-1", "-f"]).is_ok());
         assert!(ensure_readonly_kubectl_args("kubectl", &["config", "view"]).is_ok());
+        assert!(
+            ensure_readonly_kubectl_args("kubectl", &["config", "get-contexts", "-o", "name"])
+                .is_ok()
+        );
     }
 
     #[test]

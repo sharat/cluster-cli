@@ -106,7 +106,7 @@ pub enum Commands {
         container: Option<String>,
 
         /// Number of lines to show from the end
-        #[arg(short = 'n', long, default_value = "100")]
+        #[arg(long, default_value = "100")]
         tail: usize,
 
         /// Follow log output
@@ -150,6 +150,24 @@ impl Cli {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cli_definition_is_valid() {
+        // Catches conflicting flags, such as two arguments claiming `-n`.
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn logs_takes_namespace_from_n_and_tail_from_long_flag() {
+        let cli =
+            Cli::try_parse_from(["cluster", "logs", "api", "-n", "prod", "--tail", "20"]).unwrap();
+        let Some(Commands::Logs { tail, kubectl_opts, .. }) = cli.command else {
+            panic!("expected the logs command");
+        };
+        assert_eq!(tail, 20);
+        assert_eq!(kubectl_opts.namespace.as_deref(), Some("prod"));
+    }
 
     #[test]
     fn verify_cli_parsing() {
