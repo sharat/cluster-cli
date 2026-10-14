@@ -81,21 +81,20 @@ Canonical structure and style tokens for `docs/index.html`.
 
 ## Color Tokens
 
+Minimal palette: neutral slate tones plus one teal accent. No gradients. The accent must be re-declared per color scheme so text/controls keep WCAG AA contrast in both modes.
+
 ### Light Mode (Default)
 ```css
---gradient-start: #3730a3;  /* indigo-800 */
---gradient-end: #0f766e;    /* teal-700 */
 --bg-primary: #ffffff;
 --bg-secondary: #f8fafc;    /* slate-50 */
 --bg-tertiary: #f1f5f9;     /* slate-100 */
---text-primary: #0f172a;    /* slate-900 */
---text-secondary: #475569;  /* slate-600 */
---text-muted: #64748b;      /* slate-500 */
---border: #e2e8f0;          /* slate-200 */
---accent: #0f766e;          /* teal-700 */
---accent-light: #14b8a6;    /* teal-500 */
+--text-primary: #0f172a;    /* slate-900, 16.1:1 on bg-primary */
+--text-secondary: #475569;  /* slate-600, 7.0:1 on bg-primary */
+--border: #cbd5e1;          /* slate-300 */
+--accent: #0f766e;          /* teal-700, 5.0:1 on bg-primary */
+--on-accent: #ffffff;       /* 5.0:1 on accent */
 --code-bg: #1e293b;         /* slate-800 */
---code-text: #f1f5f9;       /* slate-100 */
+--code-text: #f1f5f9;       /* slate-100, 12.6:1 on code-bg */
 --shadow: rgba(0, 0, 0, 0.1);
 ```
 
@@ -104,12 +103,13 @@ Canonical structure and style tokens for `docs/index.html`.
 --bg-primary: #0f172a;      /* slate-900 */
 --bg-secondary: #1e293b;    /* slate-800 */
 --bg-tertiary: #334155;     /* slate-700 */
---text-primary: #f1f5f9;    /* slate-100 */
---text-secondary: #cbd5e1;  /* slate-300 */
---text-muted: #94a3b8;      /* slate-400 */
---border: #334155;          /* slate-700 */
---code-bg: #0f172a;         /* slate-900 */
---code-text: #e2e8f0;       /* slate-200 */
+--text-primary: #f1f5f9;    /* slate-100, 14.7:1 on bg-primary */
+--text-secondary: #cbd5e1;  /* slate-300, 9.7:1 on bg-primary */
+--border: #475569;          /* slate-600 */
+--accent: #2dd4bf;          /* teal-400, 9.6:1 on bg-primary */
+--on-accent: #0f172a;       /* 9.6:1 on accent */
+--code-bg: #020617;         /* slate-950 */
+--code-text: #e2e8f0;       /* slate-200, 15.8:1 on code-bg */
 --shadow: rgba(0, 0, 0, 0.3);
 ```
 
@@ -126,7 +126,8 @@ Canonical structure and style tokens for `docs/index.html`.
 - ARIA labels: `role="banner"`, `role="navigation"`, `role="main"`, `role="contentinfo"`
 - Focus styles: `outline: 2px solid var(--accent); outline-offset: 2px;`
 - Keyboard navigation: Tab, Enter, Esc
-- Color + text indicators (not color-only)
+- Color + text indicators (not color-only): links keep underlines
+- Links use `--accent` (browser-default link colors fail contrast on dark backgrounds)
 - `.sr-only` class for screen reader text
 - `alt` text on all images (if any)
 
@@ -194,7 +195,7 @@ Canonical structure and style tokens for `docs/index.html`.
 
 ## Section Order (Critical)
 
-1. Hero (gradient background)
+1. Hero (plain `--bg-secondary` background, no gradient)
 2. Features
 3. Terminal Demo
 4. Install

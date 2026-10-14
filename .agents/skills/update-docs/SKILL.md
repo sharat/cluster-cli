@@ -54,8 +54,8 @@ Update `docs/index.html` using the structure from `landing-page-template.md`:
 **Requirements**:
 - Self-contained HTML (inline CSS and JS)
 - Fonts: Geist Sans (text) and Geist Mono (code) from Google Fonts
-- Gradient theme: deep indigo (`#3730a3`) to teal (`#0f766e`)
-- Dark mode: respect `prefers-color-scheme`
+- Minimal palette: neutral slate tones + single teal accent (`#0f766e` light / `#2dd4bf` dark); no gradients
+- Dark mode: respect `prefers-color-scheme` (accent must adapt per scheme for WCAG AA)
 - Reduced motion: respect `prefers-reduced-motion`
 - WCAG AA contrast requirements
 - Sections in order: Hero, Features, Terminal Demo, Install, Key Bindings, Headless, **MCP (last)**

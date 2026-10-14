@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Landing page accessibility: replace the gradient hero with a plain section and a minimal, high-contrast color palette (single teal accent that adapts to light/dark mode), fixing dark-mode accent contrast failures, low-contrast "Copied!" button feedback, and color-only link styling
+
 ## [0.4.0] - 2026-10-14
 
 ### Added
