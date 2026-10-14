@@ -301,8 +301,7 @@ pub fn build_pods_output(snapshot: &ClusterSnapshot, verbose: bool) -> Vec<PodOu
             let mut output = PodOutput::from(pod);
             if verbose {
                 output.containers = Some(
-                    pod.containers
-                        .iter()
+                    pod.running_containers()
                         .map(|c| ContainerOutput {
                             name: c.name.clone(),
                             ready: c.ready,
@@ -403,6 +402,7 @@ mod tests {
             crash_looping: false,
             oom_killed: false,
             init_containers: vec![],
+            sidecar_containers: vec![],
             node_name: Some("node-1".to_string()),
             containers: vec![],
         }

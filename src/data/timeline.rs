@@ -168,7 +168,7 @@ pub fn build_timeline(snapshot: &ClusterSnapshot) -> Vec<TimelineEntry> {
 
     // Add pod/container incidents (restarts, OOM, crash loops)
     for pod in &snapshot.pods {
-        for container in &pod.containers {
+        for container in pod.running_containers() {
             if container.restart_count > 0 {
                 // Estimate timestamp for restarts (we don't have exact timestamps from kubectl)
                 // Use the snapshot timestamp as a best-effort approach
@@ -902,6 +902,7 @@ mod tests {
             crash_looping,
             oom_killed: false,
             init_containers: vec![],
+            sidecar_containers: vec![],
             node_name: Some("node-a".to_string()),
             containers: vec![ContainerInfo {
                 name: "app".to_string(),

@@ -160,8 +160,20 @@ pub struct PodInfo {
     pub oom_killed: bool,
     pub node_name: Option<String>,
     pub containers: Vec<ContainerInfo>,
-    /// Init container statuses, kept apart so app-container views are unchanged.
+    /// Regular init container statuses, kept apart so app-container views are
+    /// unchanged.
     pub init_containers: Vec<ContainerInfo>,
+    /// Native sidecars: init containers with `restartPolicy: Always`, which
+    /// keep running alongside the app containers.
+    pub sidecar_containers: Vec<ContainerInfo>,
+}
+
+impl PodInfo {
+    /// App containers followed by native sidecars: everything that runs for the
+    /// pod's life (regular init containers excluded).
+    pub fn running_containers(&self) -> impl Iterator<Item = &ContainerInfo> {
+        self.containers.iter().chain(&self.sidecar_containers)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

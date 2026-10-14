@@ -285,12 +285,31 @@ fn started_native_sidecar_is_not_blamed_for_a_pending_pod() {
     sidecar.name = "istio-proxy".to_string();
     sidecar.state = "Running".to_string();
     sidecar.ready = true;
-    pod.init_containers = vec![sidecar];
+    pod.sidecar_containers = vec![sidecar];
 
     let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
 
     assert_eq!(findings.len(), 1);
     assert!(findings[0].likely_cause.starts_with("Scheduled; containers are still being created"));
+}
+
+#[test]
+fn crash_looping_sidecar_is_reported_with_its_own_logs_command() {
+    let mut pod = create_test_pod();
+    let mut sidecar = pod.containers[0].clone();
+    sidecar.name = "istio-proxy".to_string();
+    sidecar.ready = false;
+    sidecar.restart_count = 6;
+    sidecar.state = "Waiting (CrashLoopBackOff)".to_string();
+    sidecar.last_termination_reason = Some("Error".to_string());
+    sidecar.last_exit_code = Some(1);
+    pod.sidecar_containers = vec![sidecar];
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].issue, "Sidecar container istio-proxy is crash-looping (6 restarts)");
+    assert_eq!(findings[0].next_command, "kubectl logs api-7d9f -n prod -c istio-proxy --previous");
 }
 
 fn create_test_pod() -> PodInfo {
@@ -318,6 +337,7 @@ fn create_test_pod() -> PodInfo {
         crash_looping: false,
         oom_killed: false,
         init_containers: vec![],
+        sidecar_containers: vec![],
         node_name: Some("node-a".to_string()),
         containers: vec![ContainerInfo {
             name: "app".to_string(),

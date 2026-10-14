@@ -219,22 +219,33 @@ fn render_overview(f: &mut Frame, area: Rect, app: &AppState) {
         ];
 
         let available_lines = inner.height.saturating_sub(lines.len() as u16) as usize;
-        let visible_container_count = available_lines.min(pod.containers.len());
-        for container in pod.containers.iter().take(visible_container_count) {
+        let all_containers: Vec<(&ContainerInfo, bool)> = pod
+            .containers
+            .iter()
+            .map(|c| (c, false))
+            .chain(pod.sidecar_containers.iter().map(|c| (c, true)))
+            .collect();
+        let visible_container_count = available_lines.min(all_containers.len());
+        for (container, is_sidecar) in all_containers.iter().take(visible_container_count) {
             let (readiness_failures, liveness_failures) =
                 probe_failures.get(&container.name).copied().unwrap_or((0, 0));
-            lines.push(container_line(container, readiness_failures, liveness_failures));
+            lines.push(container_line(
+                container,
+                *is_sidecar,
+                readiness_failures,
+                liveness_failures,
+            ));
         }
-        if pod.containers.len() > visible_container_count {
+        if all_containers.len() > visible_container_count {
             lines.push(Line::styled(
                 format!(
                     "  ... {} more container(s) not shown",
-                    pod.containers.len() - visible_container_count
+                    all_containers.len() - visible_container_count
                 ),
                 Style::default().fg(Color::DarkGray),
             ));
         }
-        if pod.containers.is_empty() {
+        if all_containers.is_empty() {
             lines.push(Line::styled(
                 "  No container status data available.",
                 Style::default().fg(Color::DarkGray),
@@ -294,8 +305,7 @@ fn container_probe_failures(app: &AppState, pod: &PodInfo) -> HashMap<String, (u
 
 fn infer_container_name(message: &str, pod: &PodInfo) -> Option<String> {
     let mut matches = pod
-        .containers
-        .iter()
+        .running_containers()
         .filter(|container| message.contains(&container.name))
         .map(|container| container.name.clone());
 
@@ -304,8 +314,9 @@ fn infer_container_name(message: &str, pod: &PodInfo) -> Option<String> {
         return first;
     }
 
-    if pod.containers.len() == 1 {
-        return pod.containers.first().map(|container| container.name.clone());
+    let mut running = pod.running_containers();
+    if let (Some(only), None) = (running.next(), running.next()) {
+        return Some(only.name.clone());
     }
 
     None
@@ -313,6 +324,7 @@ fn infer_container_name(message: &str, pod: &PodInfo) -> Option<String> {
 
 fn container_line(
     container: &ContainerInfo,
+    is_sidecar: bool,
     readiness_failures: u32,
     liveness_failures: u32,
 ) -> Line<'static> {
@@ -338,6 +350,7 @@ fn container_line(
             format!("probe R:{readiness_failures} L:{liveness_failures}"),
             Style::default().fg(Color::DarkGray),
         ),
+        Span::styled(if is_sidecar { "  sidecar" } else { "" }, Style::default().fg(Color::Cyan)),
     ])
 }
 

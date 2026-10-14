@@ -233,7 +233,7 @@ pub async fn handle_logs(
     }
 
     // For logs, we stream directly instead of capturing
-    let mut cmd = tokio::process::Command::new("kubectl");
+    let mut cmd = crate::data::collector::kubectl_command();
     cmd.args(&args).kill_on_drop(true);
 
     let status = cmd.status().await?;

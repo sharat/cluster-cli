@@ -1267,6 +1267,7 @@ mod tests {
             crash_looping: false,
             oom_killed: false,
             init_containers: vec![],
+            sidecar_containers: vec![],
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),

@@ -60,6 +60,7 @@ fn create_test_pod(
         crash_looping,
         oom_killed,
         init_containers: vec![],
+        sidecar_containers: vec![],
         node_name: Some("test-node".to_string()),
         containers: vec![],
     }

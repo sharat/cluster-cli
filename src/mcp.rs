@@ -263,8 +263,7 @@ impl ClusterMcpServer {
 
                 let mut output = crate::json_output::PodOutput::from(pod);
                 output.containers = Some(
-                    pod.containers
-                        .iter()
+                    pod.running_containers()
                         .map(|c| crate::json_output::ContainerOutput {
                             name: c.name.clone(),
                             ready: c.ready,

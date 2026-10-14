@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accessible severity labels in timeline (not color-only)
 - Diagnosis panel in pod detail that explains why a pod is unhealthy, with a likely cause and the next read-only `kubectl` command for each finding (crash loops with exit-code hints, OOM kills, image pull and config errors, scheduling and volume failures, evictions, failing probes, node problems, and resources near their limits)
 
+- Native sidecar support: sidecars (init containers with `restartPolicy: Always`) are listed in pod detail, selectable in the log viewer, and counted in restarts, readiness, crash-loop and OOM detection, so a crash-looping sidecar marks its pod critical
+
 ### Changed
 - MCP `explain_pod` uses the same diagnosis as the pod detail view and now returns structured `findings` with severity, likely cause, and next command
 - Upgrade Rust toolchain from 1.94.1 to 1.99.0
@@ -35,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add cross-platform test job to CI (Ubuntu, macOS, Windows)
 
 ### Fixed
+- Count native sidecars in pod CPU and memory requests and limits the way Kubernetes does (added to the app containers and to later init containers) instead of taking the largest init container
+- Run kubectl with `KUBECTL_KUBERC=false` so a user's kubectl preferences (kuberc) cannot change the output cluster-cli parses
 - Show events written through the newer events API (such as the scheduler's FailedScheduling) in the events panel, incidents, and diagnosis; they have no `lastTimestamp`, so sorting by it dropped them once a namespace had more than 50 events
 - Keep Warning events ahead of Normal ones when trimming to the 50 most recent, so a busy namespace's routine events (Pulled, Created, Started) no longer push an older warning such as FailedScheduling out of the events panel, incidents, and diagnosis
 

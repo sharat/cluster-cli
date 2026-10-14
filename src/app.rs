@@ -343,19 +343,24 @@ impl AppState {
         let Some(pod) = self.current_pod() else {
             return false;
         };
-        if pod.containers.len() < 2 {
+        // Native sidecars have their own logs, so they are selectable too.
+        let names: Vec<&str> = pod
+            .containers
+            .iter()
+            .chain(&pod.sidecar_containers)
+            .map(|container| container.name.as_str())
+            .collect();
+        if names.len() < 2 {
             return false;
         }
 
         let current_index = self
             .log_container
             .as_deref()
-            .and_then(|selected| {
-                pod.containers.iter().position(|container| container.name == selected)
-            })
+            .and_then(|selected| names.iter().position(|name| *name == selected))
             .unwrap_or(0);
-        let next_index = (current_index + 1) % pod.containers.len();
-        self.log_container = Some(pod.containers[next_index].name.clone());
+        let next_index = (current_index + 1) % names.len();
+        self.log_container = Some(names[next_index].to_string());
         self.reset_log_stream_view();
         true
     }
@@ -742,6 +747,7 @@ mod tests {
             crash_looping: false,
             oom_killed: false,
             init_containers: vec![],
+            sidecar_containers: vec![],
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
@@ -792,6 +798,7 @@ mod tests {
             crash_looping: false,
             oom_killed: false,
             init_containers: vec![],
+            sidecar_containers: vec![],
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
@@ -1229,6 +1236,23 @@ mod tests {
         assert!(changed);
         assert_eq!(app.log_container.as_deref(), Some("sidecar"));
         assert!(app.log_buffer.is_empty());
+    }
+
+    #[test]
+    fn cycle_log_container_includes_native_sidecars() {
+        let mut app = AppState::new(Config::default());
+        let mut pod_with_sidecar = pod("api", "default", 10, 10);
+        let mut sidecar = pod_with_sidecar.containers[0].clone();
+        sidecar.name = "istio-proxy".to_string();
+        pod_with_sidecar.sidecar_containers.push(sidecar);
+        let app_container = pod_with_sidecar.containers[0].name.clone();
+        app.snapshot = Some(snapshot_with(vec![pod_with_sidecar], vec![]));
+        app.enter_pod_detail("api".to_string());
+
+        assert!(app.cycle_log_container());
+        assert_eq!(app.log_container.as_deref(), Some("istio-proxy"));
+        assert!(app.cycle_log_container());
+        assert_eq!(app.log_container.as_deref(), Some(app_container.as_str()));
     }
 
     #[test]

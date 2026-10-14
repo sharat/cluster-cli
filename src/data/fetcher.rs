@@ -518,7 +518,7 @@ async fn stream_logs(
         return;
     }
 
-    let mut command = tokio::process::Command::new("kubectl");
+    let mut command = collector::kubectl_command();
     command
         .args(&log_args)
         .stdout(std::process::Stdio::piped())

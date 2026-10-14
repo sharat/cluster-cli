@@ -369,6 +369,7 @@ Pod detail includes a **Diagnosis** panel that explains why a pod is unhealthy:
 - Each finding shows a severity label, the issue, its likely cause, and the next read-only `kubectl` command to run
 - Covers crash loops (with exit-code hints), OOM kills, image pull and config errors, scheduling failures, volume mount failures, evictions, failing probes, node problems, and resources near their limits
 - Shows "No problems detected" for a healthy pod
+- Native sidecars (init containers with `restartPolicy: Always`) are diagnosed like app containers, listed under Containers with a `sidecar` tag, and selectable in the log viewer with `c`
 - Uses only data already in the snapshot; no extra `kubectl` calls are made
 - The MCP `explain_pod` tool returns the same findings
 

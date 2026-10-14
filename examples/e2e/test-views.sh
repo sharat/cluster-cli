@@ -8,7 +8,7 @@ CLUSTER_BIN="${1:-./target/release/cluster}"
 OUTPUT_DIR="${2:-./screenshots}"
 VIEW_LIST="${3:-dashboard,pod-detail,node-detail,incidents}"
 # Pods opened by the "diagnosis" view (names from examples/e2e/manifests/)
-DIAGNOSIS_PODS="${DIAGNOSIS_PODS:-crashloop-pod,oom-killed-pod,imagepullbackoff-pod,unschedulable-pod}"
+DIAGNOSIS_PODS="${DIAGNOSIS_PODS:-crashloop-pod,oom-killed-pod,imagepullbackoff-pod,unschedulable-pod,sidecar-crash-pod}"
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"

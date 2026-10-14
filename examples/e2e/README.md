@@ -27,7 +27,8 @@ examples/e2e/
 │   ├── oom-pod.yaml               # Pod that gets OOMKilled
 │   ├── unschedulable-pod.yaml     # Pod that can't be scheduled
 │   ├── test-job.yaml              # Kubernetes Job
-│   └── rollout-deployment.yaml    # Deployment for testing rollouts
+│   ├── rollout-deployment.yaml    # Deployment for testing rollouts
+│   └── sidecar-crash-pod.yaml     # Native sidecar that crash-loops next to a running app
 ├── test-views.sh                  # Script to drive TUI and capture screenshots
 ├── convert-screenshots.sh         # Convert ANSI text to PNG images
 ├── test-local.sh                  # Local verification script

@@ -50,7 +50,7 @@ pub fn build_incident_buckets(
             );
         }
 
-        for container in &pod.containers {
+        for container in pod.running_containers() {
             let state_lower = container.state.to_ascii_lowercase();
 
             // Check for image pull failures in the state summary string
@@ -471,6 +471,7 @@ mod tests {
             crash_looping,
             oom_killed,
             init_containers: vec![],
+            sidecar_containers: vec![],
             node_name: Some("node-a".to_string()),
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
