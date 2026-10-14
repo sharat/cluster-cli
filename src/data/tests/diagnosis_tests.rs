@@ -294,6 +294,28 @@ fn started_native_sidecar_is_not_blamed_for_a_pending_pod() {
 }
 
 #[test]
+fn unready_sidecar_explains_a_pending_pod() {
+    let mut pod = create_test_pod();
+    pod.phase = "Pending".to_string();
+    pod.is_ready = false;
+    pod.containers[0].ready = false;
+    pod.containers[0].state = "Waiting (PodInitializing)".to_string();
+    let mut sidecar = pod.containers[0].clone();
+    sidecar.name = "istio-proxy".to_string();
+    sidecar.state = "Running".to_string();
+    sidecar.ready = false;
+    pod.sidecar_containers = vec![sidecar];
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
+
+    assert_eq!(findings.len(), 1);
+    assert_eq!(
+        findings[0].likely_cause,
+        "Sidecar container istio-proxy is running but not ready yet"
+    );
+}
+
+#[test]
 fn crash_looping_sidecar_is_reported_with_its_own_logs_command() {
     let mut pod = create_test_pod();
     let mut sidecar = pod.containers[0].clone();

@@ -314,9 +314,10 @@ fn infer_container_name(message: &str, pod: &PodInfo) -> Option<String> {
         return first;
     }
 
-    let mut running = pod.running_containers();
-    if let (Some(only), None) = (running.next(), running.next()) {
-        return Some(only.name.clone());
+    // kubelet's Unhealthy messages usually omit the container name. With a
+    // single app container, attribute them to it (sidecars rarely carry probes).
+    if pod.containers.len() == 1 {
+        return pod.containers.first().map(|container| container.name.clone());
     }
 
     None
@@ -436,9 +437,9 @@ fn history_line(label: &str, history: Option<&Vec<u8>>) -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DiagnosisPlan, render_diagnosis};
+    use super::{DiagnosisPlan, infer_container_name, render_diagnosis};
     use crate::data::diagnosis::PodFinding;
-    use crate::data::models::IncidentSeverity;
+    use crate::data::models::{ContainerInfo, HealthStatus, IncidentSeverity, PodInfo};
     use ratatui::{Terminal, backend::TestBackend};
 
     /// Render the Diagnosis panel as it would appear on a screen of the given height.
@@ -514,5 +515,54 @@ mod tests {
 
         // Tall screens show the full three.
         assert_eq!(DiagnosisPlan::new(&findings, 60).visible, 3);
+    }
+
+    fn container(name: &str) -> ContainerInfo {
+        ContainerInfo {
+            name: name.to_string(),
+            ready: true,
+            restart_count: 0,
+            state: "Running".to_string(),
+            last_termination_reason: None,
+            last_exit_code: None,
+            memory_limit_mb: 0,
+        }
+    }
+
+    #[test]
+    fn unnamed_probe_failures_go_to_the_only_app_container_despite_a_sidecar() {
+        let pod = PodInfo {
+            uid: String::new(),
+            name: "web".to_string(),
+            namespace: "default".to_string(),
+            phase: "Running".to_string(),
+            restarts: 0,
+            age: "1m".to_string(),
+            cpu_millicores: 0,
+            cpu_request_millicores: 0,
+            cpu_limit_millicores: 0,
+            memory_mb: 0,
+            memory_request_mb: 0,
+            memory_limit_mb: 0,
+            memory_request_pct: 0,
+            memory_pct: 0,
+            cpu_request_pct: 0,
+            cpu_pct: 0,
+            status: HealthStatus::Healthy,
+            ready_containers: 2,
+            total_containers: 2,
+            is_ready: true,
+            crash_looping: false,
+            oom_killed: false,
+            init_containers: vec![],
+            sidecar_containers: vec![container("istio-proxy")],
+            node_name: None,
+            containers: vec![container("app")],
+        };
+
+        let unnamed = "Readiness probe failed: HTTP probe failed with statuscode: 503";
+        assert_eq!(infer_container_name(unnamed, &pod).as_deref(), Some("app"));
+        let named = "Readiness probe failed: istio-proxy is not ready";
+        assert_eq!(infer_container_name(named, &pod).as_deref(), Some("istio-proxy"));
     }
 }
