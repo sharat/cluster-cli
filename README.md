@@ -8,7 +8,7 @@
 
 A fast, interactive terminal UI for monitoring Kubernetes cluster health in real-time. Works with any Kubernetes cluster (AKS, EKS, GKE, on-premises, etc.).
 
-**[📖 Full Documentation](https://sharat.github.io/cluster-cli/)** | [Installation Guide](https://sharat.github.io/cluster-cli/installation.html) | [Quick Start](https://sharat.github.io/cluster-cli/quick-start.html)
+**[📖 Full Documentation](https://sharat.github.io/cluster-cli/)** | [Installation Guide](https://github.com/sharat/cluster-cli/blob/main/docs/installation.md) | [Quick Start](https://github.com/sharat/cluster-cli/blob/main/docs/quick-start.md)
 
 ## Features
 

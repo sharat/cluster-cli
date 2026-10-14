@@ -85,8 +85,10 @@ Bottom bar shows:
 | Key | Action |
 |-----|--------|
 | `t` | Open incident timeline |
-| `T` | Open timeline filtered to selected incident |
+| `T` | Open timeline filtered to selected incident (Incidents panel focused) |
+| `u` | Open right-sizing view |
 | `w` | Toggle workload popup |
+| `Esc` | Clear the incident focus set by `Enter` on an incident |
 
 ### Namespace Management
 
@@ -150,25 +152,29 @@ Navigate sections with `Tab`:
 1. **Overview**
    - Pod metadata (namespace, node, age, phase)
    - Resource usage and limits (CPU, memory)
-   - Container breakdown
+   - Container breakdown: app containers, native sidecars (init containers with `restartPolicy: Always`), and regular init containers, each with its state
    - Restart counts and last termination reasons
-   - Readiness and liveness probe failure counts
 
 2. **Events**
-   - Pod-related Kubernetes events
+   - Pod-related Kubernetes events, including those written through the newer events API (such as the scheduler's `FailedScheduling`)
    - Timestamps and event types
    - Warning and error messages
 
 3. **Logs**
    - Live log streaming
-   - Multi-container support
+   - Multi-container support, including sidecars and init containers
    - Search and filtering
+
+Between the Overview and Events panels, the **Diagnosis** panel explains why the pod is unhealthy. Each finding has a severity label, the issue, its likely cause, and the next read-only `kubectl` command to run. It covers crash loops (with exit-code hints), OOM kills, image pull and configuration errors, scheduling and volume failures, evictions, failing probes, node problems, and resources near their limits, and names the container responsible, including a sidecar. A healthy pod shows "No problems detected".
+
+On short terminals (under 33 rows), the Overview and Events panels shrink so the Logs panel keeps room for log lines.
 
 ### Pod Detail Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
 | `Tab` | Cycle sections (Overview → Events → Logs) |
+| `↑`/`k`, `↓`/`j` | Scroll the focused section |
 | `Esc` or `q` | Return to dashboard |
 
 #### Logs Section
@@ -176,7 +182,7 @@ Navigate sections with `Tab`:
 | Key | Action |
 |-----|--------|
 | `f` | Toggle follow mode (auto-scroll) |
-| `c` | Cycle containers (multi-container pods) |
+| `c` | Cycle containers, including sidecars and init containers |
 | `p` | Toggle previous logs (terminated container) |
 | `/` | Search buffered logs |
 | `w` | Toggle line wrapping |
@@ -223,6 +229,46 @@ Shows:
 | `↑`/`k`, `↓`/`j` | Scroll view |
 | `Esc` or `q` | Return to dashboard |
 
+## Right-Sizing View
+
+Press `u` from the dashboard to compare what each workload requests with what it uses.
+
+```
+┌ Summary ─────────────────────────────────────────────────────────────────────┐
+│  Requested  CPU 500m  Mem 480Mi    Using  CPU 225m (45%)  Mem 35Mi (7%)      │
+│  Reclaimable by following the suggestions  CPU 380m  Mem 224Mi               │
+└──────────────────────────────────────────────────────────────────────────────┘
+┌ Workloads (4) ───────────────────────────────────────────────────────────────┐
+│Verdict       Workload            Pods  CPU use / req       Suggested / pod   │
+│[under]       deploy/busy-worker  1     201m / 20m (1005%)  cpu 200m*         │
+│[over]        deploy/idle-api     2     0 / 400m (0%)       cpu 10m, mem 16Mi │
+│[no metrics]  pod/crashloop-pod   0/1   0 / -               -                 │
+│[ok]          deploy/healthy-app  3     3m / 30m (10%)      -                 │
+└──────────────── * capped at the limit: usage is pinned there, so raise the limit too ┘
+```
+
+- **Grouping**: Running pods are grouped by their controlling workload (Deployment, StatefulSet, DaemonSet, Job). A ReplicaSet is resolved to its Deployment. A pod without an owner is listed on its own.
+- **Usage** is each pod's peak seen this session (from `kubectl top`), so one quiet sample doesn't make a busy workload look idle.
+- **Measured pods only**: Pods missing from `kubectl top` (for example, crash-looping ones) are left out of the comparison instead of counted as idle. The Pods column shows `measured/total` when some pods weren't measured.
+- **Verdicts**, most urgent first:
+  - **under**: using more than it requests
+  - **over**: using under 30% of a request of at least 50m CPU or 64Mi memory
+  - **no requests**: no CPU or memory requests set
+  - **no metrics**: no pod in the workload was measured
+  - **ok**
+- **Suggestions** are per-pod requests: usage plus 30% headroom, rounded up to 10m CPU or 16Mi memory. A suggestion never exceeds the limit of the containers that keep running (app containers and sidecars). One capped there is marked `*`: usage pinned at a limit means the pod is throttled, so raise the limit too.
+- **Reclaimable** totals the CPU and memory that following the over-provisioned suggestions would free.
+
+Needs [metrics-server](https://github.com/kubernetes-sigs/metrics-server) in the cluster. Without it, the view explains that usage is unavailable.
+
+### Right-Sizing Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `↑`/`k`, `↓`/`j` | Scroll |
+| `r` | Refresh |
+| `Esc` or `q` | Return to dashboard |
+
 ## Timeline View
 
 Press `t` from the dashboard to open the incident timeline, or `T` to open it filtered to the selected incident.
@@ -250,7 +296,6 @@ Entries marked with `⚡` are **precursors** - events (like rollouts or node con
 | `f` | Cycle kind filter (all, events, restarts, OOM, crashes, node changes, scheduling, image pulls, rollouts) |
 | `F` | Cycle severity filter (all, critical, warning, elevated) |
 | `c` | Clear all filters |
-| `Enter` | Show entry details |
 | `Esc` or `q` | Return to dashboard |
 
 ### Timeline Features
@@ -265,25 +310,25 @@ Entries marked with `⚡` are **precursors** - events (like rollouts or node con
 ### Health Score Colors
 
 - **90-100 (A)**: Green - Excellent health
-- **80-89 (B)**: Cyan - Good health
-- **70-79 (C)**: Yellow - Fair health
-- **60-69 (D)**: Orange - Poor health
-- **0-59 (F)**: Red - Critical health
+- **75-89 (B)**: Lime - Good health
+- **60-74 (C)**: Yellow - Fair health
+- **45-59 (D)**: Orange - Poor health
+- **0-44 (F)**: Red - Critical health
 
-### Pod Status Colors
+### Pod and Node Status Colors
 
-- **Running + Ready**: Green
-- **Running + Not Ready**: Yellow
-- **Pending**: Cyan
-- **Failed**: Red
-- **Succeeded**: Gray (completed jobs)
-- **Unknown**: Magenta
+Pods and nodes are colored by their health status:
+
+- **Healthy**: Green
+- **Elevated**: Yellow
+- **Warning**: Orange
+- **Critical**: Red (for example, a crash-looping or OOM-killed container, including a sidecar)
 
 ### Incident Severity
 
-- **Critical**: Red (CrashLoopBackOff, OOMKilled, ImagePullBackOff, NodeNotReady)
-- **Warning**: Yellow (FailedScheduling, Evicted, FailedMount, Unhealthy)
-- **Elevated**: Cyan (other warnings)
+- **Critical** (`!!`): Red (CrashLoopBackOff, OOMKilled, ImagePullBackOff, NodeNotReady)
+- **Warning** (`!`): Yellow (FailedScheduling, Evicted, FailedMount, FailedAttachVolume, Unhealthy)
+- **Elevated** (`~`): Light blue (other warnings)
 
 ### Resource Pressure
 

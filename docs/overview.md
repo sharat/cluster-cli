@@ -19,9 +19,22 @@ cluster-cli is a fast, interactive terminal UI (TUI) for monitoring Kubernetes c
 ### Pod Management
 - Pod status, resource consumption, restarts, and age tracking
 - Multi-container support with per-container status
+- Native sidecars (init containers with `restartPolicy: Always`) counted in restarts, readiness, crash-loop and OOM detection, and in requests and limits the way Kubernetes counts them
 - Pod history with CPU/memory sparklines
 - Crash loop and OOMKilled detection
 - Sort modes: default, restarts, CPU, memory, not-ready, latest incident
+
+### Pod Diagnosis
+- Diagnosis panel in pod detail that explains why a pod is unhealthy
+- Each finding has a severity, the likely cause, and the next read-only `kubectl` command to run
+- Covers crash loops, OOM kills, image pull and configuration errors, scheduling and volume failures, evictions, failing probes, node problems, and resources near their limits
+- The same diagnosis is available to AI agents through the MCP `explain_pod` tool
+
+### Right-Sizing
+- Compares each workload's CPU and memory requests with its peak usage this session (`u` from the dashboard)
+- Flags under-provisioned, over-provisioned, and request-less workloads
+- Suggests per-pod requests with 30% headroom, capped at the container limits
+- Totals the CPU and memory that following the suggestions would free
 
 ### Workload Inspection
 - Deployments, StatefulSets, DaemonSets, Jobs, CronJobs
@@ -33,7 +46,6 @@ cluster-cli is a fast, interactive terminal UI (TUI) for monitoring Kubernetes c
 - Live and previous container log streaming
 - Multi-container log switching
 - Search, timestamps, wrapping, and export
-- Configurable tail lines
 
 ### Incident Timeline
 - Chronological view of events, restarts, OOM kills, and rollouts
@@ -51,6 +63,8 @@ cluster-cli is a fast, interactive terminal UI (TUI) for monitoring Kubernetes c
 - JSON API for scripts and automation
 - MCP server for AI agents (Claude Desktop, Cursor, VS Code)
 
+See the [UI Guide](ui.md) for every view and key binding.
+
 ## Design Principles
 
 ### Read-Only by Design
@@ -60,7 +74,7 @@ cluster-cli only executes read-only `kubectl` commands. The enforced whitelist i
 - `logs` (container logs)
 - `config` (context queries)
 
-All mutation verbs are blocked. The application does not persist local state or create files during normal operation (except when explicitly exporting data).
+All mutation verbs are blocked. kubectl runs with `KUBECTL_KUBERC=false`, so a user's kubectl preferences (kuberc) can't change the output cluster-cli parses. The application does not persist local state or create files during normal operation (except when explicitly exporting data).
 
 ### Universal Kubernetes Support
 Works with any Kubernetes cluster:
@@ -81,9 +95,8 @@ The only requirement is a properly configured `kubectl` context with appropriate
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                     Terminal UI (ratatui)                │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐ │
-│  │Dashboard │  │Pod Detail│  │Node Detail│ │Timeline │ │
-│  └──────────┘  └──────────┘  └──────────┘  └─────────┘ │
+│  Dashboard · Pod Detail · Node Detail · Timeline ·      │
+│  Right-Sizing                                           │
 └─────────────────────────────────────────────────────────┘
                            │
                            ▼
@@ -166,7 +179,7 @@ If CPU/memory metrics show 0% or "N/A", ensure the [Metrics Server](https://gith
 kubectl get deployment metrics-server -n kube-system
 ```
 
-The app will still function but resource usage will be unavailable.
+The app still works, but resource usage and the right-sizing view are unavailable.
 
 ## Project Structure
 
@@ -180,12 +193,14 @@ cluster-cli/
 │   ├── mcp.rs               # MCP server implementation
 │   ├── headless.rs          # JSON API handlers
 │   ├── json_output.rs       # JSON schema definitions
-│   ├── updater.rs           # Release checking and upgrades
+│   ├── updater.rs           # Release checks and `--upgrade`
 │   ├── data/
 │   │   ├── collector.rs     # kubectl data collection
 │   │   ├── fetcher.rs       # Async data fetching
 │   │   ├── health.rs        # Health score calculation
 │   │   ├── incidents.rs     # Incident bucketing
+│   │   ├── diagnosis.rs     # Pod diagnosis findings
+│   │   ├── rightsizing.rs   # Requests vs. usage per workload
 │   │   ├── timeline.rs      # Timeline building
 │   │   └── models.rs        # Data structures
 │   ├── events/
@@ -196,7 +211,7 @@ cluster-cli/
 │       ├── theme.rs         # Colors and styling
 │       ├── format.rs        # Text formatting utilities
 │       ├── components/      # Reusable UI components
-│       └── views/           # Dashboard, detail, timeline views
+│       └── views/           # Dashboard, detail, timeline, right-sizing views
 ├── docs/                    # Documentation
 ├── examples/e2e/            # E2E testing infrastructure
 └── Cargo.toml               # Rust dependencies

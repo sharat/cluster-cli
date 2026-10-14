@@ -81,6 +81,11 @@
             font-family: 'Geist Mono', 'Monaco', 'Courier New', monospace;
         }
 
+        /* Let long inline paths wrap on narrow screens */
+        :not(pre) > code {
+            overflow-wrap: anywhere;
+        }
+
         /* Smooth scrolling */
         html {
             scroll-behavior: smooth;
@@ -160,6 +165,7 @@
         }
 
         .hero p {
+            color: white;
             font-size: 1.25rem;
             margin-bottom: 2rem;
             opacity: 0.95;
@@ -171,6 +177,7 @@
             border: 1px solid rgba(255, 255, 255, 0.2);
             border-radius: 8px;
             padding: 1.5rem;
+            padding-right: 5.5rem; /* keep the command clear of the Copy button */
             margin: 2rem auto;
             max-width: 700px;
             position: relative;
@@ -525,7 +532,7 @@
 
             <div class="cta-buttons">
                 <a href="https://github.com/sharat/cluster-cli/releases" class="btn btn-primary">Download</a>
-                <a href="./overview.html" class="btn btn-secondary">Documentation</a>
+                <a href="https://github.com/sharat/cluster-cli/blob/main/docs/overview.md" class="btn btn-secondary">Documentation</a>
             </div>
         </section>
 
@@ -546,7 +553,15 @@
                 </div>
                 <div class="feature-card">
                     <h3><span class="feature-icon" aria-hidden="true">🔧</span> Pod Management</h3>
-                    <p>Multi-container support, log streaming, search, export, and crash loop detection.</p>
+                    <p>Multi-container and native sidecar support, log streaming, search, export, and crash loop detection.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><span class="feature-icon" aria-hidden="true">🩺</span> Pod Diagnosis</h3>
+                    <p>Explains why a pod is unhealthy, with the likely cause and the next read-only kubectl command to run.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><span class="feature-icon" aria-hidden="true">⚖️</span> Right-Sizing</h3>
+                    <p>Compares requests with peak usage per workload, flags over- and under-provisioning, and suggests requests.</p>
                 </div>
                 <div class="feature-card">
                     <h3><span class="feature-icon" aria-hidden="true">⏱️</span> Incident Timeline</h3>
@@ -590,7 +605,7 @@ cargo build --release</pre>
             </div>
 
             <p>Requires Rust 1.85+ and kubectl configured with cluster access.</p>
-            <p>See <a href="./installation.html">full installation guide</a> for all platforms and methods.</p>
+            <p>See <a href="https://github.com/sharat/cluster-cli/blob/main/docs/installation.md">full installation guide</a> for all platforms and methods.</p>
         </section>
 
         <section id="keys">
@@ -630,6 +645,10 @@ cargo build --release</pre>
                 <div class="keybinding">
                     <kbd class="key">T</kbd>
                     <p>Timeline filtered to incident</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">u</kbd>
+                    <p>Open right-sizing view</p>
                 </div>
                 <div class="keybinding">
                     <kbd class="key">w</kbd>
@@ -705,7 +724,7 @@ cargo build --release</pre>
                 </div>
             </div>
 
-            <p>See <a href="./ui.html">complete UI guide</a> for all keyboard shortcuts.</p>
+            <p>See <a href="https://github.com/sharat/cluster-cli/blob/main/docs/ui.md">complete UI guide</a> for all keyboard shortcuts.</p>
         </section>
 
         <section id="headless">
@@ -755,7 +774,7 @@ fi</pre>
             </div>
 
             <p>All JSON responses include <code>version</code> field (current: 1.0.0) for schema versioning.</p>
-            <p>See <a href="./headless.html">headless mode documentation</a> for complete JSON API reference.</p>
+            <p>See <a href="https://github.com/sharat/cluster-cli/blob/main/docs/headless.md">headless mode documentation</a> for complete JSON API reference.</p>
         </section>
 
         <section id="mcp" class="mcp-section">
@@ -816,7 +835,7 @@ fi</pre>
                 <li><strong>list_incidents</strong> - Ranked incidents by severity</li>
                 <li><strong>list_pods</strong> - Pod status, resource usage, readiness</li>
                 <li><strong>describe_pod</strong> - Detailed pod information</li>
-                <li><strong>explain_pod</strong> - Likely cause analysis for pod issues</li>
+                <li><strong>explain_pod</strong> - Diagnosis findings with severity, likely cause, and next kubectl command</li>
                 <li><strong>get_logs</strong> - Fetch pod logs</li>
                 <li><strong>list_nodes</strong> - Node metrics and conditions</li>
                 <li><strong>list_contexts</strong> - Available kubectl contexts</li>
@@ -831,7 +850,7 @@ fi</pre>
             </ul>
 
             <p><strong>Security Note:</strong> The MCP server is read-only. No mutation operations are exposed.</p>
-            <p>See <a href="./mcp.html">MCP server documentation</a> for complete setup guide and tool reference.</p>
+            <p>See <a href="https://github.com/sharat/cluster-cli/blob/main/docs/mcp.md">MCP server documentation</a> for complete setup guide and tool reference.</p>
         </section>
     </main>
 
@@ -871,10 +890,10 @@ fi</pre>
 
         // Terminal animation
         const commands = [
-            { cmd: 'cluster', output: ['', 'Starting cluster-cli...', 'Connecting to prod-cluster...', 'Health: 85 (B) | 3 nodes | 42 pods | 2 incidents'] },
+            { cmd: 'cluster', output: ['', '(opens the dashboard)', 'Health: 85 (B) | 3 nodes | 42 pods | 2 incidents'] },
             { cmd: 'cluster status --json', output: ['', '{"version":"1.0.0","data":{"score":85,"grade":"B"}}'] },
             { cmd: 'cluster pods --json', output: ['', '{"version":"1.0.0","data":[{"name":"api-6d4f9-x2k",...}]}'] },
-            { cmd: 'cluster mcp', output: ['', 'Starting cluster-cli MCP server v0.3.5', 'Ready for AI agent connections...'] }
+            { cmd: 'cluster mcp', output: ['', 'Starting cluster-cli MCP server v0.4.0', 'Ready for AI agent connections...'] }
         ];
         
         let currentCommand = 0;

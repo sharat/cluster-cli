@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Native sidecar support: sidecars (init containers with `restartPolicy: Always`) are listed in pod detail, selectable in the log viewer, and counted in restarts, readiness, crash-loop and OOM detection, so a crash-looping sidecar marks its pod critical
 
+- Documentation site at https://sharat.github.io/cluster-cli/ with a landing page and guides for the UI, health scoring, configuration, the headless JSON API, the MCP server, and the incident timeline
+
 - Right-sizing view (`u`): compares each workload's CPU and memory requests with its peak usage this session, flags under- and over-provisioned workloads and those without requests, suggests per-pod requests with 30% headroom, and totals the capacity that could be freed
 
 ### Changed
