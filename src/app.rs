@@ -757,6 +757,7 @@ mod tests {
                 last_termination_reason: None,
                 last_exit_code: None,
                 memory_limit_mb: 0,
+                started: true,
             }],
         }
     }
@@ -808,6 +809,7 @@ mod tests {
                 last_termination_reason: None,
                 last_exit_code: None,
                 memory_limit_mb: 0,
+                started: true,
             }],
         }
     }
@@ -1226,6 +1228,7 @@ mod tests {
             last_termination_reason: None,
             last_exit_code: None,
             memory_limit_mb: 0,
+            started: true,
         });
         app.snapshot = Some(snapshot_with(vec![multi_container_pod], vec![]));
         app.enter_pod_detail("api".to_string());

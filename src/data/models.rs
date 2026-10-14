@@ -128,6 +128,10 @@ pub struct ContainerInfo {
     pub last_exit_code: Option<i32>,
     /// This container's own memory limit in MB; 0 when none is set.
     pub memory_limit_mb: u64,
+    /// Whether the kubelet considers the container started (its startup probe,
+    /// if any, has passed). A native sidecar must start, not become ready,
+    /// before the containers after it run.
+    pub started: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -201,19 +201,22 @@ fn diagnose_phase(pod: &PodInfo, events: &[&ClusterEvent]) -> Option<PodFinding>
             }) {
                 return None;
             }
-            // A regular init container that is Running has not finished yet.
-            // A sidecar that is Running but not ready has not started yet as
-            // far as we can tell; either one holds back the containers after it.
+            // A regular init container that is Running has not finished yet. A
+            // sidecar holds back later containers only until it has *started*
+            // (startup probe passed); readiness does not gate them.
             let running_init =
                 pod.init_containers.iter().find(|c| c.state == "Running" && !c.ready);
-            let unready_sidecar =
-                pod.sidecar_containers.iter().find(|c| c.state == "Running" && !c.ready);
+            let unstarted_sidecar =
+                pod.sidecar_containers.iter().find(|c| c.state == "Running" && !c.started);
             let likely_cause = if pod.node_name.is_none() {
                 "Waiting for the scheduler to place it on a node".to_string()
             } else if let Some(init) = running_init {
                 format!("Init container {} is still running", init.name)
-            } else if let Some(sidecar) = unready_sidecar {
-                format!("Sidecar container {} is running but not ready yet", sidecar.name)
+            } else if let Some(sidecar) = unstarted_sidecar {
+                format!(
+                    "Sidecar container {} has not started yet (startup probe still running)",
+                    sidecar.name
+                )
             } else {
                 "Scheduled; containers are still being created (image pull or volume setup)"
                     .to_string()

@@ -912,6 +912,7 @@ mod tests {
                 last_termination_reason: None,
                 last_exit_code: None,
                 memory_limit_mb: 0,
+                started: true,
             }],
         }
     }

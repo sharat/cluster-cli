@@ -481,6 +481,7 @@ mod tests {
                 last_termination_reason: oom_killed.then(|| "OOMKilled".to_string()),
                 last_exit_code: None,
                 memory_limit_mb: 0,
+                started: true,
             }],
         }
     }

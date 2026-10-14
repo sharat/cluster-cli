@@ -1459,6 +1459,12 @@ fn extract_container_info(
                 .map(|(name, status)| ContainerInfo {
                     name: name.to_string(),
                     memory_limit_mb: memory_limit_mb(name),
+                    // Older API servers omit `started`; treat a running
+                    // container as started then.
+                    started: status
+                        .get("started")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or_else(|| status.pointer("/state/running").is_some()),
                     ready: status.get("ready").and_then(|v| v.as_bool()).unwrap_or(false),
                     restart_count: status.get("restartCount").and_then(|v| v.as_u64()).unwrap_or(0)
                         as u32,
@@ -2274,6 +2280,10 @@ mod tests {
         assert_eq!(pod.init_containers[0].name, "migrate");
         assert_eq!(pod.sidecar_containers.len(), 1);
         assert_eq!(pod.sidecar_containers[0].memory_limit_mb, 64);
+        // No `started` field and not running: not started.
+        assert!(!pod.sidecar_containers[0].started);
+        // No `started` field but running: treated as started.
+        assert!(pod.containers[0].started);
         assert_eq!(pod.restarts, 5);
         assert_eq!((pod.ready_containers, pod.total_containers), (1, 2));
         assert!(!pod.is_ready);
