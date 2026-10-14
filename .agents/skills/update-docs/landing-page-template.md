@@ -151,7 +151,7 @@ Near-monochrome slate palette. No gradient hero and no colored accent — headin
 ## Interactive Elements
 
 ### Copy Buttons
-- Position: absolute top-right of code blocks
+- Position: end of the code-block grid (stacked above the code on small screens)
 - State: default → hover → copied (text change only; no color-only status)
 - Feedback: "Copy" → "Copied!" for 2 seconds
 
