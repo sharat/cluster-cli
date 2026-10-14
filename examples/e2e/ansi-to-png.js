@@ -3,12 +3,12 @@
  * Convert ANSI text files to PNG images
  * Usage: node ansi-to-png.js <input.txt> <output.png>
  * 
- * This script uses ansi-to-svg and sharp to render terminal screenshots.
- * Install deps: npm install -g ansi-to-svg sharp-cli
+ * This script uses the ansi-to-svg library and rsvg-convert to render terminal screenshots.
+ * Install deps: npm install -g ansi-to-svg && apt install librsvg2-bin
  */
 
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 
 if (process.argv.length < 4) {
@@ -24,45 +24,32 @@ if (!fs.existsSync(inputFile)) {
     process.exit(1);
 }
 
+// Node does not resolve globally installed packages, so fall back to `npm root -g`
+function loadAnsiToSvg() {
+    try {
+        return require('ansi-to-svg');
+    } catch (_) {
+        const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf-8' }).trim();
+        return require(path.join(globalRoot, 'ansi-to-svg'));
+    }
+}
+
 console.log(`Converting ${inputFile} -> ${outputFile}`);
 
+const svgFile = outputFile.replace(/\.png$/, '') + '.svg';
+
 try {
-    // Read ANSI text
+    const ansiToSvg = loadAnsiToSvg();
     const ansiText = fs.readFileSync(inputFile, 'utf-8');
-    
-    // Create temp SVG file
-    const svgFile = outputFile.replace(/\.png$/, '.svg');
-    
-    // Convert ANSI to SVG using ansi-to-svg
-    execSync(`ansi-to-svg < "${inputFile}" > "${svgFile}"`, {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'inherit']
-    });
-    
+
+    fs.writeFileSync(svgFile, ansiToSvg(ansiText));
     console.log(`  Created SVG: ${svgFile}`);
-    
-    // Convert SVG to PNG using sharp-cli or rsvg-convert
-    try {
-        // Try sharp-cli first (better quality)
-        execSync(`npx sharp-cli -i "${svgFile}" -o "${outputFile}" --format png`, {
-            encoding: 'utf-8',
-            stdio: 'inherit'
-        });
-    } catch (e) {
-        // Fall back to rsvg-convert
-        console.log('  sharp-cli not available, trying rsvg-convert...');
-        execSync(`rsvg-convert "${svgFile}" -o "${outputFile}"`, {
-            encoding: 'utf-8',
-            stdio: 'inherit'
-        });
-    }
-    
+
+    execFileSync('rsvg-convert', [svgFile, '-o', outputFile], { stdio: 'inherit' });
     console.log(`  Created PNG: ${outputFile}`);
-    
-    // Clean up temp SVG
-    fs.unlinkSync(svgFile);
-    
 } catch (error) {
     console.error(`Error converting file: ${error.message}`);
-    process.exit(1);
+    process.exitCode = 1;
+} finally {
+    fs.rmSync(svgFile, { force: true });
 }

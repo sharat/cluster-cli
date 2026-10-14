@@ -30,8 +30,8 @@ echo ""
 
 # Check conversion tools
 echo "Checking conversion tools..."
-if command -v ansi-to-svg &> /dev/null; then
-    echo "✓ ansi-to-svg found"
+if command -v node &> /dev/null; then
+    echo "✓ node found: $(node --version)"
 fi
 
 if command -v rsvg-convert &> /dev/null; then
@@ -49,15 +49,15 @@ TEST_DIR="./test-output"
 mkdir -p "$TEST_DIR"
 
 echo "Creating test ANSI file..."
-cat > "$TEST_DIR/test.txt" << 'EOF'
-[1;31mRed Text[0m
-[1;32mGreen Text[0m
-[1;34mBlue Text[0m
-[1;33mYellow Text[0m
-
-This is a test ANSI file with colors and formatting.
-[7mInverted[0m [4mUnderline[0m [1mBold[0m
-EOF
+printf '%b\n' \
+    '\033[1;31mRed Text\033[0m' \
+    '\033[1;32mGreen Text\033[0m' \
+    '\033[1;34mBlue Text\033[0m' \
+    '\033[1;33mYellow Text\033[0m' \
+    '' \
+    'This is a test ANSI file with colors and formatting.' \
+    '\033[7mInverted\033[0m \033[4mUnderline\033[0m \033[1mBold\033[0m' \
+    > "$TEST_DIR/test.txt"
 
 echo "✓ Test ANSI file created at $TEST_DIR/test.txt"
 echo ""

@@ -10,7 +10,7 @@ The E2E test suite automatically runs on every pull request, creating a kind clu
 
 The automated test suite:
 - Creates a local kind cluster with test workloads
-- Deploys various pod states (healthy, crash-looping, OOMKilled, unschedulable, rolling updates)
+- Deploys various pod states (healthy, crash-looping, ImagePullBackOff, OOMKilled, unschedulable, job, rolling updates)
 - Builds and runs cluster-cli headlessly in a tmux session
 - Navigates through key TUI views (dashboard, pod detail, node detail, incidents)
 - Captures screenshots as ANSI text and converts to PNG images
@@ -23,8 +23,10 @@ examples/e2e/
 ├── manifests/                     # Kubernetes test workloads for CI
 │   ├── healthy-deployment.yaml    # 3-replica healthy nginx deployment
 │   ├── crashloop-pod.yaml         # Pod that crashes and restarts
+│   ├── imagepullbackoff-pod.yaml  # Pod with missing image
 │   ├── oom-pod.yaml               # Pod that gets OOMKilled
 │   ├── unschedulable-pod.yaml     # Pod that can't be scheduled
+│   ├── test-job.yaml              # Kubernetes Job
 │   └── rollout-deployment.yaml    # Deployment for testing rollouts
 ├── test-views.sh                  # Script to drive TUI and capture screenshots
 ├── convert-screenshots.sh         # Convert ANSI text to PNG images
@@ -240,6 +242,6 @@ spec:
 - Check kind logs: `kind export logs ./kind-logs --name cluster-cli-e2e`
 
 ### Test workloads don't reach failure states
-- Wait longer (crash loops need ~2+ restarts, OOM may need 30-60 seconds)
+- Wait longer (crash loops need ~2+ restarts, ImagePullBackOff and OOM may need 30-60 seconds)
 - Check pod status: `kubectl describe pod crashloop-pod`
 - Check events: `kubectl get events --sort-by='.lastTimestamp'`
