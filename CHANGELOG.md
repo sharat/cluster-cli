@@ -7,19 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Help screen (`?`) in every view listing all keys and explaining each on-screen marker
-- No-color mode: `--no-color`, or the `NO_COLOR` environment variable, draws the interface without colors, with highlights in reverse video
-
-### Changed
-- Accessibility: text uses the terminal's default foreground and highlights use its named colors, so the interface stays readable on light themes; status markers are single-width text (`!!`, `!`, `~`, `✓`) shared by pods, nodes, incidents and diagnosis; the focused panel is marked `▶` and the selected row `>` with reverse video, so neither relies on color
-
-### Security
-- Update rustls to 0.23.46 for RUSTSEC-2026-0348 and RUSTSEC-2026-0349 (used for the release update check)
-
 ## [0.4.0] - 2026-10-14
 
 ### Added
+- Help screen (`?`) in every view listing all keys and explaining each on-screen marker
+- No-color mode: `--no-color`, or the `NO_COLOR` environment variable, draws the interface without colors, with highlights in reverse video
 - Headless JSON API: `cluster status --json`, `cluster incidents --json`, `cluster pods --json`, `cluster nodes --json`, and `cluster logs <pod>` with `--verbose` flag for detailed output
 - MCP (Model Context Protocol) server: `cluster mcp` exposes read-only tools for AI agents (Cursor, Claude Desktop) over stdio
 - JSON schema versioning (v1.0.0) for stable programmatic access
@@ -42,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Right-sizing view (`u`): compares each workload's CPU and memory requests with its peak usage this session, flags under- and over-provisioned workloads and those without requests, suggests per-pod requests with 30% headroom, and totals the capacity that could be freed
 
 ### Changed
+- Accessibility: text uses the terminal's default foreground and highlights use its named colors, so the interface stays readable on light themes; status markers are single-width text (`!!`, `!`, `~`, `✓`) shared by pods, nodes, incidents and diagnosis; the focused panel is marked `▶` and the selected row `>` with reverse video, so neither relies on color
 - MCP `explain_pod` uses the same diagnosis as the pod detail view and now returns structured `findings` with severity, likely cause, and next command
 - Upgrade Rust toolchain from 1.94.1 to 1.99.0
 - Upgrade to Rust edition 2024
@@ -62,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Run kubectl with `KUBECTL_KUBERC=false` so a user's kubectl preferences (kuberc) cannot change the output cluster-cli parses
 - Show events written through the newer events API (such as the scheduler's FailedScheduling) in the events panel, incidents, and diagnosis; they have no `lastTimestamp`, so sorting by it dropped them once a namespace had more than 50 events
 - Keep Warning events ahead of Normal ones when trimming to the 50 most recent, so a busy namespace's routine events (Pulled, Created, Started) no longer push an older warning such as FailedScheduling out of the events panel, incidents, and diagnosis
+
+### Security
+- Update rustls to 0.23.46 for RUSTSEC-2026-0348 and RUSTSEC-2026-0349 (used for the release update check)
 
 ## [0.3.4] - 2026-10-07
 
