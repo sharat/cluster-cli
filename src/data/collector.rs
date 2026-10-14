@@ -677,7 +677,11 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<(Vec<PodInfo>, Option<Str
 
             let container_statuses =
                 item.pointer("/status/containerStatuses").and_then(|v| v.as_array());
-            let containers = extract_container_info(container_statuses);
+            let containers = extract_container_info(container_statuses, spec_containers);
+            let init_container_info = extract_container_info(
+                item.pointer("/status/initContainerStatuses").and_then(|v| v.as_array()),
+                init_containers,
+            );
             let total_containers = container_statuses.map(|arr| arr.len() as u32).unwrap_or(0);
             let ready_containers = container_statuses
                 .map(|arr| {
@@ -732,6 +736,7 @@ pub async fn fetch_pod_info(namespace: &str) -> Result<(Vec<PodInfo>, Option<Str
                 oom_killed,
                 node_name,
                 containers,
+                init_containers: init_container_info,
             });
         }
     }
@@ -1482,17 +1487,31 @@ fn derive_pod_status(
     }
 }
 
-fn extract_container_info(container_statuses: Option<&Vec<Value>>) -> Vec<ContainerInfo> {
+fn extract_container_info(
+    container_statuses: Option<&Vec<Value>>,
+    spec_containers: Option<&Vec<Value>>,
+) -> Vec<ContainerInfo> {
+    let memory_limit_mb = |name: &str| {
+        spec_containers
+            .into_iter()
+            .flatten()
+            .find(|c| c.get("name").and_then(|v| v.as_str()) == Some(name))
+            .and_then(|c| c.pointer("/resources/limits/memory").and_then(|v| v.as_str()))
+            .map(parse_memory_mb)
+            .unwrap_or(0)
+    };
+
     container_statuses
         .map(|statuses| {
             statuses
                 .iter()
-                .map(|status| ContainerInfo {
-                    name: status
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string(),
+                .map(|status| {
+                    let name = status.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    (name, status)
+                })
+                .map(|(name, status)| ContainerInfo {
+                    name: name.to_string(),
+                    memory_limit_mb: memory_limit_mb(name),
                     ready: status.get("ready").and_then(|v| v.as_bool()).unwrap_or(false),
                     restart_count: status.get("restartCount").and_then(|v| v.as_u64()).unwrap_or(0)
                         as u32,
@@ -1534,49 +1553,75 @@ fn summarize_container_state(status: &Value) -> String {
 }
 
 pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
-    let output = run_cmd(
-        "kubectl",
-        &["get", "events", "-n", namespace, "--sort-by=.lastTimestamp", "-o", "json"],
-    )
-    .await?;
-
+    let output = run_cmd("kubectl", &["get", "events", "-n", namespace, "-o", "json"]).await?;
     let json: Value = serde_json::from_str(&output)?;
-    let mut events = Vec::new();
+    Ok(parse_events(&json))
+}
 
-    if let Some(items) = json.get("items").and_then(|v| v.as_array()) {
-        for item in items.iter().rev().take(MAX_EVENTS_PER_FETCH) {
-            let kind = item
-                .pointer("/involvedObject/kind")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
+/// Parse a `kubectl get events -o json` list, newest first, keeping at most
+/// `MAX_EVENTS_PER_FETCH` (Warnings first).
+///
+/// Sorting happens here rather than with `--sort-by=.lastTimestamp`: events
+/// written through the events.k8s.io API (e.g. the scheduler's
+/// FailedScheduling) leave `lastTimestamp` empty and carry their time in
+/// `series.lastObservedTime` or `eventTime`, so kubectl would sort them as the
+/// oldest and they would be cut off.
+fn parse_events(json: &Value) -> Vec<ClusterEvent> {
+    let Some(items) = json.get("items").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+
+    let mut events: Vec<(Option<chrono::DateTime<chrono::FixedOffset>>, ClusterEvent)> = items
+        .iter()
+        .map(|item| {
+            let str_at =
+                |path: &str| item.pointer(path).and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+            let timestamp = str_at("/lastTimestamp")
+                .or_else(|| str_at("/series/lastObservedTime"))
+                .or_else(|| str_at("/eventTime"))
+                .or_else(|| str_at("/firstTimestamp"))
+                .or_else(|| str_at("/metadata/creationTimestamp"))
+                .unwrap_or("")
                 .to_string();
-
-            let name = item
-                .pointer("/involvedObject/name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown")
-                .to_string();
-
-            let reason = item.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-            let message = item.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-            let event_type = if item.get("type").and_then(|v| v.as_str()) == Some("Warning") {
-                EventType::Warning
-            } else {
-                EventType::Normal
+            let count = item
+                .get("count")
+                .and_then(|v| v.as_u64())
+                .or_else(|| item.pointer("/series/count").and_then(|v| v.as_u64()))
+                .unwrap_or(1) as u32;
+            let event = ClusterEvent {
+                kind: str_at("/involvedObject/kind").unwrap_or("Unknown").to_string(),
+                name: str_at("/involvedObject/name").unwrap_or("Unknown").to_string(),
+                reason: str_at("/reason").unwrap_or("").to_string(),
+                message: str_at("/message").unwrap_or("").to_string(),
+                event_type: if str_at("/type") == Some("Warning") {
+                    EventType::Warning
+                } else {
+                    EventType::Normal
+                },
+                count,
+                timestamp,
             };
+            (chrono::DateTime::parse_from_rfc3339(&event.timestamp).ok(), event)
+        })
+        .collect();
 
-            let count = item.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+    // Newest first; events without a parseable time go last.
+    events.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
 
-            let timestamp =
-                item.get("lastTimestamp").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-            events.push(ClusterEvent { kind, name, reason, message, event_type, count, timestamp });
-        }
-    }
-
-    Ok(events)
+    // Fill the cap with Warnings before Normals: incidents and diagnosis are
+    // built from Warnings, and in a busy namespace a few minutes of Normal
+    // churn (Pulled, Created, Started, ScalingReplicaSet...) would otherwise
+    // push out a single older Warning such as FailedScheduling.
+    let (warnings, normals): (Vec<_>, Vec<_>) =
+        events.into_iter().partition(|(_, event)| event.event_type == EventType::Warning);
+    let normal_slots = MAX_EVENTS_PER_FETCH.saturating_sub(warnings.len());
+    let mut kept: Vec<_> = warnings
+        .into_iter()
+        .take(MAX_EVENTS_PER_FETCH)
+        .chain(normals.into_iter().take(normal_slots))
+        .collect();
+    kept.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
+    kept.into_iter().map(|(_, event)| event).collect()
 }
 
 pub async fn fetch_namespaces() -> Result<Vec<NamespaceSummary>> {
@@ -1981,12 +2026,12 @@ mod tests {
         collect_hpas, collect_ingresses, collect_jobs, collect_pdbs, collect_pvcs,
         collect_services, deployment_rollout_status, derive_node_status, derive_pod_status,
         effective_pod_cpu_resources, effective_pod_memory_resources, ensure_readonly_kubectl_args,
-        namespace_pod_counts, parse_cpu, parse_memory_mb, parse_workload_resource_result,
-        requested_namespace, workload_health,
+        extract_container_info, namespace_pod_counts, parse_cpu, parse_events, parse_memory_mb,
+        parse_workload_resource_result, requested_namespace, workload_health,
     };
     use crate::data::models::{
-        ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
-        WorkloadSummary,
+        ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus,
+        MAX_EVENTS_PER_FETCH, WorkloadKind, WorkloadSummary,
     };
     use serde_json::json;
 
@@ -2315,6 +2360,71 @@ mod tests {
         assert_eq!(parse_cpu("1.5"), 1500);
         assert_eq!(parse_cpu(""), 0);
         assert_eq!(parse_cpu("abc"), 0);
+    }
+
+    #[test]
+    fn parse_events_orders_events_api_events_by_their_real_time() {
+        // The scheduler writes through events.k8s.io: no lastTimestamp, time in
+        // eventTime/series. kubectl --sort-by=.lastTimestamp put these first.
+        let json = serde_json::json!({"items": [
+            {"involvedObject": {"kind": "Pod", "name": "web"}, "reason": "FailedScheduling",
+             "message": "0/1 nodes are available: 1 Insufficient memory.", "type": "Warning",
+             "lastTimestamp": null, "eventTime": "2026-10-14T06:40:00.000000Z",
+             "series": {"count": 9, "lastObservedTime": "2026-10-14T06:50:00.000000Z"}},
+            {"involvedObject": {"kind": "Pod", "name": "api"}, "reason": "Pulled",
+             "message": "pulled", "type": "Normal", "count": 1,
+             "lastTimestamp": "2026-10-14T06:45:00Z"},
+            {"involvedObject": {"kind": "Pod", "name": "old"}, "reason": "Scheduled",
+             "message": "assigned", "type": "Normal", "lastTimestamp": null,
+             "eventTime": "2026-10-14T06:00:00.000000Z"}
+        ]});
+
+        let events = parse_events(&json);
+
+        let names: Vec<&str> = events.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["web", "api", "old"]);
+        assert_eq!(events[0].count, 9);
+        assert_eq!(events[0].timestamp, "2026-10-14T06:50:00.000000Z");
+    }
+
+    #[test]
+    fn parse_events_keeps_an_older_warning_over_newer_normal_events() {
+        let mut items = vec![serde_json::json!({
+            "involvedObject": {"kind": "Pod", "name": "stuck"}, "reason": "FailedScheduling",
+            "message": "0/1 nodes are available", "type": "Warning",
+            "eventTime": "2026-10-14T06:00:00.000000Z"
+        })];
+        for i in 0..MAX_EVENTS_PER_FETCH + 20 {
+            items.push(serde_json::json!({
+                "involvedObject": {"kind": "Pod", "name": format!("web-{i}")}, "reason": "Pulled",
+                "message": "pulled", "type": "Normal", "lastTimestamp": "2026-10-14T06:05:00Z"
+            }));
+        }
+
+        let events = parse_events(&serde_json::json!({ "items": items }));
+
+        assert_eq!(events.len(), MAX_EVENTS_PER_FETCH);
+        assert_eq!(events.last().map(|e| e.reason.as_str()), Some("FailedScheduling"));
+    }
+
+    #[test]
+    fn extract_container_info_reads_each_containers_own_memory_limit() {
+        let spec = serde_json::json!([
+            {"name": "app", "resources": {"limits": {"memory": "512Mi"}}},
+            {"name": "proxy"}
+        ]);
+        let statuses = serde_json::json!([
+            {"name": "app", "ready": true, "restartCount": 0, "state": {"running": {}}},
+            {"name": "proxy", "ready": false, "restartCount": 2,
+             "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+             "lastState": {"terminated": {"reason": "OOMKilled", "exitCode": 137}}}
+        ]);
+
+        let containers = extract_container_info(statuses.as_array(), spec.as_array());
+
+        assert_eq!(containers[0].memory_limit_mb, 512);
+        assert_eq!(containers[1].memory_limit_mb, 0);
+        assert_eq!(containers[1].last_termination_reason.as_deref(), Some("OOMKilled"));
     }
 
     #[test]

@@ -352,6 +352,7 @@ fn create_test_pod(name: &str, namespace: &str) -> PodInfo {
         is_ready: true,
         crash_looping: false,
         oom_killed: false,
+        init_containers: vec![],
         node_name: Some("node-a".to_string()),
         containers: vec![ContainerInfo {
             name: "app".to_string(),
@@ -360,6 +361,7 @@ fn create_test_pod(name: &str, namespace: &str) -> PodInfo {
             state: "Running".to_string(),
             last_termination_reason: None,
             last_exit_code: None,
+            memory_limit_mb: 0,
         }],
     }
 }

@@ -187,7 +187,7 @@ The server exposes read-only tools over stdio:
 - **list_incidents** - Ranked incidents by severity
 - **list_pods** - Pod list with status and resources
 - **describe_pod** - Detailed pod information
-- **explain_pod** - Likely cause analysis for pod issues
+- **explain_pod** - Likely causes for pod issues, each with a suggested next `kubectl` command
 - **get_logs** - Fetch pod logs
 - **list_nodes** - Node metrics and conditions
 - **list_contexts** - Available kubectl contexts
@@ -362,6 +362,15 @@ cluster-cli/
 ```
 
 ## Data Visualization
+
+### Pod Diagnosis
+
+Pod detail includes a **Diagnosis** panel that explains why a pod is unhealthy:
+- Each finding shows a severity label, the issue, its likely cause, and the next read-only `kubectl` command to run
+- Covers crash loops (with exit-code hints), OOM kills, image pull and config errors, scheduling failures, volume mount failures, evictions, failing probes, node problems, and resources near their limits
+- Shows "No problems detected" for a healthy pod
+- Uses only data already in the snapshot; no extra `kubectl` calls are made
+- The MCP `explain_pod` tool returns the same findings
 
 ### Pod History Sparklines
 

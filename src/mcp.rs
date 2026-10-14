@@ -5,6 +5,7 @@ use std::io::{self, BufRead, Write};
 
 use crate::config::Config;
 use crate::data::collector;
+use crate::data::diagnosis::diagnose_pod;
 use crate::data::health::calculate_health;
 use crate::data::incidents::build_incident_buckets;
 use crate::data::models::ClusterSnapshot;
@@ -159,7 +160,7 @@ impl ClusterMcpServer {
                 },
                 {
                     "name": "explain_pod",
-                    "description": "Explain the likely cause of pod issues by analyzing its state, events, and related incidents.",
+                    "description": "Explain the likely cause of pod issues by analyzing its state, events, node, and related incidents. Returns findings ordered most severe first, each with a likely cause and a read-only kubectl command to run next.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -297,30 +298,24 @@ impl ClusterMcpServer {
                     .find(|p| p.name == pod_name)
                     .ok_or_else(|| anyhow::anyhow!("Pod not found: {}", pod_name))?;
 
+                let findings = diagnose_pod(pod, &snapshot);
+
                 let mut explanation = Vec::new();
                 explanation.push(format!("Pod: {}", pod.name));
                 explanation.push(format!("Phase: {}", pod.phase));
                 explanation.push(format!("Ready: {}", pod.is_ready));
 
-                if pod.crash_looping {
-                    explanation.push("\nIssue: Pod is in CrashLoopBackOff".to_string());
-                    explanation.push("Likely cause: Container is repeatedly failing to start. Check logs for errors.".to_string());
+                if findings.is_empty() {
+                    explanation.push("\nNo problems detected".to_string());
                 }
-
-                if pod.oom_killed {
-                    explanation.push("\nIssue: Container was OOMKilled".to_string());
+                for finding in &findings {
                     explanation.push(format!(
-                        "Likely cause: Memory usage ({} MB) exceeded limits. Consider increasing memory limits.",
-                        pod.memory_mb
+                        "\nIssue ({}): {}",
+                        finding.severity.label(),
+                        finding.issue
                     ));
-                }
-
-                if pod.phase == "Pending" {
-                    explanation.push("\nIssue: Pod is pending".to_string());
-                    explanation.push(
-                        "Likely cause: Insufficient resources or scheduling constraints."
-                            .to_string(),
-                    );
+                    explanation.push(format!("Likely cause: {}", finding.likely_cause));
+                    explanation.push(format!("Next: {}", finding.next_command));
                 }
 
                 for incident in &snapshot.incident_buckets {
@@ -343,6 +338,15 @@ impl ClusterMcpServer {
                         "crash_looping": pod.crash_looping,
                         "oom_killed": pod.oom_killed,
                         "restarts": pod.restarts,
+                        "findings": findings
+                            .iter()
+                            .map(|f| json!({
+                                "severity": f.severity.label(),
+                                "issue": f.issue,
+                                "likely_cause": f.likely_cause,
+                                "next_command": f.next_command,
+                            }))
+                            .collect::<Vec<_>>(),
                     }
                 });
 

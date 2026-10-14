@@ -21,8 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Precursor highlighting (⚡) that automatically identifies events (rollouts, node condition changes) that likely caused incidents within a configurable time window (default 10 minutes)
 - Keyboard shortcuts: `t` to open timeline from dashboard, `T` to open timeline filtered to selected incident from incident queue, `s` to toggle sort order, `f`/`F` to cycle filters
 - Accessible severity labels in timeline (not color-only)
+- Diagnosis panel in pod detail that explains why a pod is unhealthy, with a likely cause and the next read-only `kubectl` command for each finding (crash loops with exit-code hints, OOM kills, image pull and config errors, scheduling and volume failures, evictions, failing probes, node problems, and resources near their limits)
 
 ### Changed
+- MCP `explain_pod` uses the same diagnosis as the pod detail view and now returns structured `findings` with severity, likely cause, and next command
 - Upgrade Rust toolchain from 1.94.1 to 1.99.0
 - Upgrade to Rust edition 2024
 - Update all dependencies to latest compatible versions
@@ -31,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add MSRV check to CI pipeline
 - Add cargo-deny security audit to CI pipeline
 - Add cross-platform test job to CI (Ubuntu, macOS, Windows)
+
+### Fixed
+- Show events written through the newer events API (such as the scheduler's FailedScheduling) in the events panel, incidents, and diagnosis; they have no `lastTimestamp`, so sorting by it dropped them once a namespace had more than 50 events
+- Keep Warning events ahead of Normal ones when trimming to the 50 most recent, so a busy namespace's routine events (Pulled, Created, Started) no longer push an older warning such as FailedScheduling out of the events panel, incidents, and diagnosis
 
 ## [0.3.4] - 2026-10-07
 

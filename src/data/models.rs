@@ -126,6 +126,8 @@ pub struct ContainerInfo {
     pub state: String,
     pub last_termination_reason: Option<String>,
     pub last_exit_code: Option<i32>,
+    /// This container's own memory limit in MB; 0 when none is set.
+    pub memory_limit_mb: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -158,6 +160,8 @@ pub struct PodInfo {
     pub oom_killed: bool,
     pub node_name: Option<String>,
     pub containers: Vec<ContainerInfo>,
+    /// Init container statuses, kept apart so app-container views are unchanged.
+    pub init_containers: Vec<ContainerInfo>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
