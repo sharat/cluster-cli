@@ -191,6 +191,9 @@ mod tests {
             oom_killed: true,
             init_containers: vec![],
             sidecar_containers: vec![],
+            owner: None,
+            metrics_available: true,
+            running_limits: Default::default(),
             node_name: Some("node-1".to_string()),
             containers: vec![],
         }];
@@ -274,6 +277,9 @@ mod tests {
             oom_killed: false,
             init_containers: vec![],
             sidecar_containers: vec![],
+            owner: None,
+            metrics_available: true,
+            running_limits: Default::default(),
             node_name: Some("node-1".to_string()),
             containers: vec![],
         }];

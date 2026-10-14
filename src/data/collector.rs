@@ -649,6 +649,7 @@ fn parse_pod(item: &Value, namespace: &str, top_map: &HashMap<String, (u64, u64)
         item.pointer("/status/phase").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
 
     let node_name = item.pointer("/spec/nodeName").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let owner = pod_owner(item);
 
     let age = item
         .pointer("/metadata/creationTimestamp")
@@ -670,6 +671,12 @@ fn parse_pod(item: &Value, namespace: &str, top_map: &HashMap<String, (u64, u64)
     let (memory_request_mb, memory_limit_mb) =
         effective_pod_memory_resources(spec_containers, init_containers);
 
+    let running_limits = RunningLimits {
+        cpu_millicores: running_limit(spec_containers, init_containers, container_cpu),
+        memory_mb: running_limit(spec_containers, init_containers, container_memory),
+    };
+
+    let metrics_available = top_map.contains_key(&name);
     let (cpu_millicores, memory_mb) = top_map.get(&name).copied().unwrap_or((0, 0));
 
     let memory_pct = if memory_limit_mb > 0 { percent_of(memory_mb, memory_limit_mb) } else { 0 };
@@ -737,7 +744,37 @@ fn parse_pod(item: &Value, namespace: &str, top_map: &HashMap<String, (u64, u64)
         containers,
         init_containers: init_container_info,
         sidecar_containers,
+        owner,
+        metrics_available,
+        running_limits,
     }
+}
+
+/// The pod's controlling owner, with a ReplicaSet named `<deployment>-<hash>`
+/// (hash from the pod-template-hash label) resolved to its Deployment.
+fn pod_owner(item: &Value) -> Option<PodOwner> {
+    let owners = item.pointer("/metadata/ownerReferences")?.as_array()?;
+    let owner = owners
+        .iter()
+        .find(|o| o.get("controller").and_then(|v| v.as_bool()) == Some(true))
+        .or_else(|| owners.first())?;
+    let kind = owner.get("kind")?.as_str()?;
+    let name = owner.get("name")?.as_str()?;
+
+    if kind == "ReplicaSet" {
+        let hash = item
+            .pointer("/metadata/labels/pod-template-hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let deployment = Some(hash)
+            .filter(|h| !h.is_empty())
+            .and_then(|h| name.strip_suffix(h))
+            .and_then(|n| n.strip_suffix('-'));
+        if let Some(deployment) = deployment {
+            return Some(PodOwner { kind: "Deployment".to_string(), name: deployment.to_string() });
+        }
+    }
+    Some(PodOwner { kind: kind.to_string(), name: name.to_string() })
 }
 
 pub struct WorkloadCollection {
@@ -1387,6 +1424,23 @@ fn effective_pod_resources(
 
     let app = app_containers.into_iter().flatten().map(&read).fold(sidecars, add);
     max(app, init_peak)
+}
+
+/// Sum of the limits of the app containers and native sidecars, or None when
+/// any of them is unlimited.
+fn running_limit(
+    app_containers: Option<&Vec<Value>>,
+    init_containers: Option<&Vec<Value>>,
+    read: impl Fn(&Value) -> (u64, u64),
+) -> Option<u64> {
+    let sidecars = init_containers.into_iter().flatten().filter(|c| is_sidecar(c));
+    let total: Option<u64> = app_containers
+        .into_iter()
+        .flatten()
+        .chain(sidecars)
+        .map(|container| Some(read(container).1).filter(|&limit| limit > 0))
+        .sum();
+    total.filter(|&limit| limit > 0)
 }
 
 fn container_cpu(container: &Value) -> (u64, u64) {
@@ -2229,6 +2283,41 @@ mod tests {
     }
 
     #[test]
+    fn parse_pod_resolves_owners_to_their_workload() {
+        let owned = |kind: &str, name: &str, hash: Option<&str>| {
+            let mut labels = serde_json::Map::new();
+            if let Some(hash) = hash {
+                labels.insert("pod-template-hash".to_string(), json!(hash));
+            }
+            json!({
+                "metadata": {
+                    "name": "p", "labels": labels,
+                    "ownerReferences": [{ "kind": kind, "name": name, "controller": true }]
+                },
+                "status": { "phase": "Running" }
+            })
+        };
+        let owner = |item: serde_json::Value| {
+            parse_pod(&item, "default", &HashMap::new()).owner.map(|o| (o.kind, o.name))
+        };
+
+        assert_eq!(
+            owner(owned("ReplicaSet", "web-api-6d4f9c8b7", Some("6d4f9c8b7"))),
+            Some(("Deployment".to_string(), "web-api".to_string()))
+        );
+        // A ReplicaSet that does not follow the Deployment naming stays as is.
+        assert_eq!(
+            owner(owned("ReplicaSet", "standalone", None)),
+            Some(("ReplicaSet".to_string(), "standalone".to_string()))
+        );
+        assert_eq!(
+            owner(owned("StatefulSet", "db", None)),
+            Some(("StatefulSet".to_string(), "db".to_string()))
+        );
+        assert_eq!(owner(json!({ "metadata": { "name": "bare" } })), None);
+    }
+
+    #[test]
     fn parse_pod_flags_a_current_oom_kill_after_an_earlier_error() {
         let item = json!({
             "metadata": { "name": "job-run" },
@@ -2244,6 +2333,46 @@ mod tests {
         });
 
         assert!(parse_pod(&item, "default", &HashMap::new()).oom_killed);
+    }
+
+    #[test]
+    fn parse_pod_records_whether_kubectl_top_measured_it() {
+        let item = json!({ "metadata": { "name": "web" }, "status": { "phase": "Running" } });
+        let measured = HashMap::from([("web".to_string(), (5, 0))]);
+
+        assert!(!parse_pod(&item, "default", &HashMap::new()).metrics_available);
+        let pod = parse_pod(&item, "default", &measured);
+        assert!(pod.metrics_available);
+        assert_eq!((pod.cpu_millicores, pod.memory_mb), (5, 0));
+    }
+
+    #[test]
+    fn running_limits_cover_app_containers_and_sidecars_only() {
+        let item = json!({
+            "metadata": { "name": "web" },
+            "spec": {
+                "initContainers": [
+                    { "name": "migrate",
+                      "resources": { "limits": { "cpu": "2", "memory": "2Gi" } } },
+                    { "name": "proxy", "restartPolicy": "Always",
+                      "resources": { "limits": { "cpu": "100m", "memory": "64Mi" } } }
+                ],
+                "containers": [
+                    { "name": "app", "resources": { "limits": { "cpu": "200m", "memory": "256Mi" } } },
+                    { "name": "logger", "resources": { "limits": { "memory": "32Mi" } } }
+                ]
+            },
+            "status": { "phase": "Running" }
+        });
+
+        let pod = parse_pod(&item, "default", &HashMap::new());
+
+        // The finished init container's 2-CPU limit dominates the effective
+        // pod limit but does not bound the running pod.
+        assert_eq!(pod.cpu_limit_millicores, 2000);
+        // `logger` has no CPU limit, so the running pod's CPU is unbounded.
+        assert_eq!(pod.running_limits.cpu_millicores, None);
+        assert_eq!(pod.running_limits.memory_mb, Some(256 + 32 + 64));
     }
 
     #[test]

@@ -36,6 +36,15 @@ jobs:
           kubectl cluster-info
           kubectl get nodes
           kubectl version
+
+      # kind has no metrics-server; right-sizing and the usage columns need it.
+      # The kubelet uses a self-signed cert in kind, hence --kubelet-insecure-tls.
+      - name: Install metrics-server
+        run: |
+          kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
+          kubectl patch -n kube-system deployment metrics-server --type=json \
+            -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+          kubectl rollout status -n kube-system deployment/metrics-server --timeout=180s
       
       - name: Deploy test workloads
         run: |
@@ -113,8 +122,14 @@ jobs:
       
       - name: Wait for cluster metrics
         run: |
-          echo "Waiting for metrics to stabilize..."
-          sleep 10
+          echo "Waiting for pod metrics from metrics-server..."
+          for i in {1..36}; do
+            if kubectl top pods --no-headers 2>/dev/null | grep -q .; then
+              echo "Pod metrics available"
+              break
+            fi
+            sleep 5
+          done
           
           echo "Final pod states before screenshot:"
           kubectl get pods -o wide
@@ -126,7 +141,7 @@ jobs:
           mkdir -p screenshots
           
           # Run the test views script
-          ./examples/e2e/test-views.sh ./target/release/cluster ./screenshots dashboard,pod-detail,diagnosis,node-detail,incidents
+          ./examples/e2e/test-views.sh ./target/release/cluster ./screenshots dashboard,pod-detail,diagnosis,node-detail,incidents,rightsizing
           
           echo "Captured screenshots:"
           ls -lh screenshots/

@@ -61,6 +61,9 @@ fn create_test_pod(
         oom_killed,
         init_containers: vec![],
         sidecar_containers: vec![],
+        owner: None,
+        metrics_available: true,
+        running_limits: Default::default(),
         node_name: Some("test-node".to_string()),
         containers: vec![],
     }

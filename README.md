@@ -21,6 +21,7 @@ For the current detailed feature inventory, see [features.md](features.md).
 - **Pod Insights**: Track pod status, resource consumption, restarts, and age
 - **Workload Popup**: Inspect controllers, batch workloads, autoscaling, disruption budgets, networking, and storage with `w`
 - **Pod History**: Visual CPU and memory sparklines in pod detail view
+- **Right-sizing**: Compare each workload's CPU and memory requests with its actual usage, flag over- and under-provisioned workloads, and suggest requests (`u` from the dashboard)
 - **Memory Usage Bars**: Horizontal bar graphs with percentage and absolute values
 - **Incident Queue**: Monitor ranked warning and failure signals built from nodes, pods, and events
 - **Incident Drill-Down**: Press `Enter` on an incident to jump to the related pod, node, or workload when possible
@@ -262,6 +263,7 @@ Command-line arguments override config file settings.
 | `↓` / `j` | Move down |
 | `Enter` | View selected item details (Pods or Nodes), or drill into the selected incident |
 | `w` | Toggle workload popup |
+| `u` | Open the right-sizing view |
 | `s` | Cycle pod sort mode |
 | `E` | Export pods to CSV |
 
@@ -362,6 +364,16 @@ cluster-cli/
 ```
 
 ## Data Visualization
+
+### Right-sizing
+
+Press `u` on the dashboard to compare what each workload requests with what it uses:
+- Running pods are grouped by their workload (Deployment, StatefulSet, DaemonSet, Job, or the bare pod)
+- Usage is the peak seen during the session (from `kubectl top`), so one quiet sample does not understate a busy workload
+- Verdicts: **under** (using more than requested), **over** (using under 30% of a request of at least 50m CPU or 64Mi memory), **no requests**, **no metrics**, or **ok**
+- Suggested per-pod requests are current usage plus 30% headroom, and the summary shows the CPU and memory that following them would free
+- A suggestion never exceeds the container limits; one capped at the limit is marked `*`, since usage pinned at a limit means the limit needs raising too
+- Needs metrics-server in the cluster; without it the view explains that usage is unavailable
 
 ### Pod Diagnosis
 

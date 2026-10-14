@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Native sidecar support: sidecars (init containers with `restartPolicy: Always`) are listed in pod detail, selectable in the log viewer, and counted in restarts, readiness, crash-loop and OOM detection, so a crash-looping sidecar marks its pod critical
 
+- Right-sizing view (`u`): compares each workload's CPU and memory requests with its peak usage this session, flags under- and over-provisioned workloads and those without requests, suggests per-pod requests with 30% headroom, and totals the capacity that could be freed
+
 ### Changed
 - MCP `explain_pod` uses the same diagnosis as the pod detail view and now returns structured `findings` with severity, likely cause, and next command
 - Upgrade Rust toolchain from 1.94.1 to 1.99.0
@@ -37,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add cross-platform test job to CI (Ubuntu, macOS, Windows)
 
 ### Fixed
+- Keep pod detail container columns separated: long container names and states such as `Waiting (CrashLoopBackOff)` no longer run into the next column
+- Keep the logs panel usable in pod detail on short terminals (under 33 rows) by compacting the overview and events panels
 - Count native sidecars in pod CPU and memory requests and limits the way Kubernetes does (added to the app containers and to later init containers) instead of taking the largest init container
 - Run kubectl with `KUBECTL_KUBERC=false` so a user's kubectl preferences (kuberc) cannot change the output cluster-cli parses
 - Show events written through the newer events API (such as the scheduler's FailedScheduling) in the events panel, incidents, and diagnosis; they have no `lastTimestamp`, so sorting by it dropped them once a namespace had more than 50 events

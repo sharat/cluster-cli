@@ -28,7 +28,9 @@ examples/e2e/
 │   ├── unschedulable-pod.yaml     # Pod that can't be scheduled
 │   ├── test-job.yaml              # Kubernetes Job
 │   ├── rollout-deployment.yaml    # Deployment for testing rollouts
-│   └── sidecar-crash-pod.yaml     # Native sidecar that crash-loops next to a running app
+│   ├── sidecar-crash-pod.yaml     # Native sidecar that crash-loops next to a running app
+│   ├── idle-api-deployment.yaml   # Over-provisioned: requests far more than it uses
+│   └── busy-worker-deployment.yaml # Under-provisioned: burns CPU above its request
 ├── test-views.sh                  # Script to drive TUI and capture screenshots
 ├── convert-screenshots.sh         # Convert ANSI text to PNG images
 ├── test-local.sh                  # Local verification script
@@ -190,6 +192,7 @@ The `test-views.sh` script accepts a comma-separated list of views to capture:
 - `node-detail` - Detailed view of a selected node
 - `incidents` - Events and incidents view
 - `timeline` - Timeline view (if available on branch)
+- `rightsizing` - Right-sizing view (needs metrics-server; the CI workflow installs it in kind)
 
 ---
 

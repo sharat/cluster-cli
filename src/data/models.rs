@@ -134,6 +134,14 @@ pub struct ContainerInfo {
     pub started: bool,
 }
 
+/// The workload that owns a pod. A ReplicaSet owner is resolved to its
+/// Deployment when the pod-template-hash label shows the usual naming.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PodOwner {
+    pub kind: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct PodInfo {
     pub uid: String,
@@ -170,6 +178,22 @@ pub struct PodInfo {
     /// Native sidecars: init containers with `restartPolicy: Always`, which
     /// keep running alongside the app containers.
     pub sidecar_containers: Vec<ContainerInfo>,
+    /// Controlling owner from ownerReferences; None for a bare pod.
+    pub owner: Option<PodOwner>,
+    /// Whether `kubectl top` reported usage for this pod. When false,
+    /// `cpu_millicores` and `memory_mb` are 0 because nothing was measured.
+    pub metrics_available: bool,
+    /// Limits of the containers that run for the pod's life.
+    pub running_limits: RunningLimits,
+}
+
+/// Combined limits of the app containers and native sidecars (regular init
+/// containers have finished by then). A resource is None when any of those
+/// containers has no limit for it, since the pod as a whole is then unbounded.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RunningLimits {
+    pub cpu_millicores: Option<u64>,
+    pub memory_mb: Option<u64>,
 }
 
 impl PodInfo {

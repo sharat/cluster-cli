@@ -15,6 +15,7 @@ pub enum AppView {
     PodDetail { pod_name: String },
     NodeDetail { node_name: String },
     Timeline,
+    RightSizing,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,6 +141,9 @@ pub struct AppState {
     pub pod_cursor: usize,
     pub event_cursor: usize,
     pub timeline_cursor: usize,
+    pub sizing_scroll: usize,
+    /// Largest useful `sizing_scroll`, recorded by the view when it draws.
+    pub sizing_scroll_max: std::cell::Cell<usize>,
     pub timeline_scroll: usize,
     pub timeline_newest_first: bool,
     pub timeline_kind_filter: Option<crate::data::timeline::TimelineEntryKind>,
@@ -169,6 +173,9 @@ pub struct AppState {
     pub connection_issue: Option<ConnectionIssue>,
     pub pod_memory_history: HashMap<String, Vec<u8>>,
     pub pod_cpu_history: HashMap<String, Vec<u8>>,
+    /// Highest (cpu millicores, memory MB) seen per pod this session, used for
+    /// right-sizing so a single quiet sample does not understate usage.
+    pub pod_peak_usage: HashMap<String, (u64, u64)>,
 }
 
 #[derive(Debug, Clone)]
@@ -209,6 +216,8 @@ impl AppState {
             pod_cursor: 0,
             event_cursor: 0,
             timeline_cursor: 0,
+            sizing_scroll: 0,
+            sizing_scroll_max: std::cell::Cell::new(0),
             timeline_scroll: 0,
             timeline_newest_first: true,
             timeline_kind_filter: None,
@@ -236,6 +245,7 @@ impl AppState {
             connection_issue: None,
             pod_memory_history: HashMap::new(),
             pod_cpu_history: HashMap::new(),
+            pod_peak_usage: HashMap::new(),
         }
     }
 
@@ -243,9 +253,15 @@ impl AppState {
         let active_keys: HashSet<String> = pods.iter().map(pod_history_key).collect();
         self.pod_memory_history.retain(|key, _| active_keys.contains(key));
         self.pod_cpu_history.retain(|key, _| active_keys.contains(key));
+        self.pod_peak_usage.retain(|key, _| active_keys.contains(key));
 
         for pod in pods {
             let key = pod_history_key(pod);
+            if pod.metrics_available {
+                let peak = self.pod_peak_usage.entry(key.clone()).or_default();
+                *peak = (peak.0.max(pod.cpu_millicores), peak.1.max(pod.memory_mb));
+            }
+
             let memory_history = self.pod_memory_history.entry(key.clone()).or_default();
             memory_history.push(pod.memory_pct);
             if memory_history.len() > MAX_HISTORY_SAMPLES {
@@ -262,6 +278,17 @@ impl AppState {
 
     pub fn get_pod_memory_history(&self, pod: &PodInfo) -> Option<&Vec<u8>> {
         self.pod_memory_history.get(&pod_history_key(pod))
+    }
+
+    /// Peak (cpu millicores, memory MB) measured for the pod this session,
+    /// including the current sample; None if it has never been measured.
+    pub fn pod_peak_usage(&self, pod: &PodInfo) -> Option<(u64, u64)> {
+        let current = pod.metrics_available.then_some((pod.cpu_millicores, pod.memory_mb));
+        let recorded = self.pod_peak_usage.get(&pod_history_key(pod)).copied();
+        match (current, recorded) {
+            (Some(now), Some(peak)) => Some((now.0.max(peak.0), now.1.max(peak.1))),
+            (now, peak) => now.or(peak),
+        }
     }
 
     pub fn get_pod_cpu_history(&self, pod: &PodInfo) -> Option<&Vec<u8>> {
@@ -469,6 +496,19 @@ impl AppState {
                 }
             }
         }
+    }
+
+    pub fn enter_rightsizing_view(&mut self) {
+        self.view = AppView::RightSizing;
+        self.sizing_scroll = 0;
+    }
+
+    /// Right-sizing for the current snapshot, using each pod's peak usage seen
+    /// this session.
+    pub fn rightsizing(&self) -> Vec<crate::data::rightsizing::WorkloadSizing> {
+        self.snapshot.as_ref().map_or_else(Vec::new, |snapshot| {
+            crate::data::rightsizing::analyze(&snapshot.pods, |pod| self.pod_peak_usage(pod))
+        })
     }
 
     pub fn exit_timeline_view(&mut self) {
@@ -748,6 +788,9 @@ mod tests {
             oom_killed: false,
             init_containers: vec![],
             sidecar_containers: vec![],
+            owner: None,
+            metrics_available: true,
+            running_limits: Default::default(),
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
@@ -800,6 +843,9 @@ mod tests {
             oom_killed: false,
             init_containers: vec![],
             sidecar_containers: vec![],
+            owner: None,
+            metrics_available: true,
+            running_limits: Default::default(),
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),

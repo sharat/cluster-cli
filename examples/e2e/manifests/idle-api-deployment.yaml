@@ -1,0 +1,27 @@
+# Over-provisioned for the right-sizing view: requests far more than it uses.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idle-api
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: idle-api
+  template:
+    metadata:
+      labels:
+        app: idle-api
+    spec:
+      containers:
+      - name: api
+        image: busybox:1.37
+        command: ["sh", "-c", "echo 'idle api up'; sleep 3600"]
+        resources:
+          requests:
+            cpu: 200m
+            memory: 128Mi
+          limits:
+            cpu: 300m
+            memory: 256Mi
