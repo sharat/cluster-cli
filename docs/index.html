@@ -39,8 +39,6 @@
 
         :root {
             /* Light mode (default) */
-            --gradient-start: #3730a3; /* indigo-800 */
-            --gradient-end: #0f766e; /* teal-700 */
             --bg-primary: #ffffff;
             --bg-secondary: #f8fafc; /* slate-50 */
             --bg-tertiary: #f1f5f9; /* slate-100 */
@@ -48,11 +46,10 @@
             --text-secondary: #475569; /* slate-600 */
             --text-muted: #64748b; /* slate-500 */
             --border: #e2e8f0; /* slate-200 */
-            --accent: #0f766e; /* teal-700 */
-            --accent-light: #14b8a6; /* teal-500 */
+            --accent: #1d4ed8; /* blue-700 */
+            --accent-text: #ffffff;
             --code-bg: #1e293b; /* slate-800 */
             --code-text: #f1f5f9; /* slate-100 */
-            --shadow: rgba(0, 0, 0, 0.1);
         }
 
         @media (prefers-color-scheme: dark) {
@@ -64,9 +61,10 @@
                 --text-secondary: #cbd5e1; /* slate-300 */
                 --text-muted: #94a3b8; /* slate-400 */
                 --border: #334155; /* slate-700 */
+                --accent: #93c5fd; /* blue-300 */
+                --accent-text: #0f172a;
                 --code-bg: #0f172a; /* slate-900 */
                 --code-text: #e2e8f0; /* slate-200 */
-                --shadow: rgba(0, 0, 0, 0.3);
             }
         }
 
@@ -109,7 +107,6 @@
             z-index: 100;
             background: var(--bg-primary);
             border-bottom: 1px solid var(--border);
-            box-shadow: 0 1px 3px var(--shadow);
         }
 
         nav {
@@ -144,37 +141,33 @@
 
         .nav-links a:hover, .nav-links a:focus {
             color: var(--accent);
-            outline: 2px solid var(--accent);
-            outline-offset: 4px;
-            border-radius: 4px;
         }
 
         /* Hero Section */
         .hero {
-            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
-            color: white;
-            padding: 6rem 2rem;
+            padding: 5rem 2rem;
             text-align: center;
+            border-bottom: 1px solid var(--border);
         }
 
         .hero h1 {
             font-size: 3.5rem;
             font-weight: 700;
             margin-bottom: 1rem;
+            color: var(--text-primary);
             animation: fadeInUp 0.8s ease-out;
         }
 
         .hero p {
-            color: white;
+            color: var(--text-secondary);
             font-size: 1.25rem;
             margin-bottom: 2rem;
-            opacity: 0.95;
             animation: fadeInUp 0.8s ease-out 0.2s both;
         }
 
         .install-command {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: var(--code-bg);
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 1.5rem;
             padding-right: 5.5rem; /* keep the command clear of the Copy button */
@@ -194,9 +187,9 @@
             position: absolute;
             top: 0.75rem;
             right: 0.75rem;
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            color: white;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            color: #0f172a;
             padding: 0.5rem 1rem;
             border-radius: 4px;
             cursor: pointer;
@@ -206,12 +199,14 @@
         }
 
         .copy-button:hover, .copy-button:focus {
-            background: rgba(255, 255, 255, 0.3);
+            background: #e2e8f0;
             outline: 2px solid white;
+            outline-offset: 2px;
         }
 
         .copy-button.copied {
-            background: #10b981;
+            background: #1d4ed8;
+            color: #ffffff;
         }
 
         .cta-buttons {
@@ -225,34 +220,31 @@
         .btn {
             display: inline-block;
             padding: 0.75rem 2rem;
-            border-radius: 8px;
+            border-radius: 6px;
+            border: 2px solid var(--accent);
             font-weight: 600;
             text-decoration: none;
-            transition: all 0.2s;
+            transition: background 0.2s, color 0.2s;
         }
 
         .btn-primary {
-            background: white;
-            color: var(--gradient-start);
+            background: var(--accent);
+            color: var(--accent-text);
         }
 
         .btn-primary:hover, .btn-primary:focus {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 16px var(--shadow);
-            outline: 2px solid white;
-            outline-offset: 2px;
+            background: var(--text-primary);
+            border-color: var(--text-primary);
+            color: var(--bg-primary);
         }
 
         .btn-secondary {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: transparent;
+            color: var(--accent);
         }
 
         .btn-secondary:hover, .btn-secondary:focus {
-            background: rgba(255, 255, 255, 0.3);
-            outline: 2px solid white;
-            outline-offset: 2px;
+            background: var(--bg-tertiary);
         }
 
         /* Main Content */
@@ -304,14 +296,8 @@
         .feature-card {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 8px;
             padding: 2rem;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .feature-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 8px 24px var(--shadow);
         }
 
         .feature-card h3 {
@@ -323,15 +309,16 @@
 
         .feature-icon {
             font-size: 1.5rem;
+            filter: grayscale(1);
         }
 
         /* Terminal Mock */
         .terminal-container {
             background: var(--code-bg);
-            border-radius: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
             padding: 1rem;
             margin: 2rem 0;
-            box-shadow: 0 8px 24px var(--shadow);
         }
 
         .terminal-header {
@@ -346,9 +333,9 @@
             border-radius: 50%;
         }
 
-        .terminal-button.red { background: #ef4444; }
-        .terminal-button.yellow { background: #f59e0b; }
-        .terminal-button.green { background: #10b981; }
+        .terminal-button {
+            background: #64748b;
+        }
 
         .terminal {
             color: var(--code-text);
@@ -358,11 +345,11 @@
         }
 
         .terminal-prompt {
-            color: #10b981;
+            color: #93c5fd;
         }
 
         .terminal-command {
-            color: #60a5fa;
+            color: #93c5fd;
         }
 
         .terminal-output {
@@ -426,8 +413,8 @@
         /* MCP Section (Last) */
         .mcp-section {
             background: var(--bg-secondary);
-            border: 2px solid var(--accent-light);
-            border-radius: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
             padding: 3rem;
             margin-top: 4rem;
         }
@@ -499,6 +486,21 @@
             border-width: 0;
         }
 
+        .skip-link {
+            position: fixed;
+            top: 0.5rem;
+            left: 0.5rem;
+            z-index: 200;
+            padding: 0.75rem 1rem;
+            background: var(--accent);
+            color: var(--accent-text);
+            transform: translateY(-150%);
+        }
+
+        .skip-link:focus {
+            transform: translateY(0);
+        }
+
         :focus-visible {
             outline: 2px solid var(--accent);
             outline-offset: 2px;
@@ -506,6 +508,7 @@
     </style>
 </head>
 <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <header role="banner">
         <nav role="navigation" aria-label="Main navigation">
             <a href="#" class="logo">cluster-cli</a>
@@ -520,7 +523,7 @@
         </nav>
     </header>
 
-    <main role="main">
+    <main id="main-content">
         <section class="hero">
             <h1>cluster-cli</h1>
             <p>A fast, interactive terminal UI for monitoring Kubernetes cluster health in real-time</p>
@@ -578,9 +581,9 @@
             <h2>In Action</h2>
             <div class="terminal-container">
                 <div class="terminal-header">
-                    <div class="terminal-button red"></div>
-                    <div class="terminal-button yellow"></div>
-                    <div class="terminal-button green"></div>
+                    <div class="terminal-button" aria-hidden="true"></div>
+                    <div class="terminal-button" aria-hidden="true"></div>
+                    <div class="terminal-button" aria-hidden="true"></div>
                 </div>
                 <div class="terminal" id="terminal-output">
                     <div><span class="terminal-prompt">$ </span><span class="terminal-command" id="typed-command"></span><span class="terminal-cursor"></span></div>

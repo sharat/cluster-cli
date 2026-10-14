@@ -83,8 +83,6 @@ Canonical structure and style tokens for `docs/index.html`.
 
 ### Light Mode (Default)
 ```css
---gradient-start: #3730a3;  /* indigo-800 */
---gradient-end: #0f766e;    /* teal-700 */
 --bg-primary: #ffffff;
 --bg-secondary: #f8fafc;    /* slate-50 */
 --bg-tertiary: #f1f5f9;     /* slate-100 */
@@ -92,11 +90,10 @@ Canonical structure and style tokens for `docs/index.html`.
 --text-secondary: #475569;  /* slate-600 */
 --text-muted: #64748b;      /* slate-500 */
 --border: #e2e8f0;          /* slate-200 */
---accent: #0f766e;          /* teal-700 */
---accent-light: #14b8a6;    /* teal-500 */
+--accent: #1d4ed8;          /* blue-700 */
+--accent-text: #ffffff;
 --code-bg: #1e293b;         /* slate-800 */
 --code-text: #f1f5f9;       /* slate-100 */
---shadow: rgba(0, 0, 0, 0.1);
 ```
 
 ### Dark Mode (@media prefers-color-scheme: dark)
@@ -108,9 +105,10 @@ Canonical structure and style tokens for `docs/index.html`.
 --text-secondary: #cbd5e1;  /* slate-300 */
 --text-muted: #94a3b8;      /* slate-400 */
 --border: #334155;          /* slate-700 */
+--accent: #93c5fd;          /* blue-300 */
+--accent-text: #0f172a;
 --code-bg: #0f172a;         /* slate-900 */
 --code-text: #e2e8f0;       /* slate-200 */
---shadow: rgba(0, 0, 0, 0.3);
 ```
 
 ## Typography
@@ -123,10 +121,12 @@ Canonical structure and style tokens for `docs/index.html`.
 ## Accessibility
 
 - Semantic HTML: `<header>`, `<main>`, `<section>`, `<footer>`
-- ARIA labels: `role="banner"`, `role="navigation"`, `role="main"`, `role="contentinfo"`
+- ARIA labels on navigation and interactive controls
+- Skip link targeting the main content
 - Focus styles: `outline: 2px solid var(--accent); outline-offset: 2px;`
 - Keyboard navigation: Tab, Enter, Esc
 - Color + text indicators (not color-only)
+- WCAG AA text and control contrast in light and dark modes
 - `.sr-only` class for screen reader text
 - `alt` text on all images (if any)
 
@@ -168,7 +168,7 @@ Canonical structure and style tokens for `docs/index.html`.
 
 ### Copy Buttons
 - Position: absolute top-right of code blocks
-- State: default → hover → copied (green)
+- State: default → hover → copied (accent)
 - Feedback: "Copy" → "Copied!" for 2 seconds
 
 ### Terminal Animation
@@ -194,7 +194,7 @@ Canonical structure and style tokens for `docs/index.html`.
 
 ## Section Order (Critical)
 
-1. Hero (gradient background)
+1. Hero (plain background with border)
 2. Features
 3. Terminal Demo
 4. Install
