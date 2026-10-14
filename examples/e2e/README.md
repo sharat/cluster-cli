@@ -185,7 +185,7 @@ The `test-views.sh` script accepts a comma-separated list of views to capture:
 
 - `dashboard` - Main cluster overview (default landing view)
 - `pod-detail` - Detailed view of a selected pod
-- `diagnosis` - Pod detail (with the Diagnosis panel) for the next three pods; run it right after `pod-detail`
+- `diagnosis` - Pod detail with the Diagnosis panel for each failing test pod; override the pods with `DIAGNOSIS_PODS=a,b`
 - `node-detail` - Detailed view of a selected node
 - `incidents` - Events and incidents view
 - `timeline` - Timeline view (if available on branch)

@@ -7,6 +7,8 @@ set -euo pipefail
 CLUSTER_BIN="${1:-./target/release/cluster}"
 OUTPUT_DIR="${2:-./screenshots}"
 VIEW_LIST="${3:-dashboard,pod-detail,node-detail,incidents}"
+# Pods opened by the "diagnosis" view (names from examples/e2e/manifests/)
+DIAGNOSIS_PODS="${DIAGNOSIS_PODS:-crashloop-pod,oom-killed-pod,imagepullbackoff-pod,unschedulable-pod}"
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
@@ -107,19 +109,29 @@ for view in "${VIEWS[@]}"; do
             sleep 1
             ;;
             
-        # Opens the next few pods after pod-detail's, so the Diagnosis panel is
-        # captured for several failure types (worst pods sort first).
+        # Opens each pod in DIAGNOSIS_PODS through the pod filter, so the
+        # Diagnosis panel is captured for each failure type regardless of the
+        # pod table's order.
         diagnosis)
-            echo "Capturing pod diagnosis for more pods..."
-            for n in 2 3 4; do
+            echo "Capturing pod diagnosis for: $DIAGNOSIS_PODS"
+            IFS=',' read -ra DIAG_PODS <<< "$DIAGNOSIS_PODS"
+            for pod in "${DIAG_PODS[@]}"; do
+                send_keys "/"
+                tmux send-keys -t cluster-e2e -l "$pod"
+                send_keys "C-m"
                 send_keys "3"
-                sleep 1
-                send_keys "Down"
                 sleep 1
                 send_keys "C-m"
                 sleep "$WAIT_RENDER"
-                capture_screenshot "02-pod-detail-$n"
+                capture_screenshot "02-diagnosis-$pod"
                 send_keys "Escape"
+                sleep 1
+                # Clear the filter for the next view
+                send_keys "/"
+                for ((i = 0; i < ${#pod}; i++)); do
+                    send_keys "BSpace"
+                done
+                send_keys "C-m"
                 sleep 1
             done
             ;;

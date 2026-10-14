@@ -75,6 +75,7 @@ fn render_diagnosis(f: &mut Frame, area: Rect, findings: &[PodFinding]) {
         return;
     }
 
+    let width = inner.width as usize;
     let mut lines = Vec::new();
     for finding in findings.iter().take(MAX_VISIBLE_FINDINGS) {
         let color = match finding.severity {
@@ -93,11 +94,11 @@ fn render_diagnosis(f: &mut Frame, area: Rect, findings: &[PodFinding]) {
             ),
         ]));
         lines.push(Line::styled(
-            format!("      Likely cause: {}", finding.likely_cause),
+            fit_width(&format!("      Likely cause: {}", finding.likely_cause), width),
             Style::default().fg(Color::Gray),
         ));
         lines.push(Line::styled(
-            format!("      $ {}", finding.next_command),
+            fit_width(&format!("      $ {}", finding.next_command), width),
             Style::default().fg(Color::Cyan),
         ));
     }
@@ -207,6 +208,16 @@ fn render_overview(f: &mut Frame, area: Rect, app: &AppState) {
     } else {
         f.render_widget(Paragraph::new("  Pod not found in current snapshot."), inner);
     }
+}
+
+/// Cut a line that would run past the panel edge, marking the cut with "…".
+fn fit_width(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mut cut: String = text.chars().take(width.saturating_sub(1)).collect();
+    cut.push('…');
+    cut
 }
 
 fn container_probe_failures(app: &AppState, pod: &PodInfo) -> HashMap<String, (u32, u32)> {
@@ -406,6 +417,15 @@ mod tests {
         assert!(text.contains("[CRITICAL] Container app is crash-looping (7 restarts)"));
         assert!(text.contains("Likely cause: The command was not found (exit 127)"));
         assert!(text.contains("$ kubectl logs api -n prod --previous"));
+    }
+
+    #[test]
+    fn diagnosis_panel_cuts_long_causes_at_the_panel_edge() {
+        let mut long = finding("Container app cannot pull its image");
+        long.likely_cause = format!("Failed to pull image \"nginx:typo\": {}", "x".repeat(200));
+        let text = rendered_text(&[long]);
+        assert!(text.contains("Likely cause: Failed to pull image \"nginx:typo\""));
+        assert!(text.contains("x…│"), "cause should end with an ellipsis at the border:\n{text}");
     }
 
     #[test]

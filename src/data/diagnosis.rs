@@ -230,8 +230,8 @@ fn diagnose_probes(pod: &PodInfo, events: &[&ClusterEvent]) -> Vec<PodFinding> {
         findings.push(PodFinding {
             severity: IncidentSeverity::Warning,
             issue: format!("Liveness probe failed {liveness} time(s)"),
-            likely_cause: "The kubelet restarts the container when this fails; check the probe \
-                           path/port and whether startup needs a longer initialDelaySeconds"
+            likely_cause: "The kubelet restarts the container on failure; check the probe \
+                           path/port and initialDelaySeconds"
                 .to_string(),
             next_command: describe_pod(pod),
         });
@@ -240,8 +240,8 @@ fn diagnose_probes(pod: &PodInfo, events: &[&ClusterEvent]) -> Vec<PodFinding> {
         findings.push(PodFinding {
             severity: IncidentSeverity::Warning,
             issue: format!("Readiness probe failed {readiness} time(s)"),
-            likely_cause: "The pod is removed from Service endpoints until the probe passes; \
-                           a dependency may be down or the app is slow to start"
+            likely_cause: "Removed from Service endpoints until it passes; a dependency may \
+                           be down or startup is slow"
                 .to_string(),
             next_command: describe_pod(pod),
         });
