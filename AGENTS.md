@@ -28,6 +28,27 @@ cargo update                       # update to latest compatible versions
 
 Reusable repository skills live in `.agents/skills/`. Read the relevant `SKILL.md` before performing a matching task; `release-cluster-cli` governs release preparation, tagging, and release-status work.
 
+## Documentation
+
+When features, key bindings, CLI flags, or MCP tools change, update the documentation to stay synchronized with the code.
+
+**What to update:**
+- `docs/*.md` - Markdown documentation files
+- `docs/index.html` - Landing page (self-contained HTML)
+
+**How to update:**
+Use the **`update-docs` skill** at `.agents/skills/update-docs/SKILL.md`. This skill:
+- Reads the code as source of truth (no invented features)
+- Updates all affected documentation files
+- Regenerates the landing page with current features
+- Verifies every documented key binding, flag, and tool exists in code
+- Renders a screenshot for PR inclusion
+
+**Hosted documentation:**
+The `docs/` folder is automatically deployed to GitHub Pages at https://sharat.github.io/cluster-cli/ via the `.github/workflows/pages.yml` workflow (triggered on pushes to `main` that touch `docs/**`).
+
+**See:** `.agents/skills/update-docs/SKILL.md` for complete documentation update workflow.
+
 ## Changelog Maintenance
 
 The repository maintains a `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format. Update the **Unreleased** section when making significant changes:
