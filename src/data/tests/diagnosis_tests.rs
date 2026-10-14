@@ -244,12 +244,53 @@ fn running_init_container_explains_a_pending_pod() {
     let mut init = pod.containers[0].clone();
     init.name = "wait-for-db".to_string();
     init.state = "Running".to_string();
+    init.ready = false;
     pod.init_containers = vec![init];
 
     let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
 
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0].likely_cause, "Init container wait-for-db is still running");
+}
+
+#[test]
+fn init_container_that_completed_after_an_earlier_oom_is_not_reported() {
+    let pod = PodInfo {
+        init_containers: vec![ContainerInfo {
+            name: "migrate".to_string(),
+            ready: true,
+            restart_count: 1,
+            state: "Terminated (Completed)".to_string(),
+            // From lastState: the earlier, failed attempt.
+            last_termination_reason: Some("OOMKilled".to_string()),
+            last_exit_code: Some(137),
+            memory_limit_mb: 64,
+        }],
+        ..create_test_pod()
+    };
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
+
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+#[test]
+fn started_native_sidecar_is_not_blamed_for_a_pending_pod() {
+    let mut pod = create_test_pod();
+    pod.phase = "Pending".to_string();
+    pod.is_ready = false;
+    pod.containers[0].ready = false;
+    pod.containers[0].state = "Waiting (ContainerCreating)".to_string();
+    let mut sidecar = pod.containers[0].clone();
+    sidecar.name = "istio-proxy".to_string();
+    sidecar.state = "Running".to_string();
+    sidecar.ready = true;
+    pod.init_containers = vec![sidecar];
+
+    let findings = diagnose_pod(&pod, &snapshot(vec![], vec![]));
+
+    assert_eq!(findings.len(), 1);
+    assert!(findings[0].likely_cause.starts_with("Scheduled; containers are still being created"));
 }
 
 fn create_test_pod() -> PodInfo {

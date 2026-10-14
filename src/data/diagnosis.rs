@@ -61,6 +61,12 @@ fn diagnose_container(
 ) -> Option<PodFinding> {
     let name = &container.name;
     let label = if is_init { "Init container" } else { "Container" };
+    // A completed init container has done its job. Its last_termination_reason
+    // comes from lastState, i.e. an earlier failed attempt, so it would
+    // otherwise be reported as failing.
+    if is_init && container.state == "Terminated (Completed)" {
+        return None;
+    }
     let waiting = waiting_reason(&container.state);
     let last_reason = container.last_termination_reason.as_deref();
 
@@ -178,7 +184,10 @@ fn diagnose_phase(pod: &PodInfo, events: &[&ClusterEvent]) -> Option<PodFinding>
             }) {
                 return None;
             }
-            let running_init = pod.init_containers.iter().find(|c| c.state == "Running");
+            // A started native sidecar (restartPolicy: Always) stays Running and
+            // ready for the pod's life, so only an unready one can be blocking.
+            let running_init =
+                pod.init_containers.iter().find(|c| c.state == "Running" && !c.ready);
             let likely_cause = if pod.node_name.is_none() {
                 "Waiting for the scheduler to place it on a node".to_string()
             } else if let Some(init) = running_init {
