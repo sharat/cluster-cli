@@ -180,6 +180,9 @@ pub struct PodInfo {
     pub sidecar_containers: Vec<ContainerInfo>,
     /// Controlling owner from ownerReferences; None for a bare pod.
     pub owner: Option<PodOwner>,
+    /// Whether `kubectl top` reported usage for this pod. When false,
+    /// `cpu_millicores` and `memory_mb` are 0 because nothing was measured.
+    pub metrics_available: bool,
 }
 
 impl PodInfo {

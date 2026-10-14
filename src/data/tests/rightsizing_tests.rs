@@ -33,13 +33,14 @@ fn pod(name: &str, owner: Option<PodOwner>, request: (u64, u64), usage: (u64, u6
         init_containers: vec![],
         sidecar_containers: vec![],
         owner,
+        metrics_available: true,
         node_name: Some("node-a".to_string()),
         containers: vec![],
     }
 }
 
-fn current_usage(pod: &PodInfo) -> (u64, u64) {
-    (pod.cpu_millicores, pod.memory_mb)
+fn current_usage(pod: &PodInfo) -> Option<(u64, u64)> {
+    pod.metrics_available.then_some((pod.cpu_millicores, pod.memory_mb))
 }
 
 #[test]
@@ -78,10 +79,9 @@ fn usage_above_the_request_is_under_provisioned() {
 
 #[test]
 fn pods_without_requests_or_metrics_are_called_out() {
-    let pods = vec![
-        pod("batch", None, (0, 0), (40, 200)),
-        pod("quiet", deployment("quiet"), (100, 128), (0, 0)),
-    ];
+    let mut quiet = pod("quiet", deployment("quiet"), (100, 128), (0, 0));
+    quiet.metrics_available = false;
+    let pods = vec![pod("batch", None, (0, 0), (40, 200)), quiet];
 
     let sizing = analyze(&pods, current_usage);
 
@@ -111,7 +111,7 @@ fn small_requests_and_reasonable_usage_are_left_alone() {
 fn peak_usage_from_the_caller_overrides_a_quiet_sample() {
     let pods = vec![pod("web-a", deployment("web"), (500, 512), (20, 60))];
 
-    let sizing = analyze(&pods, |_| (450, 480));
+    let sizing = analyze(&pods, |_| Some((450, 480)));
 
     assert_eq!(sizing[0].verdict, SizingVerdict::Ok);
 }
@@ -138,4 +138,34 @@ fn only_running_pods_count_and_results_are_ordered_by_urgency() {
     assert_eq!(summary.workloads_flagged, 3);
     assert_eq!(summary.cpu.request, 100 + 500 + 50 + 2000);
     assert!(summary.reclaimable_cpu > 0 && summary.reclaimable_memory > 0);
+}
+
+#[test]
+fn unmeasured_pods_are_left_out_instead_of_counted_as_idle() {
+    // Two busy replicas were measured; a third is missing from `kubectl top`.
+    let mut unmeasured = pod("web-c", deployment("web"), (500, 512), (0, 0));
+    unmeasured.metrics_available = false;
+    let pods = vec![
+        pod("web-a", deployment("web"), (500, 512), (300, 400)),
+        pod("web-b", deployment("web"), (500, 512), (320, 380)),
+        unmeasured,
+    ];
+
+    let sizing = analyze(&pods, current_usage);
+
+    assert_eq!(sizing[0].pods, 3);
+    assert_eq!(sizing[0].measured_pods, 2);
+    assert_eq!(sizing[0].cpu.request, 1000, "only measured pods are compared");
+    assert_eq!(sizing[0].verdict, SizingVerdict::Ok);
+}
+
+#[test]
+fn measured_zero_memory_is_usage_not_missing_metrics() {
+    // `kubectl top` rounds tiny usage down to 0Mi; it was still measured.
+    let pods = vec![pod("tiny", deployment("tiny"), (200, 256), (1, 0))];
+
+    let sizing = analyze(&pods, current_usage);
+
+    assert_eq!(sizing[0].verdict, SizingVerdict::OverProvisioned);
+    assert_eq!(sizing[0].suggested_memory, Some(16));
 }

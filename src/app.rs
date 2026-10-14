@@ -142,6 +142,8 @@ pub struct AppState {
     pub event_cursor: usize,
     pub timeline_cursor: usize,
     pub sizing_scroll: usize,
+    /// Largest useful `sizing_scroll`, recorded by the view when it draws.
+    pub sizing_scroll_max: std::cell::Cell<usize>,
     pub timeline_scroll: usize,
     pub timeline_newest_first: bool,
     pub timeline_kind_filter: Option<crate::data::timeline::TimelineEntryKind>,
@@ -215,6 +217,7 @@ impl AppState {
             event_cursor: 0,
             timeline_cursor: 0,
             sizing_scroll: 0,
+            sizing_scroll_max: std::cell::Cell::new(0),
             timeline_scroll: 0,
             timeline_newest_first: true,
             timeline_kind_filter: None,
@@ -254,8 +257,10 @@ impl AppState {
 
         for pod in pods {
             let key = pod_history_key(pod);
-            let peak = self.pod_peak_usage.entry(key.clone()).or_default();
-            *peak = (peak.0.max(pod.cpu_millicores), peak.1.max(pod.memory_mb));
+            if pod.metrics_available {
+                let peak = self.pod_peak_usage.entry(key.clone()).or_default();
+                *peak = (peak.0.max(pod.cpu_millicores), peak.1.max(pod.memory_mb));
+            }
 
             let memory_history = self.pod_memory_history.entry(key.clone()).or_default();
             memory_history.push(pod.memory_pct);
@@ -275,13 +280,15 @@ impl AppState {
         self.pod_memory_history.get(&pod_history_key(pod))
     }
 
-    /// Peak (cpu millicores, memory MB) seen for the pod this session, falling
-    /// back to its current usage.
-    pub fn pod_peak_usage(&self, pod: &PodInfo) -> (u64, u64) {
-        let current = (pod.cpu_millicores, pod.memory_mb);
-        self.pod_peak_usage
-            .get(&pod_history_key(pod))
-            .map_or(current, |peak| (peak.0.max(current.0), peak.1.max(current.1)))
+    /// Peak (cpu millicores, memory MB) measured for the pod this session,
+    /// including the current sample; None if it has never been measured.
+    pub fn pod_peak_usage(&self, pod: &PodInfo) -> Option<(u64, u64)> {
+        let current = pod.metrics_available.then_some((pod.cpu_millicores, pod.memory_mb));
+        let recorded = self.pod_peak_usage.get(&pod_history_key(pod)).copied();
+        match (current, recorded) {
+            (Some(now), Some(peak)) => Some((now.0.max(peak.0), now.1.max(peak.1))),
+            (now, peak) => now.or(peak),
+        }
     }
 
     pub fn get_pod_cpu_history(&self, pod: &PodInfo) -> Option<&Vec<u8>> {
@@ -782,6 +789,7 @@ mod tests {
             init_containers: vec![],
             sidecar_containers: vec![],
             owner: None,
+            metrics_available: true,
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
@@ -835,6 +843,7 @@ mod tests {
             init_containers: vec![],
             sidecar_containers: vec![],
             owner: None,
+            metrics_available: true,
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),

@@ -616,8 +616,7 @@ fn handle_rightsizing_key(app: &mut AppState, key: KeyEvent) -> Option<AppComman
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => app.view = AppView::Dashboard,
         KeyCode::Char('j') | KeyCode::Down => {
-            let rows = app.rightsizing().len();
-            app.sizing_scroll = (app.sizing_scroll + 1).min(rows.saturating_sub(1));
+            app.sizing_scroll = (app.sizing_scroll + 1).min(app.sizing_scroll_max.get());
         }
         KeyCode::Char('k') | KeyCode::Up => app.sizing_scroll = app.sizing_scroll.saturating_sub(1),
         KeyCode::Char('r') => {
@@ -1292,6 +1291,7 @@ mod tests {
             init_containers: vec![],
             sidecar_containers: vec![],
             owner: None,
+            metrics_available: true,
             node_name: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),

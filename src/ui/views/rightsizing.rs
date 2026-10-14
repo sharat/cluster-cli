@@ -131,7 +131,9 @@ fn render_table(f: &mut Frame, area: Rect, app: &AppState, workloads: &[Workload
     .style(theme::header_style());
 
     let visible_rows = area.height.saturating_sub(3) as usize;
-    let scroll = app.sizing_scroll.min(workloads.len().saturating_sub(visible_rows.max(1)));
+    let max_scroll = workloads.len().saturating_sub(visible_rows.max(1));
+    app.sizing_scroll_max.set(max_scroll);
+    let scroll = app.sizing_scroll.min(max_scroll);
     let rows = workloads.iter().skip(scroll).map(|workload| {
         let (color, label) = verdict_style(workload.verdict);
         Row::new(vec![
@@ -140,7 +142,11 @@ fn render_table(f: &mut Frame, area: Rect, app: &AppState, workloads: &[Workload
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             )),
             Cell::from(format!("{}/{}", short_kind(&workload.owner.kind), workload.owner.name)),
-            Cell::from(workload.pods.to_string()),
+            Cell::from(if workload.measured_pods == workload.pods {
+                workload.pods.to_string()
+            } else {
+                format!("{}/{}", workload.measured_pods, workload.pods)
+            }),
             Cell::from(usage_cell(workload.cpu, format::cpu)),
             Cell::from(usage_cell(workload.memory, format::memory)),
             Cell::from(suggestion(workload)),
@@ -242,14 +248,14 @@ mod tests {
             init_containers: vec![],
             sidecar_containers: vec![],
             owner: Some(PodOwner { kind: "Deployment".to_string(), name: name.to_string() }),
+            metrics_available: true,
             node_name: None,
             containers: vec![],
         }
     }
 
-    fn rendered(pods: Vec<PodInfo>) -> String {
-        let mut app = AppState::new(Config::default());
-        app.snapshot = Some(ClusterSnapshot {
+    fn snapshot(pods: Vec<PodInfo>) -> ClusterSnapshot {
+        ClusterSnapshot {
             nodes: vec![],
             workloads: vec![],
             pods,
@@ -265,7 +271,12 @@ mod tests {
             fetched_at: Instant::now(),
             error: None,
             context_name: None,
-        });
+        }
+    }
+
+    fn rendered(pods: Vec<PodInfo>) -> String {
+        let mut app = AppState::new(Config::default());
+        app.snapshot = Some(snapshot(pods));
         app.view = AppView::RightSizing;
         let mut terminal = Terminal::new(TestBackend::new(140, 20)).unwrap();
         terminal.draw(|f| render(f, f.area(), &app)).unwrap();
@@ -294,9 +305,41 @@ mod tests {
 
     #[test]
     fn explains_missing_metrics() {
-        let text = rendered(vec![pod("api", (100, 128), (0, 0))]);
+        let mut unmeasured = pod("api", (100, 128), (0, 0));
+        unmeasured.metrics_available = false;
+        let text = rendered(vec![unmeasured]);
 
         assert!(text.contains("No usage metrics"), "{text}");
         assert!(text.contains("[no metrics]"));
+    }
+
+    #[test]
+    fn scrolling_stops_at_the_last_page() {
+        use crate::events::handler::handle_key;
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let pods: Vec<PodInfo> =
+            (0..30).map(|i| pod(&format!("app-{i:02}"), (100, 128), (60, 90))).collect();
+        let mut app = AppState::new(Config::default());
+        app.snapshot = Some(snapshot(pods));
+        app.view = AppView::RightSizing;
+        let mut terminal = Terminal::new(TestBackend::new(140, 20)).unwrap();
+        let mut draw = |app: &AppState| {
+            terminal.draw(|f| render(f, f.area(), app)).unwrap();
+        };
+        let key = |app: &mut AppState, code| {
+            let _ = handle_key(app, KeyEvent::new(code, KeyModifiers::NONE));
+        };
+
+        draw(&app);
+        for _ in 0..50 {
+            key(&mut app, KeyCode::Char('j'));
+        }
+        let max = app.sizing_scroll_max.get();
+        assert!(max > 0);
+        assert_eq!(app.sizing_scroll, max, "j stops at the last full page");
+
+        key(&mut app, KeyCode::Char('k'));
+        assert_eq!(app.sizing_scroll, max - 1, "k moves the list right away");
     }
 }

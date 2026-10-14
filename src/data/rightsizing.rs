@@ -2,7 +2,9 @@
 //!
 //! Running pods are grouped by their owning workload (a bare pod is its own
 //! workload). Usage is the peak seen this session, supplied by the caller, so
-//! one quiet sample does not make a busy workload look over-provisioned.
+//! one quiet sample does not make a busy workload look over-provisioned. Only
+//! pods with measured usage are compared, so a pod missing from `kubectl top`
+//! is not mistaken for an idle one.
 //! Everything works on data already in the snapshot.
 
 use std::collections::BTreeMap;
@@ -65,7 +67,10 @@ impl ResourceTotals {
 pub struct WorkloadSizing {
     pub owner: PodOwner,
     pub namespace: String,
+    /// Running pods in the workload.
     pub pods: u64,
+    /// Pods with measured usage; the totals and suggestions cover only these.
+    pub measured_pods: u64,
     /// CPU in millicores.
     pub cpu: ResourceTotals,
     /// Memory in MB.
@@ -85,7 +90,8 @@ impl WorkloadSizing {
             return (0, 0);
         }
         let free = |totals: ResourceTotals, suggested: Option<u64>| {
-            suggested.map_or(0, |per_pod| totals.request.saturating_sub(per_pod * self.pods))
+            suggested
+                .map_or(0, |per_pod| totals.request.saturating_sub(per_pod * self.measured_pods))
         };
         (free(self.cpu, self.suggested_cpu), free(self.memory, self.suggested_memory))
     }
@@ -102,10 +108,14 @@ pub struct SizingSummary {
 }
 
 /// Analyze running pods. `usage` returns a pod's (cpu millicores, memory MB),
-/// typically the peak seen this session. Results are ordered by urgency:
+/// typically the peak seen this session, or None if it was never measured.
+/// Results are ordered by urgency:
 /// under-provisioned, over-provisioned (most reclaimable first), no requests,
 /// no metrics, then fine.
-pub fn analyze(pods: &[PodInfo], usage: impl Fn(&PodInfo) -> (u64, u64)) -> Vec<WorkloadSizing> {
+pub fn analyze(
+    pods: &[PodInfo],
+    usage: impl Fn(&PodInfo) -> Option<(u64, u64)>,
+) -> Vec<WorkloadSizing> {
     let mut groups: BTreeMap<(String, PodOwner), Vec<&PodInfo>> = BTreeMap::new();
     for pod in pods.iter().filter(|p| p.phase == "Running") {
         let owner = pod
@@ -153,22 +163,24 @@ fn size_workload(
     owner: PodOwner,
     namespace: String,
     pods: &[&PodInfo],
-    usage: &impl Fn(&PodInfo) -> (u64, u64),
+    usage: &impl Fn(&PodInfo) -> Option<(u64, u64)>,
 ) -> WorkloadSizing {
-    let count = pods.len() as u64;
     let mut cpu = ResourceTotals::default();
     let mut memory = ResourceTotals::default();
-    // A running pod always uses some memory, so 0 means `kubectl top` had no
-    // figure for it.
-    let mut has_metrics = false;
+    let mut measured = 0u64;
     for pod in pods {
-        let (cpu_used, memory_used) = usage(pod);
-        has_metrics |= memory_used > 0;
+        // Compare requests with usage only where usage was measured.
+        let Some((cpu_used, memory_used)) = usage(pod) else {
+            continue;
+        };
+        measured += 1;
         cpu.usage += cpu_used;
         cpu.request += pod.cpu_request_millicores;
         memory.usage += memory_used;
         memory.request += pod.memory_request_mb;
     }
+    let count = measured;
+    let has_metrics = measured > 0;
 
     let over = |totals: ResourceTotals, floor: u64| {
         totals.request >= floor * count && totals.usage * 100 < totals.request * OVERPROVISIONED_PCT
@@ -202,7 +214,8 @@ fn size_workload(
     WorkloadSizing {
         owner,
         namespace,
-        pods: count,
+        pods: pods.len() as u64,
+        measured_pods: measured,
         cpu,
         memory,
         verdict,

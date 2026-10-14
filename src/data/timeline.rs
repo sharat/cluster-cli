@@ -904,6 +904,7 @@ mod tests {
             init_containers: vec![],
             sidecar_containers: vec![],
             owner: None,
+            metrics_available: true,
             node_name: Some("node-a".to_string()),
             containers: vec![ContainerInfo {
                 name: "app".to_string(),

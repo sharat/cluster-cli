@@ -593,6 +593,7 @@ mod tests {
             init_containers: vec![],
             sidecar_containers: vec![container("istio-proxy")],
             owner: None,
+            metrics_available: true,
             node_name: None,
             containers: vec![container("app")],
         }

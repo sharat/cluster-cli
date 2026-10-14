@@ -192,6 +192,7 @@ mod tests {
             init_containers: vec![],
             sidecar_containers: vec![],
             owner: None,
+            metrics_available: true,
             node_name: Some("node-1".to_string()),
             containers: vec![],
         }];
@@ -276,6 +277,7 @@ mod tests {
             init_containers: vec![],
             sidecar_containers: vec![],
             owner: None,
+            metrics_available: true,
             node_name: Some("node-1".to_string()),
             containers: vec![],
         }];

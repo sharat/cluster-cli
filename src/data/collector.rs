@@ -671,6 +671,7 @@ fn parse_pod(item: &Value, namespace: &str, top_map: &HashMap<String, (u64, u64)
     let (memory_request_mb, memory_limit_mb) =
         effective_pod_memory_resources(spec_containers, init_containers);
 
+    let metrics_available = top_map.contains_key(&name);
     let (cpu_millicores, memory_mb) = top_map.get(&name).copied().unwrap_or((0, 0));
 
     let memory_pct = if memory_limit_mb > 0 { percent_of(memory_mb, memory_limit_mb) } else { 0 };
@@ -739,6 +740,7 @@ fn parse_pod(item: &Value, namespace: &str, top_map: &HashMap<String, (u64, u64)
         init_containers: init_container_info,
         sidecar_containers,
         owner,
+        metrics_available,
     }
 }
 
@@ -2308,6 +2310,17 @@ mod tests {
         });
 
         assert!(parse_pod(&item, "default", &HashMap::new()).oom_killed);
+    }
+
+    #[test]
+    fn parse_pod_records_whether_kubectl_top_measured_it() {
+        let item = json!({ "metadata": { "name": "web" }, "status": { "phase": "Running" } });
+        let measured = HashMap::from([("web".to_string(), (5, 0))]);
+
+        assert!(!parse_pod(&item, "default", &HashMap::new()).metrics_available);
+        let pod = parse_pod(&item, "default", &measured);
+        assert!(pod.metrics_available);
+        assert_eq!((pod.cpu_millicores, pod.memory_mb), (5, 0));
     }
 
     #[test]
