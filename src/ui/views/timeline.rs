@@ -161,13 +161,14 @@ fn create_timeline_item(entry: &TimelineEntry, selected: bool) -> ListItem<'_> {
 
     spans.push(Span::styled(&entry.message, Style::default()));
 
-    let mut line = Line::from(spans);
-
     if selected {
-        line = line.style(theme::selected_style());
+        // Span colors would override a line style, so patch each span.
+        for span in &mut spans {
+            span.style = span.style.patch(theme::selected_style());
+        }
     }
 
-    ListItem::new(line)
+    ListItem::new(Line::from(spans))
 }
 
 fn format_timestamp(timestamp: &str) -> String {

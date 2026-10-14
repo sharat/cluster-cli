@@ -25,7 +25,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
 
     let block = Block::default()
         .title(" Node Details ")
-        .title_bottom(" Esc/q to close ")
+        .title_bottom(" [?] Help  [j/k] Scroll  [Esc/q] Back ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(popup_area);

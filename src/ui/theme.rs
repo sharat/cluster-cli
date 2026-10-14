@@ -96,9 +96,15 @@ pub fn header_style() -> Style {
     Style::default().add_modifier(Modifier::BOLD)
 }
 
-/// Reverse video stays visible with any terminal theme and without color.
+/// Reverse video of the default colors: one uniform highlight that stays
+/// visible with any terminal theme and without color. Resetting the colors
+/// keeps colored cells in the row from turning into a patchwork of
+/// inverted colors when this style is patched over them.
 pub fn selected_style() -> Style {
-    Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    Style::default()
+        .fg(Color::Reset)
+        .bg(Color::Reset)
+        .add_modifier(Modifier::REVERSED | Modifier::BOLD)
 }
 
 /// Color a resource-usage cell by raw percentage (used in pod table CPU/Mem columns)
@@ -335,6 +341,14 @@ mod tests {
         assert!(!buffer[(0, 0)].modifier.contains(Modifier::REVERSED));
         assert!(buffer[(1, 0)].modifier.contains(Modifier::REVERSED));
         assert_eq!(buffer[(1, 0)].symbol(), "b");
+    }
+
+    #[test]
+    fn selection_is_one_uniform_highlight_over_colored_cells() {
+        let cell = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+        let selected = cell.patch(selected_style());
+        assert_eq!((selected.fg, selected.bg), (Some(Color::Reset), Some(Color::Reset)));
+        assert!(selected.add_modifier.contains(Modifier::REVERSED));
     }
 
     #[test]
