@@ -141,7 +141,7 @@ jobs:
           mkdir -p screenshots
           
           # Run the test views script
-          ./examples/e2e/test-views.sh ./target/release/cluster ./screenshots dashboard,pod-detail,diagnosis,node-detail,incidents,rightsizing
+          ./examples/e2e/test-views.sh ./target/release/cluster ./screenshots dashboard,pod-detail,diagnosis,node-detail,incidents,rightsizing,help,no-color
           
           echo "Captured screenshots:"
           ls -lh screenshots/

@@ -24,12 +24,12 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
                 "   {} critical nodes   {} critical pods   {} total restarts",
                 h.critical_nodes, h.critical_pods, h.total_restarts
             ),
-            Style::default().fg(Color::White),
+            Style::default(),
         ));
 
         let resources = app.namespace_resource_summary();
         let resource_line = Line::from(vec![
-            Span::styled(" ns resources  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(" ns resources  ", Style::default()),
             Span::styled(
                 format!(
                     "CPU {} / {} / {}  ",
@@ -37,7 +37,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
                     format::cpu(resources.cpu_request_millicores),
                     format::cpu(resources.cpu_limit_millicores),
                 ),
-                Style::default().fg(Color::Rgb(126, 214, 223)),
+                Style::default().fg(Color::Cyan),
             ),
             Span::styled(
                 format!(
@@ -45,7 +45,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
                     pct(resources.cpu_usage_millicores, resources.cpu_request_millicores),
                     pct(resources.cpu_usage_millicores, resources.cpu_limit_millicores),
                 ),
-                Style::default().fg(Color::White),
+                Style::default(),
             ),
             Span::styled(
                 format!(
@@ -66,7 +66,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
                     pct(resources.memory_usage_mb, resources.memory_limit_mb),
                     resources.pod_count,
                 ),
-                Style::default().fg(Color::White),
+                Style::default(),
             ),
         ]);
 
@@ -74,7 +74,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     } else if app.is_loading {
         let mut spans = loading_spinner::spans(app.loading_animation_frame);
         spans.push(" Connecting to cluster...".into());
-        let p = Paragraph::new(Line::from(spans)).style(Style::default().fg(Color::DarkGray));
+        let p = Paragraph::new(Line::from(spans)).style(Style::default());
         f.render_widget(p, area);
     }
 }

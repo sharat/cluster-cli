@@ -30,8 +30,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         app.config.namespace
     );
     f.render_widget(
-        Paragraph::new(header)
-            .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Paragraph::new(header).style(Style::default().add_modifier(Modifier::BOLD)),
         chunks[0],
     );
     render_summary(f, chunks[1], &workloads);
@@ -48,10 +47,7 @@ fn render_summary(f: &mut Frame, area: Rect, workloads: &[WorkloadSizing]) {
     f.render_widget(block, area);
 
     let lines = if workloads.is_empty() {
-        vec![Line::styled(
-            "  No running pods in this namespace.",
-            Style::default().fg(Color::DarkGray),
-        )]
+        vec![Line::styled("  No running pods in this namespace.", Style::default())]
     } else if workloads.iter().all(|w| w.verdict == SizingVerdict::NoMetrics) {
         vec![
             Line::styled(
@@ -60,7 +56,7 @@ fn render_summary(f: &mut Frame, area: Rect, workloads: &[WorkloadSizing]) {
             ),
             Line::styled(
                 "  Right-sizing needs metrics-server in the cluster (kind and some local clusters lack it).",
-                Style::default().fg(Color::DarkGray),
+                Style::default(),
             ),
         ]
     } else {
@@ -74,7 +70,7 @@ fn render_summary(f: &mut Frame, area: Rect, workloads: &[WorkloadSizing]) {
                         format::cpu(summary.cpu.request),
                         format::memory(summary.memory.request)
                     ),
-                    Style::default().fg(Color::White),
+                    Style::default(),
                 ),
                 Span::raw("    Using  "),
                 Span::styled(
@@ -85,7 +81,7 @@ fn render_summary(f: &mut Frame, area: Rect, workloads: &[WorkloadSizing]) {
                         format::memory(summary.memory.usage),
                         pct_suffix(summary.memory)
                     ),
-                    Style::default().fg(Color::White),
+                    Style::default(),
                 ),
             ]),
             Line::from(vec![
@@ -100,14 +96,14 @@ fn render_summary(f: &mut Frame, area: Rect, workloads: &[WorkloadSizing]) {
                 ),
                 Span::styled(
                     format!("    {} workload(s) flagged", summary.workloads_flagged),
-                    Style::default().fg(Color::Gray),
+                    Style::default(),
                 ),
             ]),
             Line::styled(
                 format!(
                     "  over = using under {OVERPROVISIONED_PCT}% of the request; suggestions are usage + {HEADROOM_PCT}% headroom, per pod"
                 ),
-                Style::default().fg(Color::DarkGray),
+                Style::default(),
             ),
         ]
     };
@@ -178,7 +174,7 @@ fn verdict_style(verdict: SizingVerdict) -> (Color, &'static str) {
         SizingVerdict::UnderProvisioned => Color::Red,
         SizingVerdict::OverProvisioned => Color::Yellow,
         SizingVerdict::NoRequests => Color::Magenta,
-        SizingVerdict::NoMetrics => Color::DarkGray,
+        SizingVerdict::NoMetrics => Color::Reset,
         SizingVerdict::Ok => Color::Green,
     };
     (color, verdict.label())

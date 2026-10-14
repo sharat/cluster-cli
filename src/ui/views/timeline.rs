@@ -7,8 +7,8 @@ use ratatui::{
 };
 
 use crate::app::AppState;
-use crate::data::models::IncidentSeverity;
 use crate::data::timeline::TimelineEntry;
+use crate::ui::theme;
 
 pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let chunks = Layout::default()
@@ -45,7 +45,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &AppState) {
         if app.timeline_newest_first { "Sort: Newest First" } else { "Sort: Oldest First" };
 
     let info = format!("{}  |  {}", filter_info, sort_info);
-    let info_widget = Paragraph::new(info).style(Style::default().fg(Color::Gray));
+    let info_widget = Paragraph::new(info).style(Style::default());
     f.render_widget(info_widget, inner);
 }
 
@@ -89,9 +89,7 @@ fn render_timeline(f: &mut Frame, area: Rect, app: &AppState) {
         let inner = block.inner(area);
         f.render_widget(block, area);
 
-        let msg = Paragraph::new(empty_msg)
-            .style(Style::default().fg(Color::DarkGray))
-            .wrap(Wrap { trim: true });
+        let msg = Paragraph::new(empty_msg).style(Style::default()).wrap(Wrap { trim: true });
         f.render_widget(msg, inner);
         return;
     }
@@ -113,11 +111,7 @@ fn render_timeline(f: &mut Frame, area: Rect, app: &AppState) {
 }
 
 fn create_timeline_item(entry: &TimelineEntry, selected: bool) -> ListItem<'_> {
-    let severity_color = match entry.severity {
-        IncidentSeverity::Critical => Color::Red,
-        IncidentSeverity::Warning => Color::Yellow,
-        IncidentSeverity::Elevated => Color::Rgb(255, 165, 0), // Orange
-    };
+    let severity_color = theme::severity_color(entry.severity);
 
     let severity_label = format!("[{}]", entry.severity.label().to_uppercase());
     let kind_label = format!("[{}]", entry.kind.label());
@@ -134,7 +128,8 @@ fn create_timeline_item(entry: &TimelineEntry, selected: bool) -> ListItem<'_> {
 
     // Build the display line
     let mut spans = vec![
-        Span::styled(format!("{:<10} ", timestamp_display), Style::default().fg(Color::Gray)),
+        Span::raw(if selected { "> " } else { "  " }),
+        Span::styled(format!("{:<10} ", timestamp_display), Style::default()),
         Span::styled(
             format!("{:<10} ", severity_label),
             Style::default().fg(severity_color).add_modifier(Modifier::BOLD),
@@ -144,15 +139,17 @@ fn create_timeline_item(entry: &TimelineEntry, selected: bool) -> ListItem<'_> {
 
     // Add precursor indicator before resource name
     if entry.is_precursor {
-        spans.push(Span::styled(
-            precursor_indicator,
-            Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
-        ));
+        spans
+            .push(Span::styled(precursor_indicator, Style::default().add_modifier(Modifier::BOLD)));
     }
 
     spans.push(Span::styled(
         format!("{:<25} ", entry.resource_name),
-        Style::default().fg(if entry.is_precursor { Color::LightYellow } else { Color::White }),
+        if entry.is_precursor {
+            Style::default().add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        },
     ));
 
     if !namespace_display.is_empty() {
@@ -162,15 +159,16 @@ fn create_timeline_item(entry: &TimelineEntry, selected: bool) -> ListItem<'_> {
         ));
     }
 
-    spans.push(Span::styled(&entry.message, Style::default().fg(Color::Gray)));
-
-    let mut line = Line::from(spans);
+    spans.push(Span::styled(&entry.message, Style::default()));
 
     if selected {
-        line = line.style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD));
+        // Span colors would override a line style, so patch each span.
+        for span in &mut spans {
+            span.style = span.style.patch(theme::selected_style());
+        }
     }
 
-    ListItem::new(line)
+    ListItem::new(Line::from(spans))
 }
 
 fn format_timestamp(timestamp: &str) -> String {
@@ -207,19 +205,21 @@ fn render_status_bar(f: &mut Frame, area: Rect, app: &AppState) {
 
     let help_text = vec![
         Span::styled(format!(" {} | ", cursor_display), Style::default().fg(Color::Cyan)),
-        Span::styled("q", Style::default().fg(Color::Yellow)),
+        Span::styled("?", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" Help | "),
+        Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" Back | "),
-        Span::styled("↑/k", Style::default().fg(Color::Yellow)),
+        Span::styled("↑/k", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw("/"),
-        Span::styled("↓/j", Style::default().fg(Color::Yellow)),
+        Span::styled("↓/j", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" Scroll | "),
-        Span::styled("s", Style::default().fg(Color::Yellow)),
+        Span::styled("s", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" Sort | "),
-        Span::styled("f", Style::default().fg(Color::Yellow)),
+        Span::styled("f", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" Filter Kind | "),
-        Span::styled("F", Style::default().fg(Color::Yellow)),
+        Span::styled("F", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" Filter Severity | "),
-        Span::styled("c", Style::default().fg(Color::Yellow)),
+        Span::styled("c", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" Clear Filters "),
     ];
 

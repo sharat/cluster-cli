@@ -1,7 +1,7 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::Line,
     widgets::{Block, Borders, Paragraph, Wrap},
 };
@@ -20,9 +20,12 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     } else {
         format!(" search:\"{}\" {}/{}", app.log_search, filtered_lines.len(), app.log_buffer.len())
     };
-    let title = format!(
-        " Logs ({}) c:{container} [c]ontainer [p]revious [/]search [w]rap:{wrap} [t]ime:{timestamps} [E]xport [f]ollow{follow_indicator}{search} ",
-        app.log_source.label()
+    let title = theme::panel_title(
+        &format!(
+            "Logs ({}) c:{container} [c]ontainer [p]revious [/]search [w]rap:{wrap} [t]ime:{timestamps} [E]xport [f]ollow{follow_indicator}{search}",
+            app.log_source.label()
+        ),
+        app.pod_detail_section == PodDetailSection::Logs,
     );
     let border_style = if app.pod_detail_section == PodDetailSection::Logs {
         theme::focused_border_style()
@@ -47,7 +50,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
         } else {
             "  No log lines match the current search."
         };
-        vec![Line::styled(message, Style::default().fg(Color::DarkGray))]
+        vec![Line::styled(message, Style::default())]
     } else {
         filtered_lines
             .iter()

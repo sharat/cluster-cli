@@ -211,7 +211,10 @@ async fn main() -> Result<()> {
     }
 
     // Run app
-    let result = run_app(&mut terminal, event_rx, fetch_tx, config, initial_connection_issue).await;
+    let no_color = cli::colors_disabled(cli.no_color, std::env::var_os("NO_COLOR").as_deref());
+    let result =
+        run_app(&mut terminal, event_rx, fetch_tx, config, initial_connection_issue, no_color)
+            .await;
 
     // Terminal is restored by `_terminal_guard` on drop.
     result
@@ -223,8 +226,10 @@ async fn run_app(
     fetch_tx: mpsc::Sender<FetchCommand>,
     config: Config,
     initial_connection_issue: Option<ConnectionIssue>,
+    no_color: bool,
 ) -> Result<()> {
     let mut app = AppState::new(config);
+    app.no_color = no_color;
     app.connection_issue = initial_connection_issue;
     if app.connection_issue.is_some() {
         app.is_loading = false;

@@ -23,6 +23,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub check_update: bool,
 
+    /// Draw the interface without colors (also enabled by the NO_COLOR environment variable)
+    #[arg(long, global = true)]
+    pub no_color: bool,
+
     /// Show version, detected install method, and config directory
     #[arg(long, global = true)]
     pub info: bool,
@@ -136,6 +140,12 @@ pub struct KubectlOptions {
     pub namespace: Option<String>,
 }
 
+/// Whether colors are disabled: `--no-color`, or `NO_COLOR` set to any
+/// non-empty value (https://no-color.org).
+pub fn colors_disabled(flag: bool, no_color_env: Option<&std::ffi::OsStr>) -> bool {
+    flag || no_color_env.is_some_and(|value| !value.is_empty())
+}
+
 impl Cli {
     #[allow(dead_code)]
     pub fn is_terminal_command(&self) -> bool {
@@ -150,6 +160,16 @@ impl Cli {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn colors_are_disabled_by_flag_or_non_empty_no_color() {
+        use std::ffi::OsStr;
+        assert!(!colors_disabled(false, None));
+        assert!(!colors_disabled(false, Some(OsStr::new(""))), "an empty NO_COLOR is ignored");
+        assert!(colors_disabled(false, Some(OsStr::new("1"))));
+        assert!(colors_disabled(true, None));
+        assert!(Cli::try_parse_from(["cluster", "--no-color"]).unwrap().no_color);
+    }
 
     #[test]
     fn cli_definition_is_valid() {

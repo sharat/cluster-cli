@@ -18,7 +18,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
     let node_count = app.snapshot.as_ref().map(|s| s.nodes.len()).unwrap_or(0);
 
     let block = Block::default()
-        .title(format!(" Nodes ({node_count}) "))
+        .title(theme::panel_title(&format!("Nodes ({node_count})"), is_focused))
         .borders(Borders::ALL)
         .border_style(border_style);
 
@@ -36,11 +36,11 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
                     Span::styled(format!("{icon} "), style),
                     Span::styled(
                         format!("{:<20}", format::truncate_no_ellipsis(&node.name, 20)),
-                        Style::default().fg(Color::White),
+                        Style::default(),
                     ),
                     Span::styled(
                         format!(" CPU:{:>3}%  ", node.cpu_pct),
-                        Style::default().fg(Color::Rgb(126, 214, 223)),
+                        Style::default().fg(Color::Cyan),
                     ),
                     Span::styled(
                         format!("Mem:{:>3}% ", node.memory_pct),

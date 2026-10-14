@@ -25,7 +25,7 @@ pub fn render(f: &mut Frame, area: Rect, app: &AppState) {
 
     let block = Block::default()
         .title(" Node Details ")
-        .title_bottom(" Esc/q to close ")
+        .title_bottom(" [?] Help  [j/k] Scroll  [Esc/q] Back ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
     let inner = block.inner(popup_area);
@@ -85,17 +85,17 @@ fn render_resources(f: &mut Frame, area: Rect, node: &crate::data::models::NodeM
             Cell::from(usage_meter(node.memory_pct)),
         ]),
         Row::new(vec![
-            Cell::from("Allocatable CPU").style(Style::default().fg(Color::DarkGray)),
+            Cell::from("Allocatable CPU").style(Style::default()),
             Cell::from(format!("{} cores", node.cpu_capacity)),
             Cell::from(""),
         ]),
         Row::new(vec![
-            Cell::from("Allocatable Memory").style(Style::default().fg(Color::DarkGray)),
+            Cell::from("Allocatable Memory").style(Style::default()),
             Cell::from(format!("{}Mi", node.memory_total_mb)),
             Cell::from(""),
         ]),
         Row::new(vec![
-            Cell::from("Capacity Memory").style(Style::default().fg(Color::DarkGray)),
+            Cell::from("Capacity Memory").style(Style::default()),
             Cell::from(format!("{}Mi", node.memory_capacity_mb)),
             Cell::from(""),
         ]),
@@ -211,13 +211,13 @@ fn condition_line(status: ConditionStatus, healthy_when_true: bool) -> Line<'sta
         ConditionStatus::False if !healthy_when_true => ("Healthy", Color::Green),
         ConditionStatus::Unknown => ("Unknown", Color::Yellow),
         ConditionStatus::True => ("Active", Color::Red),
-        ConditionStatus::False => ("Inactive", Color::DarkGray),
+        ConditionStatus::False => ("Inactive", Color::Reset),
     };
 
     Line::from(vec![
         Span::styled(icon, Style::default().fg(color).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
-        Span::styled(format!("({})", status.as_str()), Style::default().fg(Color::DarkGray)),
+        Span::styled(format!("({})", status.as_str()), Style::default()),
     ])
 }
 
@@ -233,7 +233,7 @@ fn scheduling_line(node: &NodeMetric) -> Line<'static> {
         Span::raw(" "),
         Span::styled(
             if node.cordoned || node.draining { "(cordoned/draining)" } else { "(enabled)" },
-            Style::default().fg(Color::DarkGray),
+            Style::default(),
         ),
     ])
 }

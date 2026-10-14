@@ -21,6 +21,17 @@ fn sanitize_filename(name: &str) -> String {
 }
 
 pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
+    if app.overlay == Overlay::Help {
+        handle_help_key(app, key);
+        return None;
+    }
+    // `?` opens help from any view, unless the key is typed into an input.
+    let typing = app.overlay != Overlay::None || app.log_input_mode != LogInputMode::None;
+    if key.code == KeyCode::Char('?') && !typing {
+        app.overlay = Overlay::Help;
+        app.help_scroll = 0;
+        return None;
+    }
     let view = app.view.clone();
     match view {
         AppView::Dashboard => handle_dashboard_key(app, key),
@@ -28,6 +39,17 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand> {
         AppView::NodeDetail { .. } => handle_node_detail_key(app, key),
         AppView::Timeline => handle_timeline_key(app, key),
         AppView::RightSizing => handle_rightsizing_key(app, key),
+    }
+}
+
+fn handle_help_key(app: &mut AppState, key: KeyEvent) {
+    match key.code {
+        KeyCode::Char('?') | KeyCode::Char('q') | KeyCode::Esc => app.overlay = Overlay::None,
+        KeyCode::Char('j') | KeyCode::Down => {
+            app.help_scroll = (app.help_scroll + 1).min(app.help_scroll_max.get());
+        }
+        KeyCode::Char('k') | KeyCode::Up => app.help_scroll = app.help_scroll.saturating_sub(1),
+        _ => {}
     }
 }
 
@@ -215,7 +237,8 @@ fn handle_dashboard_key(app: &mut AppState, key: KeyEvent) -> Option<AppCommand>
             return None;
         }
 
-        Overlay::None => {} // fall through to default key handling
+        // Help is handled in handle_key before views see the key.
+        Overlay::None | Overlay::Help => {} // fall through to default key handling
     }
 
     match key.code {
@@ -788,6 +811,60 @@ mod tests {
     use crate::events::{DataEvent, FetchCommand};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use std::time::Instant;
+
+    fn press(app: &mut AppState, code: KeyCode) -> Option<AppCommand> {
+        handle_key(app, KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    #[test]
+    fn question_mark_opens_help_from_any_view_and_closes_it() {
+        for view in [
+            AppView::Dashboard,
+            AppView::PodDetail { pod_name: "api".to_string() },
+            AppView::NodeDetail { node_name: "node-a".to_string() },
+            AppView::Timeline,
+            AppView::RightSizing,
+        ] {
+            let mut app = AppState::new(Config::default());
+            app.view = view.clone();
+            assert!(press(&mut app, KeyCode::Char('?')).is_none());
+            assert_eq!(app.overlay, Overlay::Help, "{view:?}");
+
+            // Keys go to the help screen, not the view underneath.
+            assert!(press(&mut app, KeyCode::Char('q')).is_none(), "q closes help, not the app");
+            assert_eq!(app.overlay, Overlay::None);
+            assert_eq!(app.view, view);
+        }
+    }
+
+    #[test]
+    fn question_mark_is_typed_into_inputs() {
+        let mut app = AppState::new(Config::default());
+        app.overlay = Overlay::PodFilter;
+        let _ = press(&mut app, KeyCode::Char('?'));
+        assert_eq!(app.pod_filter, "?");
+        assert_eq!(app.overlay, Overlay::PodFilter);
+
+        let mut app = AppState::new(Config::default());
+        app.view = AppView::PodDetail { pod_name: "api".to_string() };
+        app.log_input_mode = LogInputMode::Search;
+        let _ = press(&mut app, KeyCode::Char('?'));
+        assert_eq!(app.log_input, "?");
+        assert_eq!(app.overlay, Overlay::None);
+    }
+
+    #[test]
+    fn help_scroll_stops_at_the_recorded_maximum() {
+        let mut app = AppState::new(Config::default());
+        let _ = press(&mut app, KeyCode::Char('?'));
+        app.help_scroll_max.set(3);
+        for _ in 0..10 {
+            let _ = press(&mut app, KeyCode::Char('j'));
+        }
+        assert_eq!(app.help_scroll, 3);
+        let _ = press(&mut app, KeyCode::Char('k'));
+        assert_eq!(app.help_scroll, 2);
+    }
 
     #[test]
     fn namespace_switch_keeps_existing_snapshot_visible_until_refresh() {

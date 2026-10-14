@@ -18,4 +18,10 @@ pub fn render(f: &mut Frame, app: &mut AppState) {
         AppView::Timeline => views::timeline::render(f, area, app),
         AppView::RightSizing => views::rightsizing::render(f, area, app),
     }
+    if app.overlay == crate::app::Overlay::Help {
+        components::help::render(f, area, app);
+    }
+    if app.no_color {
+        theme::strip_colors(f.buffer_mut());
+    }
 }

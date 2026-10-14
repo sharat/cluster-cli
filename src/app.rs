@@ -81,6 +81,8 @@ pub enum Overlay {
     RefreshInput,
     ExportInput,
     PodFilter,
+    /// Key bindings and marker legend; available from every view.
+    Help,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -144,6 +146,11 @@ pub struct AppState {
     pub sizing_scroll: usize,
     /// Largest useful `sizing_scroll`, recorded by the view when it draws.
     pub sizing_scroll_max: std::cell::Cell<usize>,
+    /// Draw without colors (`--no-color` or `NO_COLOR`).
+    pub no_color: bool,
+    pub help_scroll: usize,
+    /// Largest useful help scroll offset, recorded while drawing.
+    pub help_scroll_max: std::cell::Cell<usize>,
     pub timeline_scroll: usize,
     pub timeline_newest_first: bool,
     pub timeline_kind_filter: Option<crate::data::timeline::TimelineEntryKind>,
@@ -218,6 +225,9 @@ impl AppState {
             timeline_cursor: 0,
             sizing_scroll: 0,
             sizing_scroll_max: std::cell::Cell::new(0),
+            no_color: false,
+            help_scroll: 0,
+            help_scroll_max: std::cell::Cell::new(0),
             timeline_scroll: 0,
             timeline_newest_first: true,
             timeline_kind_filter: None,

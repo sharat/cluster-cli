@@ -342,6 +342,16 @@ The interface uses consistent color cues for:
 - Warning events
 - Focused and selected panels
 
+Colors are the terminal's named colors, and body text uses its default foreground, so light and dark themes both stay readable.
+
+### Accessibility
+
+- Every status also has a text marker: `!!` critical, `!` warning, `~` elevated, `✓` healthy
+- The focused panel title starts with `▶`; the selected row has `>` and reverse video
+- `--no-color` or `NO_COLOR` draws the interface without colors
+- `?` opens a help screen with every key and marker, from any view
+- Screen-reader users can use the headless commands (`cluster status`, `pods`, `nodes`, `incidents`), which print plain text
+
 ## Keyboard and Interaction
 
 ### Dashboard navigation
@@ -354,6 +364,7 @@ The interface uses consistent color cues for:
 - `k` / `Up` moves selection up
 - `Enter` drills into the selected pod or node, or opens the best matching incident target
 - `w` toggles the workload popup
+- `?` opens the help screen from any view (`j`/`k` scroll, `?`/`Esc`/`q` close)
 - `u` opens the right-sizing view (requests vs. peak usage per workload, with suggested requests; `j`/`k` scroll, `r` refreshes, `Esc` returns)
 - `s` cycles pod sort modes
 - `E` opens CSV export

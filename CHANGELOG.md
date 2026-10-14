@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Help screen (`?`) in every view listing all keys and explaining each on-screen marker
+- No-color mode: `--no-color`, or the `NO_COLOR` environment variable, draws the interface without colors, with highlights in reverse video
+
+### Changed
+- Accessibility: text uses the terminal's default foreground and highlights use its named colors, so the interface stays readable on light themes; status markers are single-width text (`!!`, `!`, `~`, `✓`) shared by pods, nodes, incidents and diagnosis; the focused panel is marked `▶` and the selected row `>` with reverse video, so neither relies on color
+
+### Security
+- Update rustls to 0.23.46 for RUSTSEC-2026-0348 and RUSTSEC-2026-0349 (used for the release update check)
+
 ## [0.4.0] - 2026-10-14
 
 ### Added
