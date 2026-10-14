@@ -1,0 +1,16 @@
+---
+description: Documentation maintenance for cluster-cli
+---
+
+When features, key bindings, CLI flags, or MCP tools change, documentation must be updated to stay synchronized with the code.
+
+See the **Documentation** section in [`AGENTS.md`](../../AGENTS.md#documentation) for the complete workflow.
+
+Use the **`update-docs` skill** at [`.agents/skills/update-docs/SKILL.md`](../../.agents/skills/update-docs/SKILL.md) to:
+- Read code as source of truth (verify all features exist)
+- Update `docs/*.md` files
+- Regenerate `docs/index.html` landing page
+- Verify accuracy (no invented features)
+- Render screenshot for PR
+
+The documentation is automatically deployed to GitHub Pages at https://sharat.github.io/cluster-cli/ when changes to `docs/**` are pushed to `main`.
