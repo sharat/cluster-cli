@@ -197,9 +197,6 @@
         }
 
         .copy-button {
-            position: absolute;
-            top: 0.75rem;
-            right: 0.75rem;
             background: var(--bg-tertiary);
             border: 1px solid var(--border);
             color: var(--text-primary);
@@ -209,6 +206,9 @@
             font-size: 0.875rem;
             font-weight: 500;
             font-family: inherit;
+            justify-self: end;
+            align-self: start;
+            white-space: nowrap;
         }
 
         .code-block .copy-button {
@@ -376,19 +376,28 @@
 
         /* Code Blocks */
         .code-block {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 0.75rem 1rem;
+            align-items: start;
             background: var(--code-bg);
             color: var(--code-text);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 1.5rem;
-            padding-right: 5.5rem;
             margin: 1rem 0;
-            position: relative;
             overflow-x: auto;
         }
 
         .code-block pre {
             margin: 0;
+            min-width: 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .code-block.install-command {
+            margin: 2rem auto;
         }
 
         /* Key Bindings Table */
@@ -458,6 +467,12 @@
             }
             .cta-buttons {
                 flex-direction: column;
+            }
+            .code-block {
+                grid-template-columns: 1fr;
+            }
+            .code-block .copy-button {
+                order: -1;
             }
         }
 
