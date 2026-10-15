@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stop duplicating workload warnings in the joined snapshot error string
 - Disable user kuberc defaults for live `kubectl get --watch` streams so output format stays predictable
 
+### Security
+- Update `rustls` to 0.23.46 to resolve RUSTSEC-2026-0346/0347/0348/0349
+
 ## [0.4.0] - 2026-10-14
 
 ### Added
