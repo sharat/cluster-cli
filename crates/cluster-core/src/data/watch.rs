@@ -116,6 +116,17 @@ fn is_permanent_watch_error(message: &str) -> bool {
         || message.contains("doesn't have a resource type")
 }
 
+/// Same kubectl setup as polls: disable kuberc so default flags cannot break
+/// `--watch` parsing, and leave `--context` to the caller so a long-lived
+/// stream stays pinned to the cluster it started on.
+fn watch_kubectl(context: Option<&str>) -> Command {
+    let mut command = collector::kubectl_command();
+    if let Some(context) = context {
+        command.args(["--context", context]);
+    }
+    command
+}
+
 async fn run_watch(
     kind: WatchKind,
     context: Option<&str>,
@@ -127,10 +138,8 @@ async fn run_watch(
     let args = expand_all_namespaces(&args);
     ensure_readonly_kubectl_args("kubectl", &args)?;
 
-    let mut command = Command::new("kubectl");
-    if let Some(context) = context {
-        command.args(["--context", context]);
-    }
+    let _permit = collector::acquire_kubectl_permit().await?;
+    let mut command = watch_kubectl(context);
     let mut child = command
         .args(&args)
         .stdin(Stdio::null())
@@ -271,6 +280,19 @@ mod tests {
         assert!(!is_permanent_watch_error(
             "kubectl exited with exit status: 1: Unable to connect to the server: dial tcp: i/o timeout"
         ));
+    }
+
+    #[test]
+    fn watch_uses_shared_kubectl_setup() {
+        let command = watch_kubectl(Some("prod"));
+        let env: Vec<_> = command.as_std().get_envs().collect();
+        assert!(env.contains(&(
+            std::ffi::OsStr::new("KUBECTL_KUBERC"),
+            Some(std::ffi::OsStr::new("false"))
+        )));
+        let args: Vec<_> =
+            command.as_std().get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        assert_eq!(args, ["--context", "prod"]);
     }
 
     #[test]

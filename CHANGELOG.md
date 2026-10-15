@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stop counting completed Job/CronJob pods and evicted pods as unhealthy, in the score and in pod status
 - Split the kubectl collector, health scoring, incidents, config and fetcher into a shared `cluster-core` workspace crate; the TUI is unchanged
 
+### Fixed
+- Show each workload collection warning once in the error banner instead of repeating the same line from the poll and the snapshot
+- Run `kubectl get --watch` through the shared kubectl setup so user kuberc preferences stay disabled and live streams count toward the process cap
+
 ## [0.4.0] - 2026-10-14
 
 ### Added
