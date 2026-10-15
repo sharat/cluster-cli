@@ -8,7 +8,7 @@ use crate::data::collector;
 use crate::data::diagnosis::diagnose_pod;
 use crate::data::health::calculate_health;
 use crate::data::incidents::build_incident_buckets;
-use crate::data::models::ClusterSnapshot;
+use crate::data::models::{ClusterSignals, ClusterSnapshot};
 use crate::json_output::{
     JSON_SCHEMA_VERSION, JsonOutput, build_health_output, build_incidents_output,
     build_nodes_output, build_pods_output,
@@ -74,8 +74,8 @@ impl ClusterMcpServer {
         let (nodes, node_warning) = nodes_result;
         let (pods, _) = pods_result;
 
-        let health = calculate_health(&nodes, &pods, &events);
-        let incident_buckets = build_incident_buckets(&nodes, &pods, &events);
+        let health = calculate_health(&ClusterSignals::new(&nodes, &pods, &events));
+        let incident_buckets = build_incident_buckets(&ClusterSignals::new(&nodes, &pods, &events));
 
         Ok(ClusterSnapshot {
             nodes,
@@ -87,6 +87,9 @@ impl ClusterMcpServer {
             fetched_at: std::time::Instant::now(),
             error: node_warning,
             context_name,
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         })
     }
 

@@ -12,14 +12,14 @@ use tokio::{sync::mpsc, time::interval};
 
 mod app;
 mod cli;
-mod config;
-mod data;
 mod events;
 mod headless;
 mod json_output;
 mod mcp;
 mod ui;
 mod updater;
+
+use cluster_core::{config, data};
 
 use app::AppState;
 use cli::{Cli, Commands};

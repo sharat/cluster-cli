@@ -4,6 +4,10 @@ use std::time::Instant;
 /// Used for health score penalties and percentage cell coloring.
 pub const RESOURCE_PRESSURE_PCT: u8 = 85;
 
+/// Namespace value meaning "every namespace" (`kubectl --all-namespaces`).
+/// `*` can never be a real namespace name.
+pub const ALL_NAMESPACES: &str = "*";
+
 /// Health score grade boundaries (score out of 100).
 /// Also used by `HealthStatus::from_pct` for percentage-to-status mapping.
 pub const GRADE_A_THRESHOLD: u8 = 90;
@@ -172,6 +176,8 @@ pub struct PodInfo {
     pub oom_killed: bool,
     pub node_name: Option<String>,
     pub containers: Vec<ContainerInfo>,
+    /// `status.reason`, e.g. `Evicted`, `NodeLost`, `Shutdown`.
+    pub status_reason: Option<String>,
     /// Regular init container statuses, kept apart so app-container views are
     /// unchanged.
     pub init_containers: Vec<ContainerInfo>,
@@ -197,6 +203,16 @@ pub struct RunningLimits {
 }
 
 impl PodInfo {
+    /// Finished Job/CronJob pod.
+    pub fn is_completed(&self) -> bool {
+        self.phase == "Succeeded"
+    }
+
+    /// Evicted pod left behind as a record; its replacement runs elsewhere.
+    pub fn is_evicted(&self) -> bool {
+        self.phase == "Failed" && self.status_reason.as_deref() == Some("Evicted")
+    }
+
     /// App containers followed by native sidecars: everything that runs for the
     /// pod's life (regular init containers excluded).
     pub fn running_containers(&self) -> impl Iterator<Item = &ContainerInfo> {
@@ -216,6 +232,10 @@ pub enum WorkloadKind {
     Service,
     Ingress,
     PersistentVolumeClaim,
+    /// A cluster-scoped object or configured custom resource that failed a
+    /// health check. Only failing ones are listed; the real kind lives in
+    /// `related_event_targets` and `details`.
+    Resource,
 }
 
 impl WorkloadKind {
@@ -231,6 +251,7 @@ impl WorkloadKind {
             Self::Service => "Service",
             Self::Ingress => "Ingress",
             Self::PersistentVolumeClaim => "PersistentVolumeClaim",
+            Self::Resource => "Resource",
         }
     }
 
@@ -246,6 +267,7 @@ impl WorkloadKind {
             Self::Service => "Svc",
             Self::Ingress => "Ing",
             Self::PersistentVolumeClaim => "PVC",
+            Self::Resource => "Res",
         }
     }
 }
@@ -342,10 +364,28 @@ impl IncidentSeverity {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IncidentTarget {
-    Pod { pod_name: String },
-    Node { node_name: String },
-    Workload { kind: String, name: String },
-    Container { pod_name: String, container_name: String },
+    Pod {
+        pod_name: String,
+    },
+    Node {
+        node_name: String,
+    },
+    Workload {
+        kind: String,
+        name: String,
+    },
+    Container {
+        pod_name: String,
+        container_name: String,
+    },
+    /// A failing cluster-scoped object or custom resource; see
+    /// [`ResourceProblem`]. Kept apart from `Workload` so it never drives
+    /// the name-based pod focus.
+    Resource {
+        kind: String,
+        name: String,
+        namespace: Option<String>,
+    },
 }
 
 impl IncidentTarget {
@@ -357,6 +397,10 @@ impl IncidentTarget {
             Self::Container { pod_name, container_name } => {
                 format!("Pod/{pod_name}/{container_name}")
             }
+            Self::Resource { kind, name, namespace: Some(namespace) } => {
+                format!("{kind}/{namespace}/{name}")
+            }
+            Self::Resource { kind, name, namespace: None } => format!("{kind}/{name}"),
         }
     }
 
@@ -380,6 +424,14 @@ impl IncidentTarget {
             _ => None,
         }
     }
+
+    /// `(kind, name, namespace)` of a [`Self::Resource`] target.
+    pub fn resource_key(&self) -> Option<(&str, &str, Option<&str>)> {
+        match self {
+            Self::Resource { kind, name, namespace } => Some((kind, name, namespace.as_deref())),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -391,6 +443,39 @@ pub struct IncidentBucket {
     pub affected_resources: Vec<String>,
     pub latest_timestamp: String,
     pub sample_message: Option<String>,
+}
+
+/// A cluster-scoped object (APIService, PersistentVolume, Namespace) or a
+/// configured custom resource that is failing its health check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceProblem {
+    pub kind: String,
+    pub name: String,
+    /// `None` for cluster-scoped objects.
+    pub namespace: Option<String>,
+    /// Incident bucket reason, e.g. `APIServiceUnavailable`.
+    pub reason: String,
+    pub severity: IncidentSeverity,
+    pub message: String,
+}
+
+/// Everything the health score and incident queue are derived from.
+#[derive(Debug, Clone, Copy)]
+pub struct ClusterSignals<'a> {
+    pub nodes: &'a [NodeMetric],
+    pub pods: &'a [PodInfo],
+    pub events: &'a [ClusterEvent],
+    pub resource_problems: &'a [ResourceProblem],
+}
+
+impl<'a> ClusterSignals<'a> {
+    pub fn new(nodes: &'a [NodeMetric], pods: &'a [PodInfo], events: &'a [ClusterEvent]) -> Self {
+        Self { nodes, pods, events, resource_problems: &[] }
+    }
+
+    pub fn with_problems(self, resource_problems: &'a [ResourceProblem]) -> Self {
+        Self { resource_problems, ..self }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -417,6 +502,28 @@ pub struct HealthScore {
     pub total_restarts: u32,
 }
 
+/// How complete a snapshot is, so a UI can flag scores computed from
+/// partial data instead of presenting them as the whole picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DataCoverage {
+    /// `kubectl top` returned usage (false without metrics-server).
+    pub metrics_available: bool,
+    /// Nodes could be listed (false when RBAC forbids cluster-scoped reads).
+    pub nodes_visible: bool,
+}
+
+impl Default for DataCoverage {
+    fn default() -> Self {
+        Self { metrics_available: true, nodes_visible: true }
+    }
+}
+
+impl DataCoverage {
+    pub fn is_complete(&self) -> bool {
+        self.metrics_available && self.nodes_visible
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ClusterSnapshot {
     pub nodes: Vec<NodeMetric>,
@@ -428,4 +535,10 @@ pub struct ClusterSnapshot {
     pub fetched_at: Instant,
     pub error: Option<String>,
     pub context_name: Option<String>,
+    pub coverage: DataCoverage,
+    pub resource_problems: Vec<ResourceProblem>,
+    /// True when this snapshot carries a fresh `kubectl top` sample. Watch
+    /// updates between polls reuse the previous sample, so per-sample history
+    /// (sparklines, score trends) should only advance when this is set.
+    pub metrics_sampled: bool,
 }

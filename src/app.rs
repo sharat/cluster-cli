@@ -802,6 +802,7 @@ mod tests {
             metrics_available: true,
             running_limits: Default::default(),
             node_name: None,
+            status_reason: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
                 ready: true,
@@ -857,6 +858,7 @@ mod tests {
             metrics_available: true,
             running_limits: Default::default(),
             node_name: None,
+            status_reason: None,
             containers: vec![ContainerInfo {
                 name: "app".to_string(),
                 ready: spec.ready,
@@ -895,6 +897,9 @@ mod tests {
             fetched_at: Instant::now(),
             error: None,
             context_name: Some("test".to_string()),
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         }
     }
 
@@ -1077,6 +1082,9 @@ mod tests {
             fetched_at: std::time::Instant::now(),
             error: None,
             context_name: None,
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         });
         app.pod_filter = "API".to_string();
 
@@ -1150,6 +1158,9 @@ mod tests {
             fetched_at: Instant::now(),
             error: None,
             context_name: None,
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         });
 
         let filtered = app.filtered_pods();
@@ -1191,6 +1202,9 @@ mod tests {
             fetched_at: Instant::now(),
             error: None,
             context_name: None,
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         });
 
         app.apply_incident_focus(&bucket);

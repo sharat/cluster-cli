@@ -641,6 +641,9 @@ mod tests {
             fetched_at: Instant::now(),
             error: None,
             context_name: Some("test".to_string()),
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         };
 
         let timeline = build_timeline(&snapshot);
@@ -673,6 +676,9 @@ mod tests {
             fetched_at: Instant::now(),
             error: None,
             context_name: Some("test".to_string()),
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         };
 
         let timeline = build_timeline(&snapshot);
@@ -703,6 +709,9 @@ mod tests {
             fetched_at: Instant::now(),
             error: None,
             context_name: Some("test".to_string()),
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         };
 
         let timeline = build_timeline(&snapshot);
@@ -754,6 +763,9 @@ mod tests {
             fetched_at: Instant::now(),
             error: None,
             context_name: Some("test".to_string()),
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         };
 
         let timeline = build_timeline(&snapshot);
@@ -879,6 +891,7 @@ mod tests {
 
     fn create_test_pod(name: &str, namespace: &str, crash_looping: bool) -> PodInfo {
         PodInfo {
+            status_reason: None,
             uid: format!("{namespace}-{name}-uid"),
             name: name.to_string(),
             namespace: namespace.to_string(),

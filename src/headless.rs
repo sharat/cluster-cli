@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::data::collector;
 use crate::data::health::calculate_health;
 use crate::data::incidents::build_incident_buckets;
-use crate::data::models::ClusterSnapshot;
+use crate::data::models::{ClusterSignals, ClusterSnapshot};
 use crate::json_output::{
     JsonOutput, build_health_output, build_incidents_output, build_nodes_output, build_pods_output,
 };
@@ -44,8 +44,8 @@ async fn fetch_snapshot(kubectl_opts: &KubectlOptions, config: &Config) -> Resul
     let (nodes, node_warning) = nodes_result;
     let (pods, _pod_warning) = pods_result;
 
-    let health = calculate_health(&nodes, &pods, &events);
-    let incident_buckets = build_incident_buckets(&nodes, &pods, &events);
+    let health = calculate_health(&ClusterSignals::new(&nodes, &pods, &events));
+    let incident_buckets = build_incident_buckets(&ClusterSignals::new(&nodes, &pods, &events));
 
     Ok(ClusterSnapshot {
         nodes,
@@ -57,6 +57,9 @@ async fn fetch_snapshot(kubectl_opts: &KubectlOptions, config: &Config) -> Resul
         fetched_at: std::time::Instant::now(),
         error: node_warning,
         context_name,
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
     })
 }
 

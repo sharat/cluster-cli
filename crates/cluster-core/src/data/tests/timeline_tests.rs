@@ -17,6 +17,9 @@ fn build_timeline_from_empty_snapshot() {
 #[test]
 fn build_timeline_includes_warning_events() {
     let snapshot = ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes: vec![],
         workloads: vec![],
         pods: vec![],
@@ -57,6 +60,9 @@ fn build_timeline_includes_crash_looping_pods() {
     pod.restarts = 10;
 
     let snapshot = ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes: vec![],
         workloads: vec![],
         pods: vec![pod],
@@ -87,6 +93,9 @@ fn build_timeline_includes_oom_killed_containers() {
     pod.containers[0].last_termination_reason = Some("OOMKilled".to_string());
 
     let snapshot = ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes: vec![],
         workloads: vec![],
         pods: vec![pod],
@@ -117,6 +126,9 @@ fn build_timeline_includes_container_restarts() {
     pod.containers[0].restart_count = 3;
 
     let snapshot = ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes: vec![],
         workloads: vec![],
         pods: vec![pod],
@@ -168,6 +180,9 @@ fn build_timeline_includes_node_conditions() {
     };
 
     let snapshot = ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes: vec![node],
         workloads: vec![],
         pods: vec![],
@@ -310,6 +325,9 @@ fn group_timeline_entries_respects_time_window() {
 
 fn create_empty_snapshot() -> ClusterSnapshot {
     ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes: vec![],
         workloads: vec![],
         pods: vec![],
@@ -330,6 +348,7 @@ fn create_empty_snapshot() -> ClusterSnapshot {
 
 fn create_test_pod(name: &str, namespace: &str) -> PodInfo {
     PodInfo {
+        status_reason: None,
         uid: format!("{namespace}-{name}-uid"),
         name: name.to_string(),
         namespace: namespace.to_string(),
@@ -379,6 +398,9 @@ fn create_snapshot_with_mixed_events() -> ClusterSnapshot {
     pod2.containers[0].restart_count = 3;
 
     ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes: vec![],
         workloads: vec![],
         pods: vec![pod1, pod2],
@@ -408,6 +430,9 @@ fn create_snapshot_with_mixed_events() -> ClusterSnapshot {
 #[test]
 fn build_timeline_includes_deployment_rollouts() {
     let snapshot = ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes: vec![],
         workloads: vec![],
         pods: vec![],
@@ -559,6 +584,9 @@ fn mark_precursors_respects_time_window() {
 #[test]
 fn detect_image_change_in_rollout() {
     let snapshot = ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes: vec![],
         workloads: vec![],
         pods: vec![],
@@ -601,6 +629,9 @@ fn create_snapshot_with_mixed_namespaces() -> ClusterSnapshot {
     pod2.crash_looping = true; // Make it generate a timeline entry
 
     ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes: vec![],
         workloads: vec![],
         pods: vec![pod1, pod2],

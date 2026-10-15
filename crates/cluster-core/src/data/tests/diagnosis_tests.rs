@@ -360,6 +360,7 @@ fn crash_looping_sidecar_is_reported_with_its_own_logs_command() {
 
 fn create_test_pod() -> PodInfo {
     PodInfo {
+        status_reason: None,
         uid: "uid-1".to_string(),
         name: "api-7d9f".to_string(),
         namespace: "prod".to_string(),
@@ -442,6 +443,9 @@ fn pod_event(reason: &str, message: &str) -> ClusterEvent {
 
 fn snapshot(nodes: Vec<NodeMetric>, events: Vec<ClusterEvent>) -> ClusterSnapshot {
     ClusterSnapshot {
+        coverage: Default::default(),
+        resource_problems: vec![],
+        metrics_sampled: true,
         nodes,
         workloads: vec![],
         pods: vec![],

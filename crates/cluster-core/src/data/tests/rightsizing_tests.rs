@@ -8,6 +8,7 @@ fn deployment(name: &str) -> Option<PodOwner> {
 /// A running pod with the given requests (cpu m, memory MB) and usage.
 fn pod(name: &str, owner: Option<PodOwner>, request: (u64, u64), usage: (u64, u64)) -> PodInfo {
     PodInfo {
+        status_reason: None,
         uid: format!("uid-{name}"),
         name: name.to_string(),
         namespace: "prod".to_string(),

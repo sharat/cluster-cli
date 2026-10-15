@@ -558,6 +558,7 @@ mod tests {
 
     fn pod_with_sidecar() -> PodInfo {
         PodInfo {
+            status_reason: None,
             uid: String::new(),
             name: "web".to_string(),
             namespace: "default".to_string(),
@@ -643,6 +644,9 @@ mod tests {
             fetched_at: std::time::Instant::now(),
             error: None,
             context_name: None,
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         });
         app.view = AppView::PodDetail { pod_name: "web".to_string() };
 

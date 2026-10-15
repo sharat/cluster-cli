@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Experimental GPUI desktop app (`just desktop`) that watches every kubeconfig context at once, with a fleet overview, cluster detail, pod detail with live logs, namespace picker, and desktop notifications for new incidents and grade drops; supports an all-namespaces view and large fleets
+- Stream pod, node, and event changes between refreshes with read-only `kubectl get --watch`, so crash loops and new pods appear within a second instead of at the next refresh; disable with `--no-watch` or `watch = false`
+- Add cluster-wide health checks to the incident queue and score: unavailable APIServices, failed PersistentVolumes, namespaces stuck terminating, and admission webhooks that cannot be reached
+- Add `crd_checks` to flag custom resources (e.g. cert-manager Certificates, Flux Kustomizations, Argo CD Applications) whose Ready/Available/Healthy/Synced condition has been `False` for over 5 minutes or whose Argo health is Degraded/Missing
+
+### Changed
+- Scale the health score to cluster size: penalties now depend on the share of pods and nodes affected, so large clusters are no longer stuck at F by a handful of failures
+- Stop counting completed Job/CronJob pods and evicted pods as unhealthy, in the score and in pod status
+- Split the kubectl collector, health scoring, incidents, config and fetcher into a shared `cluster-core` workspace crate; the TUI is unchanged
+
+### Fixed
+- Show each workload collection warning once in the error banner instead of repeating the same line from the poll and the snapshot
+- Run `kubectl get --watch` through the shared kubectl setup so user kuberc preferences stay disabled and live streams count toward the process cap
+
 ## [0.4.0] - 2026-10-14
 
 ### Added

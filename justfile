@@ -9,6 +9,26 @@ build:
 run *ARGS:
     cargo run -- {{ARGS}}
 
+# Run the experimental GPUI desktop app (optimized)
+desktop *ARGS:
+    cargo run -p cluster-desktop --release -- {{ARGS}}
+
+# Run the desktop app in debug mode (faster to rebuild while iterating)
+desktop-dev *ARGS:
+    cargo run -p cluster-desktop -- {{ARGS}}
+
+# Build the desktop app binary (target/release/cluster-desktop)
+desktop-build:
+    cargo build -p cluster-desktop --release
+    @ls -lh target/release/cluster-desktop
+
+# CI checks for the TUI and core, plus clippy on the desktop app
+check:
+    cargo fmt --all -- --check
+    cargo clippy -- -D warnings
+    cargo clippy -p cluster-desktop -- -D warnings
+    cargo test
+
 # Get current version from Cargo.toml
 _get-version:
     @grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'

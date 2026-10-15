@@ -146,6 +146,8 @@ For PRs that include user-facing changes, include screenshots or recordings to d
 
 cluster-cli is a read-only Kubernetes TUI built on ratatui + crossterm with a tokio async runtime. It communicates with kubectl via subprocesses (30s timeout, read-only whitelist enforced).
 
+The repo is a Cargo workspace. The root package is the TUI (plus the headless JSON API and MCP server); `crates/cluster-core` holds everything UI-agnostic (`config`, `events`, `data/*`); `crates/cluster-desktop` is an experimental GPUI desktop app. `default-members` excludes the desktop crate, so plain `cargo build`/`cargo test` (and CI) cover only the TUI and core. Use `-p cluster-desktop` for the GUI (`just desktop`). Paths below under `src/data/`, `src/config.rs` and `src/events/mod.rs` live in `crates/cluster-core/src/`.
+
 ### Data Flow
 
 [105 more lines in file. Use offset=31 to continue.]

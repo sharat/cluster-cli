@@ -233,6 +233,7 @@ mod tests {
 
     fn pod(name: &str, request: (u64, u64), usage: (u64, u64)) -> PodInfo {
         PodInfo {
+            status_reason: None,
             uid: format!("uid-{name}"),
             name: format!("{name}-abc"),
             namespace: "default".to_string(),
@@ -282,6 +283,9 @@ mod tests {
             fetched_at: Instant::now(),
             error: None,
             context_name: None,
+            coverage: Default::default(),
+            resource_problems: vec![],
+            metrics_sampled: true,
         }
     }
 

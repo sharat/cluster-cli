@@ -93,6 +93,9 @@ impl From<&IncidentTarget> for IncidentTargetOutput {
                 name: pod_name.clone(),
                 container: Some(container_name.clone()),
             },
+            IncidentTarget::Resource { kind, name, .. } => {
+                Self { kind: kind.clone(), name: name.clone(), container: None }
+            }
         }
     }
 }
@@ -379,6 +382,7 @@ mod tests {
 
     fn sample_pod() -> PodInfo {
         PodInfo {
+            status_reason: None,
             uid: "test-uid".to_string(),
             name: "test-pod".to_string(),
             namespace: "default".to_string(),
