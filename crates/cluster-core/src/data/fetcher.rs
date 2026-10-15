@@ -241,10 +241,10 @@ impl Fetcher {
         let run_cluster_checks = cluster_checks.is_due();
         let (
             nodes_result,
-            node_top,
+            node_top_result,
             workloads,
             pods_result,
-            pod_top,
+            pod_top_result,
             events_result,
             context_result,
             check_results,
@@ -262,6 +262,8 @@ impl Fetcher {
                 if run_cluster_checks { Some(checks::run_cluster_checks().await) } else { None }
             },
         );
+        let (node_top, node_top_warning) = collector::split_top_result(node_top_result);
+        let (pod_top, pod_top_warning) = collector::split_top_result(pod_top_result);
         let checks_ran = cluster_problems.is_some();
         if let Some(problems) = cluster_problems {
             cluster_checks.problems = problems;
@@ -346,6 +348,11 @@ impl Fetcher {
             event_cache.retain(|k, _| k == &cache_key);
         }
 
+        // Both `top` calls usually fail for the same reason; show it once.
+        if pod_top_warning != node_top_warning {
+            errors.extend(pod_top_warning);
+        }
+        errors.extend(node_top_warning);
         errors.extend(check_results.warnings);
         store.node_top = node_top;
         store.pod_top = pod_top;
