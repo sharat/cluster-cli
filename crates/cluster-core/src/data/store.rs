@@ -173,9 +173,6 @@ impl ClusterStore {
         let health = health::calculate_health(&signals);
         let incident_buckets = incidents::build_incident_buckets(&signals);
 
-        let mut errors = self.errors.clone();
-        errors.extend(self.workloads.warnings.iter().map(|warning| format!("Workloads/{warning}")));
-
         ClusterSnapshot {
             nodes,
             workloads,
@@ -184,7 +181,7 @@ impl ClusterStore {
             incident_buckets,
             health,
             fetched_at: self.polled_at.unwrap_or_else(Instant::now),
-            error: (!errors.is_empty()).then(|| errors.join(" | ")),
+            error: (!self.errors.is_empty()).then(|| self.errors.join(" | ")),
             context_name: self.context_name.clone(),
             coverage: DataCoverage { metrics_available, nodes_visible: self.nodes_visible },
             resource_problems: self.problems.clone(),
@@ -287,6 +284,18 @@ mod tests {
         set.replace(list(vec![pod("web-0", "new", None)], None));
         set.apply(WatchAction::Delete, pod("web-0", "old", None));
         assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn workload_warnings_appear_once_in_the_snapshot_error() {
+        // The poll records a workload warning both in `workloads` and in
+        // `errors`; the snapshot must show it a single time.
+        let mut store = ClusterStore::new("default");
+        store.workloads.warnings.push("deployments list failed".to_string());
+        store.errors.push("Workloads/deployments list failed".to_string());
+
+        let error = store.snapshot(None, false).error.unwrap();
+        assert_eq!(error, "Workloads/deployments list failed");
     }
 
     #[test]
