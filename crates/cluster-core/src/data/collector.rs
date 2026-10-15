@@ -115,6 +115,13 @@ pub fn kubectl_command() -> Command {
     command
 }
 
+/// A slot in the global kubectl process limiter. Callers spawning a
+/// long-lived kubectl (e.g. `--watch`) hold the permit until the child
+/// exits, so the cap counts every kubectl process, not just one-shot calls.
+pub(crate) async fn kubectl_permit() -> Result<tokio::sync::SemaphorePermit<'static>> {
+    KUBECTL_PERMITS.acquire().await.map_err(|err| anyhow::anyhow!("kubectl limiter closed: {err}"))
+}
+
 fn command_for(program: &str) -> Command {
     if program == "kubectl" { kubectl_command() } else { Command::new(program) }
 }
@@ -124,10 +131,7 @@ pub(crate) async fn run_cmd(program: &str, args: &[&str]) -> Result<String, Kube
     ensure_readonly_kubectl_args(program, args)
         .map_err(|err| KubectlError::new(err.to_string()))?;
 
-    let _permit = KUBECTL_PERMITS
-        .acquire()
-        .await
-        .map_err(|err| KubectlError::new(format!("kubectl limiter closed: {err}")))?;
+    let _permit = kubectl_permit().await.map_err(|err| KubectlError::new(err.to_string()))?;
     let mut command = command_for(program);
     if let Some(context) = context_override() {
         command.args(["--context", &context]);

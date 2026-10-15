@@ -10,7 +10,6 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, BufReader};
-use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::debug;
@@ -127,7 +126,10 @@ async fn run_watch(
     let args = expand_all_namespaces(&args);
     ensure_readonly_kubectl_args("kubectl", &args)?;
 
-    let mut command = Command::new("kubectl");
+    // Held until the stream ends, so the global limiter counts the watch's
+    // long-lived kubectl like any other.
+    let _permit = collector::kubectl_permit().await?;
+    let mut command = collector::kubectl_command();
     if let Some(context) = context {
         command.args(["--context", context]);
     }
