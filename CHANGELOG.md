@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stop counting completed Job/CronJob pods and evicted pods as unhealthy, in the score and in pod status
 - Split the kubectl collector, health scoring, incidents, config and fetcher into a shared `cluster-core` workspace crate; the TUI is unchanged
 
+### Fixed
+- Surface `metrics unavailable` warnings again when `kubectl top` fails after the cluster-core refactor
+- Stop duplicating workload warnings in the joined snapshot error string
+- Disable user kuberc defaults for live `kubectl get --watch` streams so output format stays predictable
+
 ## [0.4.0] - 2026-10-14
 
 ### Added

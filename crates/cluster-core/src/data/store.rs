@@ -173,8 +173,7 @@ impl ClusterStore {
         let health = health::calculate_health(&signals);
         let incident_buckets = incidents::build_incident_buckets(&signals);
 
-        let mut errors = self.errors.clone();
-        errors.extend(self.workloads.warnings.iter().map(|warning| format!("Workloads/{warning}")));
+        let errors = self.errors.clone();
 
         ClusterSnapshot {
             nodes,

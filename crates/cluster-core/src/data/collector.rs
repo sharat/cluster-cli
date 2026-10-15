@@ -207,7 +207,7 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
 
 /// Usage metrics are best-effort: when `kubectl top` fails (e.g. metrics-server
 /// is missing) the data is still useful, so return the failure as a warning.
-fn split_top_result(result: Result<String, KubectlError>) -> (String, Option<String>) {
+pub(crate) fn split_top_result(result: Result<String, KubectlError>) -> (String, Option<String>) {
     match result {
         Ok(output) => (output, None),
         Err(err) => (String::new(), Some(format!("metrics unavailable: {err}"))),
@@ -274,13 +274,13 @@ pub async fn list_events(namespace: &str) -> Result<ResourceList> {
 }
 
 /// `kubectl top nodes` output; empty when metrics-server is unavailable.
-pub async fn top_nodes() -> String {
-    run_cmd("kubectl", &["top", "nodes", "--no-headers"]).await.unwrap_or_default()
+pub async fn top_nodes() -> Result<String, KubectlError> {
+    run_cmd("kubectl", &["top", "nodes", "--no-headers"]).await
 }
 
 /// `kubectl top pods` output; empty when metrics-server is unavailable.
-pub async fn top_pods(namespace: &str) -> String {
-    run_cmd("kubectl", &["top", "pods", "-n", namespace, "--no-headers"]).await.unwrap_or_default()
+pub async fn top_pods(namespace: &str) -> Result<String, KubectlError> {
+    run_cmd("kubectl", &["top", "pods", "-n", namespace, "--no-headers"]).await
 }
 
 #[derive(Clone, Copy)]
