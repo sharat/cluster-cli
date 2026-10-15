@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scale the health score to cluster size: penalties now depend on the share of pods and nodes affected, so large clusters are no longer stuck at F by a handful of failures
 - Stop counting completed Job/CronJob pods and evicted pods as unhealthy, in the score and in pod status
 - Split the kubectl collector, health scoring, incidents, config and fetcher into a shared `cluster-core` workspace crate; the TUI is unchanged
+- GitHub Pages landing page uses a high-contrast near-monochrome palette and no longer has a gradient hero block
 
 ### Fixed
 - Show each workload collection warning once in the error banner instead of repeating the same line from the poll and the snapshot

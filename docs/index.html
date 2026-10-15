@@ -38,21 +38,17 @@
         }
 
         :root {
-            /* Light mode (default) */
-            --gradient-start: #3730a3; /* indigo-800 */
-            --gradient-end: #0f766e; /* teal-700 */
+            color-scheme: light dark;
+            /* Light mode: near-monochrome, WCAG AA */
             --bg-primary: #ffffff;
             --bg-secondary: #f8fafc; /* slate-50 */
             --bg-tertiary: #f1f5f9; /* slate-100 */
             --text-primary: #0f172a; /* slate-900 */
-            --text-secondary: #475569; /* slate-600 */
-            --text-muted: #64748b; /* slate-500 */
-            --border: #e2e8f0; /* slate-200 */
-            --accent: #0f766e; /* teal-700 */
-            --accent-light: #14b8a6; /* teal-500 */
-            --code-bg: #1e293b; /* slate-800 */
+            --text-secondary: #334155; /* slate-700 */
+            --text-muted: #475569; /* slate-600 */
+            --border: #cbd5e1; /* slate-300 */
+            --code-bg: #0f172a; /* slate-900 */
             --code-text: #f1f5f9; /* slate-100 */
-            --shadow: rgba(0, 0, 0, 0.1);
         }
 
         @media (prefers-color-scheme: dark) {
@@ -60,13 +56,12 @@
                 --bg-primary: #0f172a; /* slate-900 */
                 --bg-secondary: #1e293b; /* slate-800 */
                 --bg-tertiary: #334155; /* slate-700 */
-                --text-primary: #f1f5f9; /* slate-100 */
+                --text-primary: #f8fafc; /* slate-50 */
                 --text-secondary: #cbd5e1; /* slate-300 */
                 --text-muted: #94a3b8; /* slate-400 */
-                --border: #334155; /* slate-700 */
-                --code-bg: #0f172a; /* slate-900 */
+                --border: #475569; /* slate-600 */
+                --code-bg: #020617; /* slate-950 */
                 --code-text: #e2e8f0; /* slate-200 */
-                --shadow: rgba(0, 0, 0, 0.3);
             }
         }
 
@@ -75,6 +70,16 @@
             color: var(--text-primary);
             background: var(--bg-primary);
             line-height: 1.6;
+        }
+
+        a {
+            color: var(--text-primary);
+            text-decoration: underline;
+            text-underline-offset: 0.15em;
+        }
+
+        a:hover, a:focus-visible {
+            text-decoration-thickness: 2px;
         }
 
         code, pre, .terminal {
@@ -102,6 +107,23 @@
             }
         }
 
+        .skip-link {
+            position: absolute;
+            top: -3rem;
+            left: 1rem;
+            z-index: 200;
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+
+        .skip-link:focus {
+            top: 1rem;
+        }
+
         /* Header and Navigation */
         header {
             position: sticky;
@@ -109,7 +131,6 @@
             z-index: 100;
             background: var(--bg-primary);
             border-bottom: 1px solid var(--border);
-            box-shadow: 0 1px 3px var(--shadow);
         }
 
         nav {
@@ -125,7 +146,7 @@
         .logo {
             font-size: 1.5rem;
             font-weight: 700;
-            color: var(--accent);
+            color: var(--text-primary);
             text-decoration: none;
         }
 
@@ -139,21 +160,17 @@
             color: var(--text-secondary);
             text-decoration: none;
             font-weight: 500;
-            transition: color 0.2s;
         }
 
-        .nav-links a:hover, .nav-links a:focus {
-            color: var(--accent);
-            outline: 2px solid var(--accent);
-            outline-offset: 4px;
-            border-radius: 4px;
+        .nav-links a:hover, .nav-links a:focus-visible {
+            color: var(--text-primary);
+            text-decoration: underline;
+            text-underline-offset: 0.2em;
         }
 
         /* Hero Section */
         .hero {
-            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
-            color: white;
-            padding: 6rem 2rem;
+            padding: 4rem 0 2rem;
             text-align: center;
         }
 
@@ -161,57 +178,51 @@
             font-size: 3.5rem;
             font-weight: 700;
             margin-bottom: 1rem;
-            animation: fadeInUp 0.8s ease-out;
+            color: var(--text-primary);
         }
 
         .hero p {
-            color: white;
             font-size: 1.25rem;
             margin-bottom: 2rem;
-            opacity: 0.95;
-            animation: fadeInUp 0.8s ease-out 0.2s both;
+            color: var(--text-secondary);
+            max-width: 40rem;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .install-command {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 8px;
-            padding: 1.5rem;
-            padding-right: 5.5rem; /* keep the command clear of the Copy button */
-            margin: 2rem auto;
+            text-align: left;
             max-width: 700px;
-            position: relative;
-            animation: fadeInUp 0.8s ease-out 0.4s both;
-        }
-
-        .install-command pre {
-            color: #e2e8f0;
-            font-size: 1rem;
-            overflow-x: auto;
+            margin: 2rem auto;
         }
 
         .copy-button {
-            position: absolute;
-            top: 0.75rem;
-            right: 0.75rem;
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            color: white;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
             padding: 0.5rem 1rem;
             border-radius: 4px;
             cursor: pointer;
             font-size: 0.875rem;
             font-weight: 500;
-            transition: background 0.2s;
+            font-family: inherit;
+            justify-self: end;
+            align-self: start;
+            white-space: nowrap;
         }
 
-        .copy-button:hover, .copy-button:focus {
-            background: rgba(255, 255, 255, 0.3);
-            outline: 2px solid white;
+        .code-block .copy-button {
+            background: var(--code-text);
+            border-color: var(--code-text);
+            color: var(--code-bg);
+        }
+
+        .copy-button:hover, .copy-button:focus-visible {
+            text-decoration: underline;
         }
 
         .copy-button.copied {
-            background: #10b981;
+            font-weight: 700;
         }
 
         .cta-buttons {
@@ -219,7 +230,6 @@
             gap: 1rem;
             justify-content: center;
             margin-top: 2rem;
-            animation: fadeInUp 0.8s ease-out 0.6s both;
         }
 
         .btn {
@@ -228,31 +238,26 @@
             border-radius: 8px;
             font-weight: 600;
             text-decoration: none;
-            transition: all 0.2s;
+            border: 1px solid var(--text-primary);
         }
 
         .btn-primary {
-            background: white;
-            color: var(--gradient-start);
+            background: var(--text-primary);
+            color: var(--bg-primary);
         }
 
-        .btn-primary:hover, .btn-primary:focus {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 16px var(--shadow);
-            outline: 2px solid white;
-            outline-offset: 2px;
+        .btn-primary:hover, .btn-primary:focus-visible {
+            text-decoration: underline;
         }
 
         .btn-secondary {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: transparent;
+            color: var(--text-primary);
         }
 
-        .btn-secondary:hover, .btn-secondary:focus {
-            background: rgba(255, 255, 255, 0.3);
-            outline: 2px solid white;
-            outline-offset: 2px;
+        .btn-secondary:hover, .btn-secondary:focus-visible {
+            background: var(--bg-secondary);
+            text-decoration: underline;
         }
 
         /* Main Content */
@@ -264,16 +269,7 @@
 
         section {
             margin-bottom: 6rem;
-            opacity: 0;
-            transform: translateY(20px);
-            animation: fadeInUp 0.6s ease-out forwards;
         }
-
-        section:nth-child(1) { animation-delay: 0.1s; }
-        section:nth-child(2) { animation-delay: 0.2s; }
-        section:nth-child(3) { animation-delay: 0.3s; }
-        section:nth-child(4) { animation-delay: 0.4s; }
-        section:nth-child(5) { animation-delay: 0.5s; }
 
         h2 {
             font-size: 2.5rem;
@@ -285,7 +281,7 @@
             font-size: 1.5rem;
             margin-top: 2rem;
             margin-bottom: 0.5rem;
-            color: var(--accent);
+            color: var(--text-primary);
         }
 
         p {
@@ -304,14 +300,8 @@
         .feature-card {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 8px;
             padding: 2rem;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .feature-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 8px 24px var(--shadow);
         }
 
         .feature-card h3 {
@@ -328,10 +318,10 @@
         /* Terminal Mock */
         .terminal-container {
             background: var(--code-bg);
-            border-radius: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
             padding: 1rem;
             margin: 2rem 0;
-            box-shadow: 0 8px 24px var(--shadow);
         }
 
         .terminal-header {
@@ -346,9 +336,11 @@
             border-radius: 50%;
         }
 
-        .terminal-button.red { background: #ef4444; }
-        .terminal-button.yellow { background: #f59e0b; }
-        .terminal-button.green { background: #10b981; }
+        .terminal-button.red,
+        .terminal-button.yellow,
+        .terminal-button.green {
+            background: var(--text-muted);
+        }
 
         .terminal {
             color: var(--code-text);
@@ -358,15 +350,16 @@
         }
 
         .terminal-prompt {
-            color: #10b981;
+            color: var(--code-text);
+            font-weight: 500;
         }
 
         .terminal-command {
-            color: #60a5fa;
+            color: var(--code-text);
         }
 
         .terminal-output {
-            color: #cbd5e1;
+            color: #94a3b8; /* slate-400 on slate-900/950 */
         }
 
         .terminal-cursor {
@@ -383,17 +376,28 @@
 
         /* Code Blocks */
         .code-block {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 0.75rem 1rem;
+            align-items: start;
             background: var(--code-bg);
             color: var(--code-text);
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 1.5rem;
             margin: 1rem 0;
-            position: relative;
             overflow-x: auto;
         }
 
         .code-block pre {
             margin: 0;
+            min-width: 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .code-block.install-command {
+            margin: 2rem auto;
         }
 
         /* Key Bindings Table */
@@ -415,6 +419,7 @@
             display: inline-block;
             background: var(--bg-tertiary);
             border: 1px solid var(--border);
+            color: var(--text-primary);
             border-radius: 4px;
             padding: 0.25rem 0.5rem;
             font-family: 'Geist Mono', monospace;
@@ -426,14 +431,10 @@
         /* MCP Section (Last) */
         .mcp-section {
             background: var(--bg-secondary);
-            border: 2px solid var(--accent-light);
-            border-radius: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
             padding: 3rem;
             margin-top: 4rem;
-        }
-
-        .mcp-section h2 {
-            color: var(--accent);
         }
 
         /* Footer */
@@ -446,24 +447,7 @@
         }
 
         footer a {
-            color: var(--accent);
-            text-decoration: none;
-        }
-
-        footer a:hover, footer a:focus {
-            text-decoration: underline;
-        }
-
-        /* Animations */
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            color: var(--text-primary);
         }
 
         /* Responsive */
@@ -484,6 +468,12 @@
             .cta-buttons {
                 flex-direction: column;
             }
+            .code-block {
+                grid-template-columns: 1fr;
+            }
+            .code-block .copy-button {
+                order: -1;
+            }
         }
 
         /* Accessibility */
@@ -500,14 +490,15 @@
         }
 
         :focus-visible {
-            outline: 2px solid var(--accent);
+            outline: 2px solid var(--text-primary);
             outline-offset: 2px;
         }
     </style>
 </head>
 <body>
-    <header role="banner">
-        <nav role="navigation" aria-label="Main navigation">
+    <a href="#main-content" class="skip-link">Skip to content</a>
+    <header>
+        <nav aria-label="Main navigation">
             <a href="#" class="logo">cluster-cli</a>
             <ul class="nav-links">
                 <li><a href="#features">Features</a></li>
@@ -520,14 +511,14 @@
         </nav>
     </header>
 
-    <main role="main">
+    <main id="main-content">
         <section class="hero">
             <h1>cluster-cli</h1>
             <p>A fast, interactive terminal UI for monitoring Kubernetes cluster health in real-time</p>
             
-            <div class="install-command">
+            <div class="code-block install-command">
                 <pre id="install-cmd">curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash</pre>
-                <button class="copy-button" onclick="copyInstall()" aria-label="Copy install command">Copy</button>
+                <button type="button" class="copy-button" onclick="copyInstall()" aria-label="Copy install command">Copy</button>
             </div>
 
             <div class="cta-buttons">
@@ -577,12 +568,12 @@
         <section id="terminal-demo">
             <h2>In Action</h2>
             <div class="terminal-container">
-                <div class="terminal-header">
+                <div class="terminal-header" aria-hidden="true">
                     <div class="terminal-button red"></div>
                     <div class="terminal-button yellow"></div>
                     <div class="terminal-button green"></div>
                 </div>
-                <div class="terminal" id="terminal-output">
+                <div class="terminal" id="terminal-output" aria-live="off" aria-label="Demo of cluster CLI commands">
                     <div><span class="terminal-prompt">$ </span><span class="terminal-command" id="typed-command"></span><span class="terminal-cursor"></span></div>
                 </div>
             </div>
@@ -593,7 +584,7 @@
             <h3>Quick Install</h3>
             <div class="code-block">
                 <pre>curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <h3>Build from Source</h3>
@@ -601,7 +592,7 @@
                 <pre>git clone https://github.com/sharat/cluster-cli.git
 cd cluster-cli
 cargo build --release</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <p>Requires Rust 1.85+ and kubectl configured with cluster access.</p>
@@ -739,28 +730,28 @@ cargo build --release</pre>
             <div class="code-block">
                 <pre>cluster status --json
 cluster status --json --verbose  # Include detailed findings</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <h3>List Incidents</h3>
             <div class="code-block">
                 <pre>cluster incidents --json
 cluster incidents --json --verbose  # All incidents (not just top 10)</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <h3>List Pods and Nodes</h3>
             <div class="code-block">
                 <pre>cluster pods --json --verbose  # Include container details
 cluster nodes --json --verbose  # Include node conditions</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <h3>Stream Logs</h3>
             <div class="code-block">
                 <pre>cluster logs &lt;pod-name&gt; --tail 100
 cluster logs &lt;pod-name&gt; -c &lt;container&gt; --follow --timestamps</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <h3>CI/CD Health Check Example</h3>
@@ -774,7 +765,7 @@ else
   echo "✗ Cluster health: $HEALTH (CRITICAL)"
   exit 1
 fi</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <p>All JSON responses include <code>version</code> field (current: 1.0.0) for schema versioning.</p>
@@ -788,7 +779,7 @@ fi</pre>
             <h3>Starting the MCP Server</h3>
             <div class="code-block">
                 <pre>cluster mcp</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <h3>Cursor Configuration</h3>
@@ -802,7 +793,7 @@ fi</pre>
     }
   }
 }</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <h3>Claude Desktop Configuration</h3>
@@ -816,7 +807,7 @@ fi</pre>
     }
   }
 }</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <h3>VS Code Configuration</h3>
@@ -830,7 +821,7 @@ fi</pre>
     }
   }
 }</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button type="button" class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
             </div>
 
             <h3>Available Tools</h3>
@@ -858,7 +849,7 @@ fi</pre>
         </section>
     </main>
 
-    <footer role="contentinfo">
+    <footer>
         <p>cluster-cli is open source under the MIT License.</p>
         <p>
             <a href="https://github.com/sharat/cluster-cli">GitHub</a> • 
@@ -956,8 +947,20 @@ fi</pre>
             setTimeout(typeCommand, 500);
         }
 
-        // Start animation when page loads
-        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        // Start animation when page loads; show a static command if motion is reduced
+        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            const first = commands[0];
+            document.getElementById('typed-command').textContent = first.cmd;
+            const terminal = document.getElementById('terminal-output');
+            const cursor = terminal.querySelector('.terminal-cursor');
+            if (cursor) cursor.style.display = 'none';
+            first.output.forEach((line) => {
+                const div = document.createElement('div');
+                div.className = 'terminal-output';
+                div.textContent = line;
+                terminal.appendChild(div);
+            });
+        } else {
             setTimeout(typeCommand, 1000);
         }
 
