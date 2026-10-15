@@ -104,6 +104,21 @@ pub(crate) fn expand_all_namespaces<'a>(args: &[&'a str]) -> Vec<&'a str> {
     expanded
 }
 
+/// A `kubectl` command with the user's kuberc preferences disabled.
+///
+/// kuberc can set default flags and aliases (e.g. a different output format)
+/// that would change the output this app parses, so every kubectl spawned by
+/// cluster-cli opts out. Older kubectl versions ignore the variable.
+pub fn kubectl_command() -> Command {
+    let mut command = Command::new("kubectl");
+    command.env("KUBECTL_KUBERC", "false");
+    command
+}
+
+fn command_for(program: &str) -> Command {
+    if program == "kubectl" { kubectl_command() } else { Command::new(program) }
+}
+
 pub(crate) async fn run_cmd(program: &str, args: &[&str]) -> Result<String, KubectlError> {
     let args = &expand_all_namespaces(args)[..];
     ensure_readonly_kubectl_args(program, args)
@@ -113,7 +128,7 @@ pub(crate) async fn run_cmd(program: &str, args: &[&str]) -> Result<String, Kube
         .acquire()
         .await
         .map_err(|err| KubectlError::new(format!("kubectl limiter closed: {err}")))?;
-    let mut command = Command::new(program);
+    let mut command = command_for(program);
     if let Some(context) = context_override() {
         command.args(["--context", &context]);
     }
@@ -184,9 +199,7 @@ pub fn ensure_readonly_kubectl_args(program: &str, args: &[&str]) -> Result<()> 
 
     match args {
         ["get", ..] | ["top", ..] | ["logs", ..] => Ok(()),
-        ["config", "current-context", ..]
-        | ["config", "view", ..]
-        | ["config", "get-contexts", ..] => Ok(()),
+        ["config", "current-context" | "view" | "get-contexts", ..] => Ok(()),
         [] => anyhow::bail!("kubectl command is empty"),
         _ => anyhow::bail!("Rejected non-read-only kubectl command: kubectl {}", args.join(" ")),
     }
@@ -751,135 +764,164 @@ pub fn build_pods<'a>(
     let mut pods = Vec::new();
 
     for item in items {
-        let name =
-            item.pointer("/metadata/name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let uid = item.pointer("/metadata/uid").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let pod_namespace = item
-            .pointer("/metadata/namespace")
-            .and_then(|v| v.as_str())
-            .unwrap_or(namespace)
-            .to_string();
-
-        let phase =
-            item.pointer("/status/phase").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
-
-        let node_name =
-            item.pointer("/spec/nodeName").and_then(|v| v.as_str()).map(|s| s.to_string());
-
-        let restarts: u32 = item
-            .pointer("/status/containerStatuses")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .map(|c| c.get("restartCount").and_then(|v| v.as_u64()).unwrap_or(0) as u32)
-                    .sum()
-            })
-            .unwrap_or(0);
-
-        let age = item
-            .pointer("/metadata/creationTimestamp")
-            .and_then(|v| v.as_str())
-            .map(calculate_age)
-            .unwrap_or_else(|| "?".to_string());
-
-        let spec_containers = item.pointer("/spec/containers").and_then(|v| v.as_array());
-        let init_containers = item.pointer("/spec/initContainers").and_then(|v| v.as_array());
-
-        let (cpu_request_millicores, cpu_limit_millicores) =
-            effective_pod_cpu_resources(spec_containers, init_containers);
-        let (memory_request_mb, memory_limit_mb) =
-            effective_pod_memory_resources(spec_containers, init_containers);
-
-        let top_key = if all_namespaces { format!("{pod_namespace}/{name}") } else { name.clone() };
-        let (cpu_millicores, memory_mb) = top_map.get(&top_key).copied().unwrap_or((0, 0));
-
-        let memory_pct =
-            if memory_limit_mb > 0 { percent_of(memory_mb, memory_limit_mb) } else { 0 };
-        let memory_request_pct =
-            if memory_request_mb > 0 { percent_of(memory_mb, memory_request_mb) } else { 0 };
-
-        let cpu_pct = if cpu_limit_millicores > 0 {
-            percent_of(cpu_millicores, cpu_limit_millicores)
-        } else {
-            0
-        };
-        let cpu_request_pct = if cpu_request_millicores > 0 {
-            percent_of(cpu_millicores, cpu_request_millicores)
-        } else {
-            0
-        };
-
-        let container_statuses =
-            item.pointer("/status/containerStatuses").and_then(|v| v.as_array());
-        let containers = extract_container_info(container_statuses);
-        let total_containers = container_statuses.map(|arr| arr.len() as u32).unwrap_or(0);
-        let ready_containers = container_statuses
-            .map(|arr| {
-                arr.iter()
-                    .filter(|c| c.get("ready").and_then(|v| v.as_bool()).unwrap_or(false))
-                    .count() as u32
-            })
-            .unwrap_or(0);
-        let is_ready = total_containers > 0 && ready_containers == total_containers;
-        let crash_looping = container_statuses
-            .map(|arr| {
-                arr.iter().any(|c| {
-                    c.pointer("/state/waiting/reason").and_then(|v| v.as_str())
-                        == Some("CrashLoopBackOff")
-                })
-            })
-            .unwrap_or(false);
-        let oom_killed = container_statuses
-            .map(|arr| {
-                arr.iter().any(|c| {
-                    c.pointer("/lastState/terminated/reason").and_then(|v| v.as_str())
-                        == Some("OOMKilled")
-                        || c.pointer("/state/terminated/reason").and_then(|v| v.as_str())
-                            == Some("OOMKilled")
-                })
-            })
-            .unwrap_or(false);
-        let status_reason =
-            item.pointer("/status/reason").and_then(|v| v.as_str()).map(str::to_string);
-        let status = derive_pod_status(
-            memory_pct,
-            &phase,
-            status_reason.as_deref(),
-            is_ready,
-            crash_looping,
-            oom_killed,
-        );
-
-        pods.push(PodInfo {
-            uid,
-            name,
-            namespace: pod_namespace,
-            phase,
-            restarts,
-            age,
-            cpu_millicores,
-            cpu_request_millicores,
-            cpu_limit_millicores,
-            memory_mb,
-            memory_request_mb,
-            memory_limit_mb,
-            memory_request_pct,
-            memory_pct,
-            cpu_request_pct,
-            cpu_pct,
-            status,
-            ready_containers,
-            total_containers,
-            is_ready,
-            crash_looping,
-            oom_killed,
-            node_name,
-            containers,
-            status_reason,
-        });
+        pods.push(parse_pod(item, namespace, &top_map));
     }
 
     pods
+}
+
+/// Build a `PodInfo` from one item of `kubectl get pods -o json`, using
+/// `kubectl top` figures (pod name -> (cpu millicores, memory MB)) when present.
+fn parse_pod(item: &Value, namespace: &str, top_map: &HashMap<String, (u64, u64)>) -> PodInfo {
+    let name = item.pointer("/metadata/name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let uid = item.pointer("/metadata/uid").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let pod_namespace = item
+        .pointer("/metadata/namespace")
+        .and_then(|v| v.as_str())
+        .unwrap_or(namespace)
+        .to_string();
+
+    let phase =
+        item.pointer("/status/phase").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
+
+    let node_name = item.pointer("/spec/nodeName").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let owner = pod_owner(item);
+
+    let age = item
+        .pointer("/metadata/creationTimestamp")
+        .and_then(|v| v.as_str())
+        .map(calculate_age)
+        .unwrap_or_else(|| "?".to_string());
+
+    let spec_containers = item.pointer("/spec/containers").and_then(|v| v.as_array());
+    let init_containers = item.pointer("/spec/initContainers").and_then(|v| v.as_array());
+    let sidecar_names: Vec<&str> = init_containers
+        .into_iter()
+        .flatten()
+        .filter(|c| is_sidecar(c))
+        .filter_map(|c| c.get("name").and_then(|v| v.as_str()))
+        .collect();
+
+    let (cpu_request_millicores, cpu_limit_millicores) =
+        effective_pod_cpu_resources(spec_containers, init_containers);
+    let (memory_request_mb, memory_limit_mb) =
+        effective_pod_memory_resources(spec_containers, init_containers);
+
+    let running_limits = RunningLimits {
+        cpu_millicores: running_limit(spec_containers, init_containers, container_cpu),
+        memory_mb: running_limit(spec_containers, init_containers, container_memory),
+    };
+
+    let top_key =
+        if namespace == ALL_NAMESPACES { format!("{pod_namespace}/{name}") } else { name.clone() };
+    let metrics_available = top_map.contains_key(&top_key);
+    let (cpu_millicores, memory_mb) = top_map.get(&top_key).copied().unwrap_or((0, 0));
+
+    let memory_pct = if memory_limit_mb > 0 { percent_of(memory_mb, memory_limit_mb) } else { 0 };
+    let memory_request_pct =
+        if memory_request_mb > 0 { percent_of(memory_mb, memory_request_mb) } else { 0 };
+
+    let cpu_pct =
+        if cpu_limit_millicores > 0 { percent_of(cpu_millicores, cpu_limit_millicores) } else { 0 };
+    let cpu_request_pct = if cpu_request_millicores > 0 {
+        percent_of(cpu_millicores, cpu_request_millicores)
+    } else {
+        0
+    };
+
+    let container_statuses = item.pointer("/status/containerStatuses").and_then(|v| v.as_array());
+    let containers = extract_container_info(container_statuses, spec_containers);
+    let (sidecar_containers, init_container_info): (Vec<_>, Vec<_>) = extract_container_info(
+        item.pointer("/status/initContainerStatuses").and_then(|v| v.as_array()),
+        init_containers,
+    )
+    .into_iter()
+    .partition(|c| sidecar_names.contains(&c.name.as_str()));
+
+    // Sidecars run alongside the app containers, so they count toward
+    // readiness and health like them (kubectl's READY column does too).
+    let running = || containers.iter().chain(&sidecar_containers);
+    let total_containers = running().count() as u32;
+    let ready_containers = running().filter(|c| c.ready).count() as u32;
+    let is_ready = total_containers > 0 && ready_containers == total_containers;
+    let crash_looping =
+        running().chain(&init_container_info).any(|c| c.state == "Waiting (CrashLoopBackOff)");
+    // last_termination_reason prefers lastState, so also check the current state
+    // (e.g. a Job pod whose final run was OOMKilled after an earlier Error).
+    let oom_killed = running().any(|c| {
+        c.last_termination_reason.as_deref() == Some("OOMKilled")
+            || c.state == "Terminated (OOMKilled)"
+    });
+    let restarts: u32 = running().map(|c| c.restart_count).sum();
+    let status_reason = item.pointer("/status/reason").and_then(|v| v.as_str()).map(str::to_string);
+    let status = derive_pod_status(
+        memory_pct,
+        &phase,
+        status_reason.as_deref(),
+        is_ready,
+        crash_looping,
+        oom_killed,
+    );
+
+    PodInfo {
+        uid,
+        name,
+        namespace: pod_namespace,
+        phase,
+        restarts,
+        age,
+        cpu_millicores,
+        cpu_request_millicores,
+        cpu_limit_millicores,
+        memory_mb,
+        memory_request_mb,
+        memory_limit_mb,
+        memory_request_pct,
+        memory_pct,
+        cpu_request_pct,
+        cpu_pct,
+        status,
+        ready_containers,
+        total_containers,
+        is_ready,
+        crash_looping,
+        oom_killed,
+        node_name,
+        containers,
+        status_reason,
+        init_containers: init_container_info,
+        sidecar_containers,
+        owner,
+        metrics_available,
+        running_limits,
+    }
+}
+
+/// The pod's controlling owner, with a ReplicaSet named `<deployment>-<hash>`
+/// (hash from the pod-template-hash label) resolved to its Deployment.
+fn pod_owner(item: &Value) -> Option<PodOwner> {
+    let owners = item.pointer("/metadata/ownerReferences")?.as_array()?;
+    let owner = owners
+        .iter()
+        .find(|o| o.get("controller").and_then(|v| v.as_bool()) == Some(true))
+        .or_else(|| owners.first())?;
+    let kind = owner.get("kind")?.as_str()?;
+    let name = owner.get("name")?.as_str()?;
+
+    if kind == "ReplicaSet" {
+        let hash = item
+            .pointer("/metadata/labels/pod-template-hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let deployment = Some(hash)
+            .filter(|h| !h.is_empty())
+            .and_then(|h| name.strip_suffix(h))
+            .and_then(|n| n.strip_suffix('-'));
+        if let Some(deployment) = deployment {
+            return Some(PodOwner { kind: "Deployment".to_string(), name: deployment.to_string() });
+        }
+    }
+    Some(PodOwner { kind: kind.to_string(), name: name.to_string() })
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1504,110 +1546,78 @@ pub fn attach_workload_events(workloads: &mut [WorkloadSummary], events: &[Clust
     }
 }
 
-fn sum_container_cpu_resources(containers: Option<&Vec<Value>>) -> (u64, u64) {
-    let mut requests = 0;
-    let mut limits = 0;
-
-    if let Some(containers) = containers {
-        for container in containers {
-            if let Some(value) =
-                container.pointer("/resources/requests/cpu").and_then(|v| v.as_str())
-            {
-                requests += parse_cpu(value);
-            }
-            if let Some(value) = container.pointer("/resources/limits/cpu").and_then(|v| v.as_str())
-            {
-                limits += parse_cpu(value);
-            }
-        }
-    }
-
-    (requests, limits)
+/// Native sidecars are init containers with `restartPolicy: Always`.
+fn is_sidecar(container: &Value) -> bool {
+    container.get("restartPolicy").and_then(|v| v.as_str()) == Some("Always")
 }
 
-fn sum_container_memory_resources(containers: Option<&Vec<Value>>) -> (u64, u64) {
-    let mut requests = 0;
-    let mut limits = 0;
+/// Effective pod (requests, limits) per the Kubernetes rules for init
+/// containers and native sidecars: the larger of
+/// - the app phase: all app containers plus every sidecar, and
+/// - the init phase: each regular init container plus the sidecars started
+///   before it, and the sidecars on their own.
+fn effective_pod_resources(
+    app_containers: Option<&Vec<Value>>,
+    init_containers: Option<&Vec<Value>>,
+    read: impl Fn(&Value) -> (u64, u64),
+) -> (u64, u64) {
+    let add = |a: (u64, u64), b: (u64, u64)| (a.0 + b.0, a.1 + b.1);
+    let max = |a: (u64, u64), b: (u64, u64)| (a.0.max(b.0), a.1.max(b.1));
 
-    if let Some(containers) = containers {
-        for container in containers {
-            if let Some(value) =
-                container.pointer("/resources/requests/memory").and_then(|v| v.as_str())
-            {
-                requests += parse_memory_mb(value);
-            }
-            if let Some(value) =
-                container.pointer("/resources/limits/memory").and_then(|v| v.as_str())
-            {
-                limits += parse_memory_mb(value);
-            }
+    let mut sidecars = (0, 0);
+    let mut init_peak = (0, 0);
+    for container in init_containers.into_iter().flatten() {
+        if is_sidecar(container) {
+            sidecars = add(sidecars, read(container));
+            init_peak = max(init_peak, sidecars);
+        } else {
+            init_peak = max(init_peak, add(sidecars, read(container)));
         }
     }
 
-    (requests, limits)
+    let app = app_containers.into_iter().flatten().map(&read).fold(sidecars, add);
+    max(app, init_peak)
 }
 
-fn max_container_cpu_resources(containers: Option<&Vec<Value>>) -> (u64, u64) {
-    let mut max_requests = 0;
-    let mut max_limits = 0;
-
-    if let Some(containers) = containers {
-        for container in containers {
-            if let Some(value) =
-                container.pointer("/resources/requests/cpu").and_then(|v| v.as_str())
-            {
-                max_requests = max_requests.max(parse_cpu(value));
-            }
-            if let Some(value) = container.pointer("/resources/limits/cpu").and_then(|v| v.as_str())
-            {
-                max_limits = max_limits.max(parse_cpu(value));
-            }
-        }
-    }
-
-    (max_requests, max_limits)
+/// Sum of the limits of the app containers and native sidecars, or None when
+/// any of them is unlimited.
+fn running_limit(
+    app_containers: Option<&Vec<Value>>,
+    init_containers: Option<&Vec<Value>>,
+    read: impl Fn(&Value) -> (u64, u64),
+) -> Option<u64> {
+    let sidecars = init_containers.into_iter().flatten().filter(|c| is_sidecar(c));
+    let total: Option<u64> = app_containers
+        .into_iter()
+        .flatten()
+        .chain(sidecars)
+        .map(|container| Some(read(container).1).filter(|&limit| limit > 0))
+        .sum();
+    total.filter(|&limit| limit > 0)
 }
 
-fn max_container_memory_resources(containers: Option<&Vec<Value>>) -> (u64, u64) {
-    let mut max_requests = 0;
-    let mut max_limits = 0;
+fn container_cpu(container: &Value) -> (u64, u64) {
+    let read = |path| container.pointer(path).and_then(|v| v.as_str()).map(parse_cpu);
+    (read("/resources/requests/cpu").unwrap_or(0), read("/resources/limits/cpu").unwrap_or(0))
+}
 
-    if let Some(containers) = containers {
-        for container in containers {
-            if let Some(value) =
-                container.pointer("/resources/requests/memory").and_then(|v| v.as_str())
-            {
-                max_requests = max_requests.max(parse_memory_mb(value));
-            }
-            if let Some(value) =
-                container.pointer("/resources/limits/memory").and_then(|v| v.as_str())
-            {
-                max_limits = max_limits.max(parse_memory_mb(value));
-            }
-        }
-    }
-
-    (max_requests, max_limits)
+fn container_memory(container: &Value) -> (u64, u64) {
+    let read = |path| container.pointer(path).and_then(|v| v.as_str()).map(parse_memory_mb);
+    (read("/resources/requests/memory").unwrap_or(0), read("/resources/limits/memory").unwrap_or(0))
 }
 
 fn effective_pod_cpu_resources(
     app_containers: Option<&Vec<Value>>,
     init_containers: Option<&Vec<Value>>,
 ) -> (u64, u64) {
-    let (app_requests, app_limits) = sum_container_cpu_resources(app_containers);
-    let (init_requests, init_limits) = max_container_cpu_resources(init_containers);
-
-    (app_requests.max(init_requests), app_limits.max(init_limits))
+    effective_pod_resources(app_containers, init_containers, container_cpu)
 }
 
 fn effective_pod_memory_resources(
     app_containers: Option<&Vec<Value>>,
     init_containers: Option<&Vec<Value>>,
 ) -> (u64, u64) {
-    let (app_requests, app_limits) = sum_container_memory_resources(app_containers);
-    let (init_requests, init_limits) = max_container_memory_resources(init_containers);
-
-    (app_requests.max(init_requests), app_limits.max(init_limits))
+    effective_pod_resources(app_containers, init_containers, container_memory)
 }
 
 fn derive_pod_status(
@@ -1635,17 +1645,37 @@ fn derive_pod_status(
     }
 }
 
-fn extract_container_info(container_statuses: Option<&Vec<Value>>) -> Vec<ContainerInfo> {
+fn extract_container_info(
+    container_statuses: Option<&Vec<Value>>,
+    spec_containers: Option<&Vec<Value>>,
+) -> Vec<ContainerInfo> {
+    let memory_limit_mb = |name: &str| {
+        spec_containers
+            .into_iter()
+            .flatten()
+            .find(|c| c.get("name").and_then(|v| v.as_str()) == Some(name))
+            .and_then(|c| c.pointer("/resources/limits/memory").and_then(|v| v.as_str()))
+            .map(parse_memory_mb)
+            .unwrap_or(0)
+    };
+
     container_statuses
         .map(|statuses| {
             statuses
                 .iter()
-                .map(|status| ContainerInfo {
-                    name: status
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string(),
+                .map(|status| {
+                    let name = status.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    (name, status)
+                })
+                .map(|(name, status)| ContainerInfo {
+                    name: name.to_string(),
+                    memory_limit_mb: memory_limit_mb(name),
+                    // Older API servers omit `started`; treat a running
+                    // container as started then.
+                    started: status
+                        .get("started")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or_else(|| status.pointer("/state/running").is_some()),
                     ready: status.get("ready").and_then(|v| v.as_bool()).unwrap_or(false),
                     restart_count: status.get("restartCount").and_then(|v| v.as_u64()).unwrap_or(0)
                         as u32,
@@ -1690,62 +1720,86 @@ pub async fn fetch_events(namespace: &str) -> Result<Vec<ClusterEvent>> {
     Ok(build_events(&list_events(namespace).await?.items))
 }
 
-/// The most recent [`MAX_EVENTS_PER_FETCH`] events, newest first.
-pub fn build_events<'a>(items: impl IntoIterator<Item = &'a Value>) -> Vec<ClusterEvent> {
-    let mut events = Vec::new();
-    for item in newest_events(items) {
-        let kind = item
-            .pointer("/involvedObject/kind")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Unknown")
-            .to_string();
-
-        let name = item
-            .pointer("/involvedObject/name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Unknown")
-            .to_string();
-
-        let reason = item.get("reason").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-        let message = item.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-        let event_type = if item.get("type").and_then(|v| v.as_str()) == Some("Warning") {
-            EventType::Warning
-        } else {
-            EventType::Normal
-        };
-
-        let count = item.get("count").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
-
-        let timestamp = event_timestamp(item).to_string();
-
-        events.push(ClusterEvent { kind, name, reason, message, event_type, count, timestamp });
-    }
-
-    events
+/// Parse a `kubectl get events -o json` list; see [`build_events`].
+#[cfg(test)]
+fn parse_events(json: &Value) -> Vec<ClusterEvent> {
+    let items = json.get("items").and_then(|v| v.as_array()).map(Vec::as_slice).unwrap_or(&[]);
+    build_events(items)
 }
 
-/// The [`MAX_EVENTS_PER_FETCH`] newest raw events, newest first.
+/// The [`MAX_EVENTS_PER_FETCH`] newest events, newest first (Warnings first
+/// when filling the cap; see [`newest_events`]).
+pub fn build_events<'a>(items: impl IntoIterator<Item = &'a Value>) -> Vec<ClusterEvent> {
+    newest_events(items)
+        .into_iter()
+        .map(|item| {
+            let str_at = |path: &str| event_str(item, path);
+            let count = item
+                .get("count")
+                .and_then(|v| v.as_u64())
+                .or_else(|| item.pointer("/series/count").and_then(|v| v.as_u64()))
+                .unwrap_or(1) as u32;
+            ClusterEvent {
+                kind: str_at("/involvedObject/kind").unwrap_or("Unknown").to_string(),
+                name: str_at("/involvedObject/name").unwrap_or("Unknown").to_string(),
+                reason: str_at("/reason").unwrap_or("").to_string(),
+                message: str_at("/message").unwrap_or("").to_string(),
+                event_type: if str_at("/type") == Some("Warning") {
+                    EventType::Warning
+                } else {
+                    EventType::Normal
+                },
+                count,
+                timestamp: event_timestamp(item).to_string(),
+            }
+        })
+        .collect()
+}
+
+fn event_str<'a>(item: &'a Value, path: &str) -> Option<&'a str> {
+    item.pointer(path).and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+}
+
+/// The event's time. Sorting happens here rather than with
+/// `--sort-by=.lastTimestamp`: events written through the events.k8s.io API
+/// (e.g. the scheduler's FailedScheduling) leave `lastTimestamp` empty and
+/// carry their time in `series.lastObservedTime` or `eventTime`, so kubectl
+/// would sort them as the oldest and they would be cut off.
+fn event_timestamp(item: &Value) -> &str {
+    [
+        "/lastTimestamp",
+        "/series/lastObservedTime",
+        "/eventTime",
+        "/firstTimestamp",
+        "/metadata/creationTimestamp",
+    ]
+    .iter()
+    .find_map(|path| event_str(item, path))
+    .unwrap_or("")
+}
+
+/// The [`MAX_EVENTS_PER_FETCH`] newest raw events, newest first, filling the
+/// cap with Warnings before Normals: incidents and diagnosis are built from
+/// Warnings, and in a busy namespace a few minutes of Normal churn (Pulled,
+/// Created, Started, ScalingReplicaSet...) would otherwise push out a single
+/// older Warning such as FailedScheduling.
 pub fn newest_events<'a>(items: impl IntoIterator<Item = &'a Value>) -> Vec<&'a Value> {
-    let mut items: Vec<&Value> = items.into_iter().collect();
     // Parsed, not compared as strings: `eventTime` carries microseconds and
     // `lastTimestamp` does not. Unparsable timestamps sort oldest.
-    items.sort_by_cached_key(|item| {
-        chrono::DateTime::parse_from_rfc3339(event_timestamp(item)).ok()
-    });
-    items.reverse();
-    items.truncate(MAX_EVENTS_PER_FETCH);
-    items
-}
-
-/// `lastTimestamp`, falling back to `eventTime` (set instead by components
-/// using the events.k8s.io API) and then to creation time.
-fn event_timestamp(item: &Value) -> &str {
-    ["/lastTimestamp", "/eventTime", "/metadata/creationTimestamp"]
-        .iter()
-        .find_map(|pointer| item.pointer(pointer).and_then(Value::as_str))
-        .unwrap_or("")
+    let (mut warnings, mut normals): (Vec<_>, Vec<_>) = items
+        .into_iter()
+        .map(|item| (chrono::DateTime::parse_from_rfc3339(event_timestamp(item)).ok(), item))
+        .partition(|(_, item)| event_str(item, "/type") == Some("Warning"));
+    warnings.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
+    normals.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
+    let normal_slots = MAX_EVENTS_PER_FETCH.saturating_sub(warnings.len());
+    let mut kept: Vec<_> = warnings
+        .into_iter()
+        .take(MAX_EVENTS_PER_FETCH)
+        .chain(normals.into_iter().take(normal_slots))
+        .collect();
+    kept.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
+    kept.into_iter().map(|(_, item)| item).collect()
 }
 
 pub async fn fetch_namespaces() -> Result<Vec<NamespaceSummary>> {
@@ -2141,6 +2195,17 @@ fn calculate_age(timestamp: &str) -> String {
     }
 }
 
+/// Fetch all available kubectl contexts
+pub async fn fetch_contexts() -> Result<Vec<String>, KubectlError> {
+    let output = run_cmd("kubectl", &["config", "get-contexts", "-o", "name"]).await?;
+    Ok(output.lines().map(|s| s.trim().to_string()).collect())
+}
+
+/// Run kubectl command and return output (for MCP server use)
+pub async fn run_kubectl_output(args: &[&str]) -> Result<String, KubectlError> {
+    run_cmd("kubectl", args).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -2148,15 +2213,17 @@ mod tests {
         collect_hpas, collect_ingresses, collect_jobs, collect_pdbs, collect_pvcs,
         collect_services, context_override, deployment_rollout_status, derive_node_status,
         derive_pod_status, effective_pod_cpu_resources, effective_pod_memory_resources,
-        ensure_readonly_kubectl_args, expand_all_namespaces, fetch_current_context,
-        inherit_context, namespace_pod_counts, parse_cpu, parse_memory_mb, parse_top_pod_metrics,
-        parse_workload_resource_result, requested_namespace, with_context, workload_health,
+        ensure_readonly_kubectl_args, expand_all_namespaces, extract_container_info,
+        fetch_current_context, inherit_context, namespace_pod_counts, parse_cpu, parse_events,
+        parse_memory_mb, parse_pod, parse_top_pod_metrics, parse_workload_resource_result,
+        requested_namespace, with_context, workload_health,
     };
     use crate::data::models::{
-        ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus, WorkloadKind,
-        WorkloadSummary,
+        ClusterEvent, ConditionStatus, ConnectionIssueKind, EventType, HealthStatus,
+        MAX_EVENTS_PER_FETCH, WorkloadKind, WorkloadSummary,
     };
     use serde_json::json;
+    use std::collections::HashMap;
 
     #[test]
     fn allows_readonly_kubectl_commands() {
@@ -2431,6 +2498,180 @@ mod tests {
     }
 
     #[test]
+    fn kubectl_command_disables_user_kuberc() {
+        let command = super::kubectl_command();
+        let env: Vec<_> = command.as_std().get_envs().collect();
+        assert!(env.contains(&(
+            std::ffi::OsStr::new("KUBECTL_KUBERC"),
+            Some(std::ffi::OsStr::new("false"))
+        )));
+    }
+
+    #[test]
+    fn native_sidecars_add_to_app_resources_and_to_later_init_containers() {
+        let sidecar = json!({
+            "name": "proxy", "restartPolicy": "Always",
+            "resources": { "requests": { "cpu": "300m", "memory": "256Mi" } }
+        });
+        let migrate = json!({
+            "name": "migrate",
+            "resources": { "requests": { "cpu": "500m", "memory": "128Mi" } }
+        });
+        let app = vec![json!({
+            "name": "app", "resources": { "requests": { "cpu": "400m", "memory": "512Mi" } }
+        })];
+
+        // App phase: app + sidecar = 700m; init phase: migrate + sidecar = 800m.
+        let init = vec![sidecar.clone(), migrate.clone()];
+        assert_eq!(effective_pod_cpu_resources(Some(&app), Some(&init)), (800, 0));
+        assert_eq!(effective_pod_memory_resources(Some(&app), Some(&init)), (768, 0));
+
+        // A regular init container that runs before the sidecar starts does not
+        // add it: max(migrate 500m, app + sidecar 700m).
+        let init = vec![migrate, sidecar];
+        assert_eq!(effective_pod_cpu_resources(Some(&app), Some(&init)), (700, 0));
+    }
+
+    #[test]
+    fn parse_pod_resolves_owners_to_their_workload() {
+        let owned = |kind: &str, name: &str, hash: Option<&str>| {
+            let mut labels = serde_json::Map::new();
+            if let Some(hash) = hash {
+                labels.insert("pod-template-hash".to_string(), json!(hash));
+            }
+            json!({
+                "metadata": {
+                    "name": "p", "labels": labels,
+                    "ownerReferences": [{ "kind": kind, "name": name, "controller": true }]
+                },
+                "status": { "phase": "Running" }
+            })
+        };
+        let owner = |item: serde_json::Value| {
+            parse_pod(&item, "default", &HashMap::new()).owner.map(|o| (o.kind, o.name))
+        };
+
+        assert_eq!(
+            owner(owned("ReplicaSet", "web-api-6d4f9c8b7", Some("6d4f9c8b7"))),
+            Some(("Deployment".to_string(), "web-api".to_string()))
+        );
+        // A ReplicaSet that does not follow the Deployment naming stays as is.
+        assert_eq!(
+            owner(owned("ReplicaSet", "standalone", None)),
+            Some(("ReplicaSet".to_string(), "standalone".to_string()))
+        );
+        assert_eq!(
+            owner(owned("StatefulSet", "db", None)),
+            Some(("StatefulSet".to_string(), "db".to_string()))
+        );
+        assert_eq!(owner(json!({ "metadata": { "name": "bare" } })), None);
+    }
+
+    #[test]
+    fn parse_pod_flags_a_current_oom_kill_after_an_earlier_error() {
+        let item = json!({
+            "metadata": { "name": "job-run" },
+            "spec": { "containers": [{ "name": "worker" }] },
+            "status": {
+                "phase": "Failed",
+                "containerStatuses": [{
+                    "name": "worker", "ready": false, "restartCount": 1,
+                    "state": { "terminated": { "reason": "OOMKilled", "exitCode": 137 } },
+                    "lastState": { "terminated": { "reason": "Error", "exitCode": 1 } }
+                }]
+            }
+        });
+
+        assert!(parse_pod(&item, "default", &HashMap::new()).oom_killed);
+    }
+
+    #[test]
+    fn parse_pod_records_whether_kubectl_top_measured_it() {
+        let item = json!({ "metadata": { "name": "web" }, "status": { "phase": "Running" } });
+        let measured = HashMap::from([("web".to_string(), (5, 0))]);
+
+        assert!(!parse_pod(&item, "default", &HashMap::new()).metrics_available);
+        let pod = parse_pod(&item, "default", &measured);
+        assert!(pod.metrics_available);
+        assert_eq!((pod.cpu_millicores, pod.memory_mb), (5, 0));
+    }
+
+    #[test]
+    fn running_limits_cover_app_containers_and_sidecars_only() {
+        let item = json!({
+            "metadata": { "name": "web" },
+            "spec": {
+                "initContainers": [
+                    { "name": "migrate",
+                      "resources": { "limits": { "cpu": "2", "memory": "2Gi" } } },
+                    { "name": "proxy", "restartPolicy": "Always",
+                      "resources": { "limits": { "cpu": "100m", "memory": "64Mi" } } }
+                ],
+                "containers": [
+                    { "name": "app", "resources": { "limits": { "cpu": "200m", "memory": "256Mi" } } },
+                    { "name": "logger", "resources": { "limits": { "memory": "32Mi" } } }
+                ]
+            },
+            "status": { "phase": "Running" }
+        });
+
+        let pod = parse_pod(&item, "default", &HashMap::new());
+
+        // The finished init container's 2-CPU limit dominates the effective
+        // pod limit but does not bound the running pod.
+        assert_eq!(pod.cpu_limit_millicores, 2000);
+        // `logger` has no CPU limit, so the running pod's CPU is unbounded.
+        assert_eq!(pod.running_limits.cpu_millicores, None);
+        assert_eq!(pod.running_limits.memory_mb, Some(256 + 32 + 64));
+    }
+
+    #[test]
+    fn parse_pod_tracks_sidecars_like_app_containers() {
+        let item = json!({
+            "metadata": { "name": "web", "namespace": "prod" },
+            "spec": {
+                "initContainers": [
+                    { "name": "migrate" },
+                    { "name": "proxy", "restartPolicy": "Always",
+                      "resources": { "limits": { "memory": "64Mi" } } }
+                ],
+                "containers": [{ "name": "app" }]
+            },
+            "status": {
+                "phase": "Running",
+                "initContainerStatuses": [
+                    { "name": "migrate", "ready": true, "restartCount": 0,
+                      "state": { "terminated": { "reason": "Completed", "exitCode": 0 } } },
+                    { "name": "proxy", "ready": false, "restartCount": 4,
+                      "state": { "waiting": { "reason": "CrashLoopBackOff" } },
+                      "lastState": { "terminated": { "reason": "OOMKilled", "exitCode": 137 } } }
+                ],
+                "containerStatuses": [
+                    { "name": "app", "ready": true, "restartCount": 1,
+                      "state": { "running": {} } }
+                ]
+            }
+        });
+
+        let pod = parse_pod(&item, "prod", &HashMap::new());
+
+        assert_eq!(pod.init_containers.len(), 1);
+        assert_eq!(pod.init_containers[0].name, "migrate");
+        assert_eq!(pod.sidecar_containers.len(), 1);
+        assert_eq!(pod.sidecar_containers[0].memory_limit_mb, 64);
+        // No `started` field and not running: not started.
+        assert!(!pod.sidecar_containers[0].started);
+        // No `started` field but running: treated as started.
+        assert!(pod.containers[0].started);
+        assert_eq!(pod.restarts, 5);
+        assert_eq!((pod.ready_containers, pod.total_containers), (1, 2));
+        assert!(!pod.is_ready);
+        assert!(pod.crash_looping);
+        assert!(pod.oom_killed);
+        assert_eq!(pod.status, HealthStatus::Critical);
+    }
+
+    #[test]
     fn includes_nodes_without_top_metrics() {
         let info_json = json!({
             "items": [{
@@ -2581,6 +2822,71 @@ mod tests {
         assert_eq!(parse_cpu("1.5"), 1500);
         assert_eq!(parse_cpu(""), 0);
         assert_eq!(parse_cpu("abc"), 0);
+    }
+
+    #[test]
+    fn parse_events_orders_events_api_events_by_their_real_time() {
+        // The scheduler writes through events.k8s.io: no lastTimestamp, time in
+        // eventTime/series. kubectl --sort-by=.lastTimestamp put these first.
+        let json = serde_json::json!({"items": [
+            {"involvedObject": {"kind": "Pod", "name": "web"}, "reason": "FailedScheduling",
+             "message": "0/1 nodes are available: 1 Insufficient memory.", "type": "Warning",
+             "lastTimestamp": null, "eventTime": "2026-10-14T06:40:00.000000Z",
+             "series": {"count": 9, "lastObservedTime": "2026-10-14T06:50:00.000000Z"}},
+            {"involvedObject": {"kind": "Pod", "name": "api"}, "reason": "Pulled",
+             "message": "pulled", "type": "Normal", "count": 1,
+             "lastTimestamp": "2026-10-14T06:45:00Z"},
+            {"involvedObject": {"kind": "Pod", "name": "old"}, "reason": "Scheduled",
+             "message": "assigned", "type": "Normal", "lastTimestamp": null,
+             "eventTime": "2026-10-14T06:00:00.000000Z"}
+        ]});
+
+        let events = parse_events(&json);
+
+        let names: Vec<&str> = events.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["web", "api", "old"]);
+        assert_eq!(events[0].count, 9);
+        assert_eq!(events[0].timestamp, "2026-10-14T06:50:00.000000Z");
+    }
+
+    #[test]
+    fn parse_events_keeps_an_older_warning_over_newer_normal_events() {
+        let mut items = vec![serde_json::json!({
+            "involvedObject": {"kind": "Pod", "name": "stuck"}, "reason": "FailedScheduling",
+            "message": "0/1 nodes are available", "type": "Warning",
+            "eventTime": "2026-10-14T06:00:00.000000Z"
+        })];
+        for i in 0..MAX_EVENTS_PER_FETCH + 20 {
+            items.push(serde_json::json!({
+                "involvedObject": {"kind": "Pod", "name": format!("web-{i}")}, "reason": "Pulled",
+                "message": "pulled", "type": "Normal", "lastTimestamp": "2026-10-14T06:05:00Z"
+            }));
+        }
+
+        let events = parse_events(&serde_json::json!({ "items": items }));
+
+        assert_eq!(events.len(), MAX_EVENTS_PER_FETCH);
+        assert_eq!(events.last().map(|e| e.reason.as_str()), Some("FailedScheduling"));
+    }
+
+    #[test]
+    fn extract_container_info_reads_each_containers_own_memory_limit() {
+        let spec = serde_json::json!([
+            {"name": "app", "resources": {"limits": {"memory": "512Mi"}}},
+            {"name": "proxy"}
+        ]);
+        let statuses = serde_json::json!([
+            {"name": "app", "ready": true, "restartCount": 0, "state": {"running": {}}},
+            {"name": "proxy", "ready": false, "restartCount": 2,
+             "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+             "lastState": {"terminated": {"reason": "OOMKilled", "exitCode": 137}}}
+        ]);
+
+        let containers = extract_container_info(statuses.as_array(), spec.as_array());
+
+        assert_eq!(containers[0].memory_limit_mb, 512);
+        assert_eq!(containers[1].memory_limit_mb, 0);
+        assert_eq!(containers[1].last_termination_reason.as_deref(), Some("OOMKilled"));
     }
 
     #[test]

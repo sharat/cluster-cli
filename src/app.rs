@@ -14,6 +14,8 @@ pub enum AppView {
     Dashboard,
     PodDetail { pod_name: String },
     NodeDetail { node_name: String },
+    Timeline,
+    RightSizing,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -138,6 +140,16 @@ pub struct AppState {
     pub workload_cursor: usize,
     pub pod_cursor: usize,
     pub event_cursor: usize,
+    pub timeline_cursor: usize,
+    pub sizing_scroll: usize,
+    /// Largest useful `sizing_scroll`, recorded by the view when it draws.
+    pub sizing_scroll_max: std::cell::Cell<usize>,
+    pub timeline_scroll: usize,
+    pub timeline_newest_first: bool,
+    pub timeline_kind_filter: Option<crate::data::timeline::TimelineEntryKind>,
+    pub timeline_namespace_filter: Option<String>,
+    pub timeline_severity_filter: Option<crate::data::models::IncidentSeverity>,
+    pub timeline_from_incident: Option<String>,
     pub pod_detail_section: PodDetailSection,
     pub log_buffer: VecDeque<String>,
     pub log_stream_id: u64,
@@ -161,6 +173,9 @@ pub struct AppState {
     pub connection_issue: Option<ConnectionIssue>,
     pub pod_memory_history: HashMap<String, Vec<u8>>,
     pub pod_cpu_history: HashMap<String, Vec<u8>>,
+    /// Highest (cpu millicores, memory MB) seen per pod this session, used for
+    /// right-sizing so a single quiet sample does not understate usage.
+    pub pod_peak_usage: HashMap<String, (u64, u64)>,
 }
 
 #[derive(Debug, Clone)]
@@ -200,6 +215,15 @@ impl AppState {
             workload_cursor: 0,
             pod_cursor: 0,
             event_cursor: 0,
+            timeline_cursor: 0,
+            sizing_scroll: 0,
+            sizing_scroll_max: std::cell::Cell::new(0),
+            timeline_scroll: 0,
+            timeline_newest_first: true,
+            timeline_kind_filter: None,
+            timeline_namespace_filter: None,
+            timeline_severity_filter: None,
+            timeline_from_incident: None,
             pod_detail_section: PodDetailSection::Overview,
             log_buffer: VecDeque::new(),
             log_stream_id: 0,
@@ -221,6 +245,7 @@ impl AppState {
             connection_issue: None,
             pod_memory_history: HashMap::new(),
             pod_cpu_history: HashMap::new(),
+            pod_peak_usage: HashMap::new(),
         }
     }
 
@@ -228,9 +253,15 @@ impl AppState {
         let active_keys: HashSet<String> = pods.iter().map(pod_history_key).collect();
         self.pod_memory_history.retain(|key, _| active_keys.contains(key));
         self.pod_cpu_history.retain(|key, _| active_keys.contains(key));
+        self.pod_peak_usage.retain(|key, _| active_keys.contains(key));
 
         for pod in pods {
             let key = pod_history_key(pod);
+            if pod.metrics_available {
+                let peak = self.pod_peak_usage.entry(key.clone()).or_default();
+                *peak = (peak.0.max(pod.cpu_millicores), peak.1.max(pod.memory_mb));
+            }
+
             let memory_history = self.pod_memory_history.entry(key.clone()).or_default();
             memory_history.push(pod.memory_pct);
             if memory_history.len() > MAX_HISTORY_SAMPLES {
@@ -247,6 +278,17 @@ impl AppState {
 
     pub fn get_pod_memory_history(&self, pod: &PodInfo) -> Option<&Vec<u8>> {
         self.pod_memory_history.get(&pod_history_key(pod))
+    }
+
+    /// Peak (cpu millicores, memory MB) measured for the pod this session,
+    /// including the current sample; None if it has never been measured.
+    pub fn pod_peak_usage(&self, pod: &PodInfo) -> Option<(u64, u64)> {
+        let current = pod.metrics_available.then_some((pod.cpu_millicores, pod.memory_mb));
+        let recorded = self.pod_peak_usage.get(&pod_history_key(pod)).copied();
+        match (current, recorded) {
+            (Some(now), Some(peak)) => Some((now.0.max(peak.0), now.1.max(peak.1))),
+            (now, peak) => now.or(peak),
+        }
     }
 
     pub fn get_pod_cpu_history(&self, pod: &PodInfo) -> Option<&Vec<u8>> {
@@ -328,19 +370,24 @@ impl AppState {
         let Some(pod) = self.current_pod() else {
             return false;
         };
-        if pod.containers.len() < 2 {
+        // Native sidecars have their own logs, so they are selectable too.
+        let names: Vec<&str> = pod
+            .containers
+            .iter()
+            .chain(&pod.sidecar_containers)
+            .map(|container| container.name.as_str())
+            .collect();
+        if names.len() < 2 {
             return false;
         }
 
         let current_index = self
             .log_container
             .as_deref()
-            .and_then(|selected| {
-                pod.containers.iter().position(|container| container.name == selected)
-            })
+            .and_then(|selected| names.iter().position(|name| *name == selected))
             .unwrap_or(0);
-        let next_index = (current_index + 1) % pod.containers.len();
-        self.log_container = Some(pod.containers[next_index].name.clone());
+        let next_index = (current_index + 1) % names.len();
+        self.log_container = Some(names[next_index].to_string());
         self.reset_log_stream_view();
         true
     }
@@ -422,6 +469,83 @@ impl AppState {
 
     pub fn selected_incident(&self) -> Option<&IncidentBucket> {
         self.snapshot.as_ref()?.incident_buckets.get(self.event_cursor)
+    }
+
+    pub fn enter_timeline_view(&mut self) {
+        self.view = AppView::Timeline;
+        self.timeline_cursor = 0;
+        self.timeline_scroll = 0;
+    }
+
+    pub fn enter_timeline_for_incident(&mut self, bucket: &IncidentBucket) {
+        self.view = AppView::Timeline;
+        self.timeline_cursor = 0;
+        self.timeline_scroll = 0;
+        self.timeline_from_incident = Some(bucket.reason.clone());
+
+        // Apply filters based on the incident
+        // Extract namespace from the first target if available
+        if let Some(first_target) = bucket.targets.first() {
+            // Try to get namespace from pod targets
+            if let Some(pod_name) = first_target.pod_name() {
+                // Look up the pod in the snapshot to get its namespace
+                if let Some(snapshot) = &self.snapshot {
+                    if let Some(pod) = snapshot.pods.iter().find(|p| p.name == pod_name) {
+                        self.timeline_namespace_filter = Some(pod.namespace.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn enter_rightsizing_view(&mut self) {
+        self.view = AppView::RightSizing;
+        self.sizing_scroll = 0;
+    }
+
+    /// Right-sizing for the current snapshot, using each pod's peak usage seen
+    /// this session.
+    pub fn rightsizing(&self) -> Vec<crate::data::rightsizing::WorkloadSizing> {
+        self.snapshot.as_ref().map_or_else(Vec::new, |snapshot| {
+            crate::data::rightsizing::analyze(&snapshot.pods, |pod| self.pod_peak_usage(pod))
+        })
+    }
+
+    pub fn exit_timeline_view(&mut self) {
+        self.view = AppView::Dashboard;
+        self.timeline_from_incident = None;
+        self.timeline_kind_filter = None;
+        self.timeline_namespace_filter = None;
+        self.timeline_severity_filter = None;
+    }
+
+    pub fn get_timeline_entries(&self) -> Vec<crate::data::timeline::TimelineEntry> {
+        use crate::data::timeline::{build_timeline, filter_timeline_entries, mark_precursors};
+
+        let Some(snapshot) = &self.snapshot else {
+            return vec![];
+        };
+
+        let mut entries = build_timeline(snapshot);
+
+        // Mark precursors (events that likely caused incidents, e.g., rollout before crashes)
+        // Use a 10-minute window to identify precursors
+        mark_precursors(&mut entries, 600);
+
+        // Apply filters
+        entries = filter_timeline_entries(
+            &entries,
+            self.timeline_kind_filter,
+            self.timeline_namespace_filter.as_deref(),
+            self.timeline_severity_filter,
+        );
+
+        // Apply sort order
+        if !self.timeline_newest_first {
+            entries.reverse();
+        }
+
+        entries
     }
 
     pub fn has_blocking_connection_issue(&self) -> bool {
@@ -662,6 +786,11 @@ mod tests {
             is_ready: true,
             crash_looping: false,
             oom_killed: false,
+            init_containers: vec![],
+            sidecar_containers: vec![],
+            owner: None,
+            metrics_available: true,
+            running_limits: Default::default(),
             node_name: None,
             status_reason: None,
             containers: vec![ContainerInfo {
@@ -671,6 +800,8 @@ mod tests {
                 state: "Running".to_string(),
                 last_termination_reason: None,
                 last_exit_code: None,
+                memory_limit_mb: 0,
+                started: true,
             }],
         }
     }
@@ -711,6 +842,11 @@ mod tests {
             is_ready: spec.ready,
             crash_looping: false,
             oom_killed: false,
+            init_containers: vec![],
+            sidecar_containers: vec![],
+            owner: None,
+            metrics_available: true,
+            running_limits: Default::default(),
             node_name: None,
             status_reason: None,
             containers: vec![ContainerInfo {
@@ -720,6 +856,8 @@ mod tests {
                 state: "Running".to_string(),
                 last_termination_reason: None,
                 last_exit_code: None,
+                memory_limit_mb: 0,
+                started: true,
             }],
         }
     }
@@ -1149,6 +1287,8 @@ mod tests {
             state: "Running".to_string(),
             last_termination_reason: None,
             last_exit_code: None,
+            memory_limit_mb: 0,
+            started: true,
         });
         app.snapshot = Some(snapshot_with(vec![multi_container_pod], vec![]));
         app.enter_pod_detail("api".to_string());
@@ -1159,6 +1299,23 @@ mod tests {
         assert!(changed);
         assert_eq!(app.log_container.as_deref(), Some("sidecar"));
         assert!(app.log_buffer.is_empty());
+    }
+
+    #[test]
+    fn cycle_log_container_includes_native_sidecars() {
+        let mut app = AppState::new(Config::default());
+        let mut pod_with_sidecar = pod("api", "default", 10, 10);
+        let mut sidecar = pod_with_sidecar.containers[0].clone();
+        sidecar.name = "istio-proxy".to_string();
+        pod_with_sidecar.sidecar_containers.push(sidecar);
+        let app_container = pod_with_sidecar.containers[0].name.clone();
+        app.snapshot = Some(snapshot_with(vec![pod_with_sidecar], vec![]));
+        app.enter_pod_detail("api".to_string());
+
+        assert!(app.cycle_log_container());
+        assert_eq!(app.log_container.as_deref(), Some("istio-proxy"));
+        assert!(app.cycle_log_container());
+        assert_eq!(app.log_container.as_deref(), Some(app_container.as_str()));
     }
 
     #[test]

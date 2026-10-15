@@ -28,6 +28,27 @@ cargo update                       # update to latest compatible versions
 
 Reusable repository skills live in `.agents/skills/`. Read the relevant `SKILL.md` before performing a matching task; `release-cluster-cli` governs release preparation, tagging, and release-status work.
 
+## Documentation
+
+When features, key bindings, CLI flags, or MCP tools change, update the documentation to stay synchronized with the code.
+
+**What to update:**
+- `docs/*.md` - Markdown documentation files
+- `docs/index.html` - Landing page (self-contained HTML)
+
+**How to update:**
+Use the **`update-docs` skill** at `.agents/skills/update-docs/SKILL.md`. This skill:
+- Reads the code as source of truth (no invented features)
+- Updates all affected documentation files
+- Regenerates the landing page with current features
+- Verifies every documented key binding, flag, and tool exists in code
+- Renders a screenshot for PR inclusion
+
+**Hosted documentation:**
+The `docs/` folder is published to GitHub Pages at https://sharat.github.io/cluster-cli/: the `.github/workflows/pages.yml` workflow copies it to the `gh-pages` branch, which Pages serves, on pushes to `main` that touch `docs/**`.
+
+**See:** `.agents/skills/update-docs/SKILL.md` for complete documentation update workflow.
+
 ## Changelog Maintenance
 
 The repository maintains a `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format. Update the **Unreleased** section when making significant changes:
@@ -125,6 +146,8 @@ For PRs that include user-facing changes, include screenshots or recordings to d
 
 cluster-cli is a read-only Kubernetes TUI built on ratatui + crossterm with a tokio async runtime. It communicates with kubectl via subprocesses (30s timeout, read-only whitelist enforced).
 
+The repo is a Cargo workspace. The root package is the TUI (plus the headless JSON API and MCP server); `crates/cluster-core` holds everything UI-agnostic (`config`, `events`, `data/*`); `crates/cluster-desktop` is an experimental GPUI desktop app. `default-members` excludes the desktop crate, so plain `cargo build`/`cargo test` (and CI) cover only the TUI and core. Use `-p cluster-desktop` for the GUI (`just desktop`). Paths below under `src/data/`, `src/config.rs` and `src/events/mod.rs` live in `crates/cluster-core/src/`.
+
 ### Data Flow
 
 [105 more lines in file. Use offset=31 to continue.]
@@ -170,4 +193,4 @@ Not currently published to crates.io. Distribution is via GitHub Release binarie
 ## Notes
 - Multi-platform releases: Linux, macOS (ARM64), Windows
 - Uses `Swatinem/rust-cache@v2` for faster builds
-- Minimum Rust version: 1.70
+- Minimum Rust version: 1.85 (edition 2024); CI and local builds use the toolchain pinned in `rust-toolchain.toml`

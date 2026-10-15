@@ -4,8 +4,11 @@
 
 [![CI](https://github.com/sharat/cluster-cli/workflows/CI/badge.svg)](https://github.com/sharat/cluster-cli/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Documentation](https://img.shields.io/badge/docs-online-blue.svg)](https://sharat.github.io/cluster-cli/)
 
 A fast, interactive terminal UI for monitoring Kubernetes cluster health in real-time. Works with any Kubernetes cluster (AKS, EKS, GKE, on-premises, etc.).
+
+**[📖 Full Documentation](https://sharat.github.io/cluster-cli/)** | [Installation Guide](https://github.com/sharat/cluster-cli/blob/main/docs/installation.md) | [Quick Start](https://github.com/sharat/cluster-cli/blob/main/docs/quick-start.md)
 
 ## Features
 
@@ -21,6 +24,7 @@ For the current detailed feature inventory, see [features.md](features.md).
 - **Pod Insights**: Track pod status, resource consumption, restarts, and age
 - **Workload Popup**: Inspect controllers, batch workloads, autoscaling, disruption budgets, networking, and storage with `w`
 - **Pod History**: Visual CPU and memory sparklines in pod detail view
+- **Right-sizing**: Compare each workload's CPU and memory requests with its actual usage, flag over- and under-provisioned workloads, and suggest requests (`u` from the dashboard)
 - **Memory Usage Bars**: Horizontal bar graphs with percentage and absolute values
 - **Incident Queue**: Monitor ranked warning and failure signals built from nodes, pods, events, and cluster-wide checks
 - **Live Updates**: Pod, node, and event changes stream in between refreshes via read-only `kubectl get --watch`
@@ -49,7 +53,7 @@ For the current detailed feature inventory, see [features.md](features.md).
 
 ## Prerequisites
 
-- Rust 1.70+ (for building from source)
+- Rust 1.85+ (for building from source)
 - `kubectl` configured with cluster access (any Kubernetes cluster)
 - Terminal with truecolor support (recommended)
 
@@ -145,6 +149,93 @@ cluster --info
 
 Don't have a Kubernetes cluster with workloads yet? You can try `cluster-cli` with example applications from the [Kubernetes Examples repository](https://github.com/kubernetes/examples). Deploy any example (like the guestbook or nginx apps) to your cluster, then run `cluster-cli` to see the dashboard in action.
 
+## AI Agents & Scripts (JSON API & MCP Server)
+
+cluster-cli can be used programmatically by AI agents and scripts through stable JSON output and an MCP (Model Context Protocol) server.
+
+### JSON Commands
+
+All data-fetching subcommands support `--json` for machine-readable output:
+
+```bash
+# Get cluster health with score, grade, and critical resource counts
+cluster status --json
+cluster status --json --verbose  # Include detailed findings
+
+# List incidents ranked by severity
+cluster incidents --json
+cluster incidents --json --verbose  # All incidents (not just top 10)
+
+# List pods with status and resource usage
+cluster pods --json
+cluster pods --json --verbose  # Include container details
+
+# List nodes with metrics and conditions
+cluster nodes --json
+cluster nodes --json --verbose  # Include full condition details
+
+# Stream logs from a pod
+cluster logs <pod-name> --tail 100
+cluster logs <pod-name> -c <container> --follow
+```
+
+All JSON responses include a `version` field with the schema version (`1.0.0`). The schema is documented in `src/json_output.rs`.
+
+### MCP Server
+
+cluster-cli includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) server for AI agents like Claude Desktop and Cursor:
+
+```bash
+cluster mcp
+```
+
+The server exposes read-only tools over stdio:
+
+- **get_cluster_health** - Health score, grade, findings
+- **list_incidents** - Ranked incidents by severity
+- **list_pods** - Pod list with status and resources
+- **describe_pod** - Detailed pod information
+- **explain_pod** - Likely causes for pod issues, each with a suggested next `kubectl` command
+- **get_logs** - Fetch pod logs
+- **list_nodes** - Node metrics and conditions
+- **list_contexts** - Available kubectl contexts
+
+#### Cursor Configuration
+
+Add to `.cursor/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "cluster-cli": {
+      "command": "cluster",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+#### Claude Desktop Configuration
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "cluster-cli": {
+      "command": "/path/to/cluster",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Note:** The MCP server uses the current kubectl context. Switch contexts with `kubectl config use-context` before starting the AI agent, or configure separate MCP servers for different clusters.
+
+### E2E Testing
+
+See [`examples/e2e/`](examples/e2e/) for end-to-end tests with a kind cluster and sample workloads (healthy, crash-looping, OOMKilled, ImagePullBackOff, Pending).
+
 ## Configuration
 
 ### Configuration File
@@ -204,6 +295,7 @@ Each resource in `crd_checks` is listed in the current namespace. An object is f
 | `↓` / `j` | Move down |
 | `Enter` | View selected item details (Pods or Nodes), or drill into the selected incident |
 | `w` | Toggle workload popup |
+| `u` | Open the right-sizing view |
 | `s` | Cycle pod sort mode |
 | `E` | Export pods to CSV |
 
@@ -329,6 +421,26 @@ requirements:
   `libxkbcommon`, `libwayland`, `libxcb`, `fontconfig`, `vulkan-loader`).
 
 ## Data Visualization
+
+### Right-sizing
+
+Press `u` on the dashboard to compare what each workload requests with what it uses:
+- Running pods are grouped by their workload (Deployment, StatefulSet, DaemonSet, Job, or the bare pod)
+- Usage is the peak seen during the session (from `kubectl top`), so one quiet sample does not understate a busy workload
+- Verdicts: **under** (using more than requested), **over** (using under 30% of a request of at least 50m CPU or 64Mi memory), **no requests**, **no metrics**, or **ok**
+- Suggested per-pod requests are current usage plus 30% headroom, and the summary shows the CPU and memory that following them would free
+- A suggestion never exceeds the container limits; one capped at the limit is marked `*`, since usage pinned at a limit means the limit needs raising too
+- Needs metrics-server in the cluster; without it the view explains that usage is unavailable
+
+### Pod Diagnosis
+
+Pod detail includes a **Diagnosis** panel that explains why a pod is unhealthy:
+- Each finding shows a severity label, the issue, its likely cause, and the next read-only `kubectl` command to run
+- Covers crash loops (with exit-code hints), OOM kills, image pull and config errors, scheduling failures, volume mount failures, evictions, failing probes, node problems, and resources near their limits
+- Shows "No problems detected" for a healthy pod
+- Native sidecars (init containers with `restartPolicy: Always`) are diagnosed like app containers, listed under Containers with a `sidecar` tag, and selectable in the log viewer with `c`
+- Uses only data already in the snapshot; no extra `kubectl` calls are made
+- The MCP `explain_pod` tool returns the same findings
 
 ### Pod History Sparklines
 

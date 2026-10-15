@@ -3,7 +3,7 @@ use clap::Args;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Args, Debug, Default)]
+#[derive(Args, Debug, Default, Clone)]
 pub struct ConfigOverrides {
     /// Kubernetes namespace to monitor
     #[arg(short, long)]

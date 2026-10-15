@@ -1,5 +1,4 @@
 use anyhow::Result;
-use clap::Parser;
 use crossterm::{
     cursor::{SetCursorStyle, Show},
     event::{Event, EventStream, KeyEventKind},
@@ -12,14 +11,19 @@ use std::{io, time::Duration};
 use tokio::{sync::mpsc, time::interval};
 
 mod app;
+mod cli;
 mod events;
+mod headless;
+mod json_output;
+mod mcp;
 mod ui;
 mod updater;
 
 use cluster_core::{config, data};
 
 use app::AppState;
-use config::{Config, ConfigOverrides};
+use cli::{Cli, Commands};
+use config::Config;
 use data::fetcher::Fetcher;
 use data::models::{ConnectionIssue, ConnectionIssueKind};
 use events::{AppEvent, FetchCommand};
@@ -43,36 +47,6 @@ impl Drop for TerminalGuard {
         let _ = disable_raw_mode();
         let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
     }
-}
-
-#[derive(Parser)]
-#[command(name = "cluster")]
-#[command(about = "A fast, interactive terminal UI for monitoring Kubernetes cluster health")]
-#[command(version = VERSION)]
-struct Cli {
-    #[command(flatten)]
-    config: ConfigOverrides,
-
-    /// Upgrade cluster-cli in place using the method it was installed with
-    #[arg(long)]
-    upgrade: bool,
-
-    /// Check whether a newer release is available, without installing it
-    #[arg(long)]
-    check_update: bool,
-
-    /// Show version, detected install method, and config directory
-    #[arg(long)]
-    info: bool,
-
-    /// Record the installer used by this binary
-    #[arg(
-        long,
-        hide = true,
-        value_name = "METHOD",
-        value_parser = ["curl", "homebrew", "cargo"]
-    )]
-    record_install_method: Option<String>,
 }
 
 /// Handle installer metadata, `--info`, `--check-update` and `--upgrade`.
@@ -115,14 +89,50 @@ async fn run_updater_flags(cli: &Cli) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    use clap::Parser;
     let cli = Cli::parse();
 
-    // These subcommand-ish flags are terminal operations: handle them and exit
-    // before any TUI/raw-mode setup, so their output goes to a normal terminal.
+    // Handle non-TUI commands first
     if cli.upgrade || cli.check_update || cli.info || cli.record_install_method.is_some() {
         return run_updater_flags(&cli).await;
     }
 
+    // Handle JSON/headless subcommands
+    if let Some(ref command) = cli.command {
+        let config = Config::load(cli.config.clone())?;
+
+        match command {
+            Commands::Status { json, verbose, kubectl_opts } => {
+                return headless::handle_status(kubectl_opts, &config, *json, *verbose).await;
+            }
+            Commands::Incidents { json, verbose, kubectl_opts } => {
+                return headless::handle_incidents(kubectl_opts, &config, *json, *verbose).await;
+            }
+            Commands::Pods { json, verbose, kubectl_opts } => {
+                return headless::handle_pods(kubectl_opts, &config, *json, *verbose).await;
+            }
+            Commands::Nodes { json, verbose, kubectl_opts } => {
+                return headless::handle_nodes(kubectl_opts, &config, *json, *verbose).await;
+            }
+            Commands::Logs { pod, container, tail, follow, timestamps, kubectl_opts } => {
+                return headless::handle_logs(
+                    kubectl_opts,
+                    &config,
+                    pod,
+                    container.as_deref(),
+                    *tail,
+                    *follow,
+                    *timestamps,
+                )
+                .await;
+            }
+            Commands::Mcp => {
+                return mcp::run_mcp_server(config).await;
+            }
+        }
+    }
+
+    // Everything below is the TUI path
     let mut config = Config::load(cli.config)?;
 
     // Logging is opt-in via RUST_LOG. stderr shares the terminal with the TUI,
@@ -277,24 +287,5 @@ async fn run_app(
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Cli;
-    use clap::Parser;
-
-    #[test]
-    fn hidden_record_install_method_accepts_supported_source() {
-        let cli = Cli::try_parse_from(["cluster", "--record-install-method", "curl"])
-            .expect("curl should be accepted");
-
-        assert_eq!(cli.record_install_method.as_deref(), Some("curl"));
-    }
-
-    #[test]
-    fn hidden_record_install_method_rejects_unknown_source() {
-        assert!(Cli::try_parse_from(["cluster", "--record-install-method", "apt"]).is_err());
     }
 }

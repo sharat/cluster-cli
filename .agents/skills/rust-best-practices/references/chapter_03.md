@@ -7,9 +7,9 @@ The **golden rule** of performance work:
 Rust code is often already pretty fast - don't "optimize" without evidence. Optimize only after finding bottlenecks.
 
 ### A good first steps
-* Use `--release` flag on you builds (might sound dummy, but it is quite common to hear people complaining that their Rust code is slower than their X language code, and 99% of the time is because they didn't use the `--release` flag).
+* Use `--release` flag on your builds (might sound dummy, but it is quite common to hear people complaining that their Rust code is slower than their X language code, and 99% of the time is because they didn't use the `--release` flag).
 * `$ cargo clippy -- -D clippy::perf` gives you important tips on best practices for performance.
-* [`cargo bench`](https://doc.rust-lang.org/cargo/commands/cargo-bench.html) is a cargo tool to create micro-benchmarks and test different code solutions. Write a test scenario and bench you solution against the original code, if your improvement is larger than 5%, might be a good performance improvement.
+* [`cargo bench`](https://doc.rust-lang.org/cargo/commands/cargo-bench.html) is a cargo tool to create micro-benchmarks and test different code solutions. Write a test scenario and bench your solution against the original code, if your improvement is larger than 5%, might be a good performance improvement.
 * [`cargo flamegraph`](https://github.com/flamegraph-rs/flamegraph) a powerful profiler for Rust code. For MacOS, [samply](https://github.com/mstange/samply) might be a better DX option.
 
 > #### Further reading on Benchmarking:
@@ -55,6 +55,7 @@ cargo flamegraph --example some_example --features some_features
 
 The result will look like a flame graph where:
 
+
 * The `y-axis` shows the **stack depth number**. When looking at a flamegraph, the main function of your program will be closer to the bottom, and the called functions will be stacked on top, with the functions that they call stacked on top of them.
 
 * The `width of each box` shows the **total time that that function** is on the CPU or is part of the call stack. If a function's box is wider than others, that means that it consumes more CPU per execution than other functions, or that it is called more than other functions.
@@ -99,7 +100,7 @@ In sections [Borrowing over Cloning](./chapter_01.md#11-borrowing-over-cloning) 
     }
 
     assert_eq!(Point { x: 1, y: 0 } + Point { x: 2, y: 3 },
-               Point { x: 3, y: 3 });
+            Point { x: 3, y: 3 });
     ```
     * Need to do comparison snapshots or due to API you need multiple owned instances of the data.
     ```rust
@@ -124,7 +125,7 @@ In sections [Borrowing over Cloning](./chapter_01.md#11-borrowing-over-cloning) 
     }
     ```
 * You have reference counted pointers (`Arc, Rc`).
-* You have small structs that are to big to `Copy` but as costly as `std::collections`. An example is HTTP client like `hyper_util::client::legacy::Client` that cloning allows you to share the connection pool.
+* You have small structs that are too big to `Copy` but as costly as `std::collections`. An example is HTTP client like `hyper_util::client::legacy::Client` that cloning allows you to share the connection pool.
 * You have a chained struct modifier that needs owned mutation, some **builders** require owned mutation, but most custom builders can be done with `pub fn with_xyz(&mut self, value: Xyz) -> &mut Self`.
 ```rust
 // Inline `HashMap` insertion extension
@@ -133,6 +134,7 @@ fn insert_owned(mut self, key: K, value: V) -> Self {
     self.insert(key, value);
     self
 }
+
 ```
 * Ownership can also be a good way to model business logic / state. For example:
 ```rust
@@ -172,7 +174,7 @@ hello_greet(Cow::Owned("Naomi".to_string()));
 ### ✅ Good Practices 
 
 * Keep small types (`impl Copy`, `usize`, `bool`, etc) **on the stack**.
-* Avoid passing huge types (`> 512 bytes`) by value or transferring ownership. Prefer pass by reference (e.g. `&T` and `&mut T`).
+* Avoid passing huge types (`> 512 bytes`)  by value or transferring ownership. Prefer pass by reference (e.g. `&T` and `&mut T`).
 * Heap allocate recursive data structures:
 ```rust
 enum OctreeNode<T> {
@@ -202,7 +204,7 @@ Rust iterators are lazy, but eventually compiled away into very efficient tight 
 let doubled: Vec<_> = items.iter().map(|x| x * 2).collect();
 process(doubled);
 ```
-* ✅ GOOD - pass the iterator (`fn process(arg: impl Iterator<Item = T>)`):
+* ✅ GOOD - pass the iterator (`fn process(arg: impl Iterator<Item = u32>)`):
 ```rust
 let doubled_iter = items.iter().map(|x| x * 2);
 process(doubled_iter);

@@ -4,15 +4,15 @@ Many higher level languages hide memory management, typically **passing by value
 
 ### 📌 Language Comparison 
 
-| Language | Value Types | Reference/Pointer Types | Async Model & Types | Manual Memory |
-|------------ |------------------------------------- |----------------------------------------------------------- |---------------------------------------------------------------------------- |------------------------------ |
-| Python | None | Everything is a reference | async def, await, Task, coroutines and asyncio.Future | ❌ Not Allowed |
-| Javascript | Primitives | Objects | `async/await`, `Promise`, `setTimeout`. single threaded event loop | ❌ Not Allowed |
-| Java | Primitives | Objects | `Future<T>`, threads, Loom (green threads) | ❌ Almost none & not recommended |
-| Go | Values are copied unless using `&T` | Pointers (`*T`, `&T`), escape analysis | goroutines, `channels`, `sync.Mutex`, `context.Context` | ⚠️ Limited |
-| C | Primitives and structs supported | Raw pointers `T*` and `*void` | Threads, event loops (`libuv`, `libevent`) | ✅ Fully |
-| C++ | Primitives and references | Raw `T*` and smart pointers `shared_ptr` and `unique_ptr` | threads, `std::future`, `std::async`, (since c++ 20 `co_await/coroutines`) | ✅ Mostly |
-| Rust | Primitives, Arrays, `impl Copy` | `&T`, `&mut T`, `Box<T>`, `Arc<T>` | `async/await`, `tokio`, `Future`, `JoinHandle`, `Send + Sync` | ✅🔒 Safe and Explicit |
+| Language   	| Value Types                         	| Reference/Pointer Types                                   	| Async Model & Types                                                        	| Manual Memory                	|
+|------------	|-------------------------------------	|-----------------------------------------------------------	|----------------------------------------------------------------------------	|------------------------------	|
+| Python     	| None                                	| Everything is a reference                                 	| async def, await, Task, coroutines and asyncio.Future                      	| ❌ Not Allowed                  	|
+| Javascript 	| Primitives                          	| Objects                                                   	| `async/await`, `Promise`, `setTimeout`. single threaded event loop         	| ❌ Not Allowed                  	|
+| Java       	| Primitives                          	| Objects                                                   	| `Future<T>`, threads, Loom (green threads)                                   	| ❌ Almost none & not recommended 	|
+| Go         	| Values are copied unless using `&T` 	| Pointers (`*T`, `&T`), escape analysis                    	| goroutines, `channels`, `sync.Mutex`, `context.Context`                          	| ⚠️ Limited                      	|
+| C          	| Primitives and structs supported    	| Raw pointers `T*` and `*void`                             	| Threads, event loops (`libuv`, `libevent`)                                 	| ✅ Fully                        	|
+| C++        	| Primitives and references           	| Raw `T*` and smart pointers `shared_ptr` and `unique_ptr` 	| threads, `std::future`, `std::async`, (since c++ 20 `co_await/coroutines`) 	| ✅ Mostly                       	|
+| Rust       	| Primitives, Arrays, `impl Copy`     	| `&T`, `&mut T`, `Box<T>`, `Arc<T>`                                	| `async/await`, `tokio`, `Future`, `JoinHandle`, `Send + Sync`              	|    ✅🔒  Safe and Explicit                        	|
 
 ## 9.1 Thread Safety
 
@@ -22,22 +22,22 @@ Rust tracks pointers using `Send` and `Sync` traits:
 
 > A pointer is thread-safe only if the data behind it is.
 
-| Pointer Type | Short Description | Send + Sync? | Main Use |
-|---------------- |--------------------------------------------------------------------------- |-------------------------------------- |------------ |
-| `&T` | Shared reference | Yes | Shared access |
-| `&mut T` | Exclusive mutable reference | No, not Send | Exclusive mutation |
-| `Box<T>` | Heap-allocated owning pointer | Yes, if T: Send + Sync | Heap allocation |
-| `Rc<T>` | Single-threaded ref counted pointer | No, neither | Multiple owners (single-thread) |
-| `Arc<T>` | Atomic ref counter pointer | Yes | Multiple owners (multi-thread) |
-| `Cell<T>` | Interior mutability for copy types | No, not Sync | Shared mutable, non-threaded |
-| `RefCell<T>` | Interior mutability (dynamic borrow checker) | No, not Sync | Shared mutable, non-threaded |
-| `Mutex<T>` | Thread-safe interior mutability with exclusive access | Yes | Shared mutable, threaded |
-| `RwLock<T>` | Thread-safe shared readonly access OR exclusive mutable access | Yes | Shared mutable, threaded |
-| `OnceCell<T>` | Single-thread one-time initialization container (interior mutability ONCE) | No, not Sync | Simple lazy value initialization |
-| `LazyCell<T>` | A lazy version of `OnceCell<T>` that calls function closure to initialize | No, not Sync | Complex lazy value initialization |
-| `OnceLock<T>` | Thread-safe version of `OnceCell<T>` | Yes | Multi-thread single init |
-| `LazyLock<T>` | Thread-safe version of `LazyCell<T>` | Yes | Multi-thread complex init |
-| `*const T/*mut T` | Raw Pointers | No, user must ensure safety manually | Raw memory / FFI |
+| Pointer Type   	| Short Description                                                         	| Send + Sync?                          |  Main Use  	|
+|----------------	|---------------------------------------------------------------------------	|--------------------------------------	|------------	|
+| `&T`             	| Shared reference                                                          	| Yes                                 	| Shared access      |
+| `&mut T`         	| Exclusive mutable reference                                               	| No, not Send                         	| Exclusive mutation |
+| `Box<T>`         	| Heap-allocated owning pointer                                             	| Yes, if T: Send + Sync               	| Heap allocation    |
+| `Rc<T>`          	| Single-threaded ref counted pointer                                       	| No, neither                          	| Multiple owners (single-thread) |
+| `Arc<T>`         	| Atomic ref counter pointer                                                	| Yes                                  	| Multiple owners (multi-thread) |
+| `Cell<T>`        	| Interior mutability for copy types                                        	| No, not Sync                         	| Shared mutable, non-threaded |
+| `RefCell<T>`     	| Interior mutability (dynamic borrow checker)                              	| No, not Sync                         	| Shared mutable, non-threaded |
+| `Mutex<T>`       	| Thread-safe interior mutability with exclusive access                     	| Yes                                  	| Shared mutable, threaded |
+| `RwLock<T>`      	| Thread-safe shared readonly access OR exclusive mutable access            	| Yes                                  	| Shared mutable, threaded |
+| `OnceCell<T>`    	| Single-thread one-time initialization container (interior mutability ONCE)    | No, not Sync                         	| Simple lazy value initialization |
+| `LazyCell<T>`    	| A lazy version of `OnceCell<T>` that calls function closure to initialize 	| No, not Sync                         	| Complex lazy value initialization 
+| `OnceLock<T>`    	| Thread-safe version of `OnceCell<T>`                                      	| Yes                                  	| Multi-thread single init |
+| `LazyLock<T>`    	| Thread-safe version of  `LazyCell<T>`                                     	| Yes                                  	| Multi-thread complex init	|
+| `*const T/*mut T` 	| Raw Pointers                                                              	| No, user must ensure safety manually 	| Raw memory / FFI |
 
 ## 9.2 When to use pointers:
 
@@ -46,7 +46,7 @@ Rust tracks pointers using `Send` and `Sync` traits:
 Probably the most common type in a Rust code base, it is **Safe, with no mutation** and allows **multiple readers**.
 
 ```rust
-let data: String = String::from_str("this a string").unwrap();
+let data: String = String::from_str("this is a string").unwrap();
 
 print_len(&data);
 print_capacity(&data);
@@ -69,7 +69,7 @@ fn print_bytes(s: &String) {
 Probably the most common *mutable* type in a Rust code base, it is **Safe, but only allows one mutable borrow at a time**.
 
 ```rust
-let mut data: String = String::from_str("this a string").unwrap();
+let mut data: String = String::from_str("this is a string").unwrap();
 mark_update(&mut data);
 
 fn mark_update(s: &mut String) {
@@ -95,11 +95,11 @@ You need multiple references to data in a single thread. Most common example is 
 
 ### [`Arc<T>`](https://doc.rust-lang.org/std/sync/struct.Arc.html) - Atomic Reference Counter (multi-thread)
 
-You need multiple references to data in multiple threads. Most common use cases is sharing readonly Vec across thread with `Arc<[T]>` and wrapping a `Mutex` so it can be easily shared across threads, `Arc<Mutex<T>>`.
+You need multiple references to data in multiple threads. Most common use case is sharing readonly Vec across thread with `Arc<[T]>` and wrapping a `Mutex` so it can be easily shared across threads, `Arc<Mutex<T>>`.
 
 ### [`RefCell<T>`](https://doc.rust-lang.org/std/cell/struct.RefCell.html) - Runtime checked interior mutability
 
-Used when you need shared access and the ability to mutate date, borrow rules are enforced at runtime. **It may panic!**.
+Used when you need shared access and the ability to mutate data, borrow rules are enforced at runtime. **It may panic!**.
 
 ```rust
 use std::cell::RefCell;
@@ -162,7 +162,7 @@ Inherently **unsafe** and necessary for FFI. Rust makes their usage explicit to 
 
 ```rust
 let x = 5;
-let ptr = &x as *const i32;
+let ptr = &x as *const i32
 unsafe {
     println!("PTR is {}", *ptr)
 }
@@ -178,7 +178,7 @@ use std::{cell::OnceCell, rc::Rc};
 #[derive(Debug, Default)]
 struct MyStruct {
     distance: usize,
-    root: Option<Rc<OnceCell<MyStruct>>>, 
+    root: Option<Rc<OnceCell<MyStruct>>>,    
 }
 
 fn main() {
@@ -214,7 +214,7 @@ Useful when you need a `static` value.
 ```rust
 use std::sync::OnceLock;
 
-static CELL: OnceLock<u32> = OnceLock::new();
+static CELL: OnceLock<usize> = OnceLock::new();
 
 // `OnceLock` has not been written to yet.
 assert!(CELL.get().is_none());
@@ -241,10 +241,10 @@ Similar to `OnceLock`, but the static value is a bit more complex to initialize.
 ```rust
 use std::sync::LazyLock;
 
-static CONFIG: LazyLock<HashMap<&str, T>> = LazyLock::new(|| {
+static CONFIG: LazyLock<HashMap<String, T>> = LazyLock::new(|| {
     let data = read_config();
-    let mut config: HashMap<&str, T> = data.into();
-    config.insert("special_case", T::default());
+    let mut config: HashMap<String, T> = data.into();
+    config.insert("special_case", T::Default());
     config
 });
 

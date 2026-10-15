@@ -7,7 +7,7 @@ default-members = [".", "crates/cluster-core"]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.5"
+version = "0.4.0"
 edition = "2024"
 authors = ["Sarath C"]
 license = "MIT"
@@ -35,7 +35,8 @@ description = "A fast, interactive terminal UI for monitoring Kubernetes cluster
 readme = "README.md"
 license = "MIT"
 repository = "https://github.com/sharat/cluster-cli"
-homepage = "https://github.com/sharat/cluster-cli"
+homepage = "https://sharat.github.io/cluster-cli/"
+documentation = "https://sharat.github.io/cluster-cli/"
 keywords = ["kubernetes", "k8s", "monitoring", "tui", "terminal"]
 categories = ["command-line-utilities", "development-tools"]
 rust-version.workspace = true

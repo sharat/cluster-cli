@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cluster-cli - Kubernetes Cluster Health Monitoring TUI</title>
+    <meta name="description" content="A fast, interactive terminal UI for monitoring Kubernetes cluster health in real-time. Built in Rust with ratatui.">
+    <meta name="keywords" content="kubernetes, k8s, monitoring, tui, terminal, cli, cluster, health, rust">
+    <link rel="canonical" href="https://sharat.github.io/cluster-cli/">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://sharat.github.io/cluster-cli/">
+    <meta property="og:title" content="cluster-cli - Kubernetes Cluster Health Monitoring TUI">
+    <meta property="og:description" content="A fast, interactive terminal UI for monitoring Kubernetes cluster health in real-time.">
+    <meta property="og:image" content="https://sharat.github.io/cluster-cli/images/screenshot.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://sharat.github.io/cluster-cli/">
+    <meta property="twitter:title" content="cluster-cli - Kubernetes Cluster Health Monitoring TUI">
+    <meta property="twitter:description" content="A fast, interactive terminal UI for monitoring Kubernetes cluster health in real-time.">
+    <meta property="twitter:image" content="https://sharat.github.io/cluster-cli/images/screenshot.png">
+
+    <!-- Favicon (inline SVG) -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>⎈</text></svg>">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            /* Light mode (default) */
+            --gradient-start: #3730a3; /* indigo-800 */
+            --gradient-end: #0f766e; /* teal-700 */
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc; /* slate-50 */
+            --bg-tertiary: #f1f5f9; /* slate-100 */
+            --text-primary: #0f172a; /* slate-900 */
+            --text-secondary: #475569; /* slate-600 */
+            --text-muted: #64748b; /* slate-500 */
+            --border: #e2e8f0; /* slate-200 */
+            --accent: #0f766e; /* teal-700 */
+            --accent-light: #14b8a6; /* teal-500 */
+            --code-bg: #1e293b; /* slate-800 */
+            --code-text: #f1f5f9; /* slate-100 */
+            --shadow: rgba(0, 0, 0, 0.1);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-primary: #0f172a; /* slate-900 */
+                --bg-secondary: #1e293b; /* slate-800 */
+                --bg-tertiary: #334155; /* slate-700 */
+                --text-primary: #f1f5f9; /* slate-100 */
+                --text-secondary: #cbd5e1; /* slate-300 */
+                --text-muted: #94a3b8; /* slate-400 */
+                --border: #334155; /* slate-700 */
+                --code-bg: #0f172a; /* slate-900 */
+                --code-text: #e2e8f0; /* slate-200 */
+                --shadow: rgba(0, 0, 0, 0.3);
+            }
+        }
+
+        body {
+            font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: var(--text-primary);
+            background: var(--bg-primary);
+            line-height: 1.6;
+        }
+
+        code, pre, .terminal {
+            font-family: 'Geist Mono', 'Monaco', 'Courier New', monospace;
+        }
+
+        /* Let long inline paths wrap on narrow screens */
+        :not(pre) > code {
+            overflow-wrap: anywhere;
+        }
+
+        /* Smooth scrolling */
+        html {
+            scroll-behavior: smooth;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            html {
+                scroll-behavior: auto;
+            }
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        /* Header and Navigation */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: var(--bg-primary);
+            border-bottom: 1px solid var(--border);
+            box-shadow: 0 1px 3px var(--shadow);
+        }
+
+        nav {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover, .nav-links a:focus {
+            color: var(--accent);
+            outline: 2px solid var(--accent);
+            outline-offset: 4px;
+            border-radius: 4px;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+            color: white;
+            padding: 6rem 2rem;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        .hero p {
+            color: white;
+            font-size: 1.25rem;
+            margin-bottom: 2rem;
+            opacity: 0.95;
+            animation: fadeInUp 0.8s ease-out 0.2s both;
+        }
+
+        .install-command {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 1.5rem;
+            padding-right: 5.5rem; /* keep the command clear of the Copy button */
+            margin: 2rem auto;
+            max-width: 700px;
+            position: relative;
+            animation: fadeInUp 0.8s ease-out 0.4s both;
+        }
+
+        .install-command pre {
+            color: #e2e8f0;
+            font-size: 1rem;
+            overflow-x: auto;
+        }
+
+        .copy-button {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .copy-button:hover, .copy-button:focus {
+            background: rgba(255, 255, 255, 0.3);
+            outline: 2px solid white;
+        }
+
+        .copy-button.copied {
+            background: #10b981;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 2rem;
+            animation: fadeInUp 0.8s ease-out 0.6s both;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 2rem;
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: white;
+            color: var(--gradient-start);
+        }
+
+        .btn-primary:hover, .btn-primary:focus {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px var(--shadow);
+            outline: 2px solid white;
+            outline-offset: 2px;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .btn-secondary:hover, .btn-secondary:focus {
+            background: rgba(255, 255, 255, 0.3);
+            outline: 2px solid white;
+            outline-offset: 2px;
+        }
+
+        /* Main Content */
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 4rem 2rem;
+        }
+
+        section {
+            margin-bottom: 6rem;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeInUp 0.6s ease-out forwards;
+        }
+
+        section:nth-child(1) { animation-delay: 0.1s; }
+        section:nth-child(2) { animation-delay: 0.2s; }
+        section:nth-child(3) { animation-delay: 0.3s; }
+        section:nth-child(4) { animation-delay: 0.4s; }
+        section:nth-child(5) { animation-delay: 0.5s; }
+
+        h2 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            margin-top: 2rem;
+            margin-bottom: 0.5rem;
+            color: var(--accent);
+        }
+
+        p {
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        /* Features Grid */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+
+        .feature-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px var(--shadow);
+        }
+
+        .feature-card h3 {
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .feature-icon {
+            font-size: 1.5rem;
+        }
+
+        /* Terminal Mock */
+        .terminal-container {
+            background: var(--code-bg);
+            border-radius: 12px;
+            padding: 1rem;
+            margin: 2rem 0;
+            box-shadow: 0 8px 24px var(--shadow);
+        }
+
+        .terminal-header {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .terminal-button {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .terminal-button.red { background: #ef4444; }
+        .terminal-button.yellow { background: #f59e0b; }
+        .terminal-button.green { background: #10b981; }
+
+        .terminal {
+            color: var(--code-text);
+            font-size: 0.9rem;
+            line-height: 1.5;
+            min-height: 150px;
+        }
+
+        .terminal-prompt {
+            color: #10b981;
+        }
+
+        .terminal-command {
+            color: #60a5fa;
+        }
+
+        .terminal-output {
+            color: #cbd5e1;
+        }
+
+        .terminal-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 1.2em;
+            background: var(--code-text);
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        /* Code Blocks */
+        .code-block {
+            background: var(--code-bg);
+            color: var(--code-text);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            position: relative;
+            overflow-x: auto;
+        }
+
+        .code-block pre {
+            margin: 0;
+        }
+
+        /* Key Bindings Table */
+        .keybindings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .keybinding {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .key {
+            display: inline-block;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 0.25rem 0.5rem;
+            font-family: 'Geist Mono', monospace;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        /* MCP Section (Last) */
+        .mcp-section {
+            background: var(--bg-secondary);
+            border: 2px solid var(--accent-light);
+            border-radius: 12px;
+            padding: 3rem;
+            margin-top: 4rem;
+        }
+
+        .mcp-section h2 {
+            color: var(--accent);
+        }
+
+        /* Footer */
+        footer {
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        footer a:hover, footer a:focus {
+            text-decoration: underline;
+        }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            .hero p {
+                font-size: 1.1rem;
+            }
+            .nav-links {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            nav {
+                flex-direction: column;
+            }
+            .cta-buttons {
+                flex-direction: column;
+            }
+        }
+
+        /* Accessibility */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
+
+        :focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+    </style>
+</head>
+<body>
+    <header role="banner">
+        <nav role="navigation" aria-label="Main navigation">
+            <a href="#" class="logo">cluster-cli</a>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#install">Install</a></li>
+                <li><a href="#keys">Keys</a></li>
+                <li><a href="#headless">Headless</a></li>
+                <li><a href="#mcp">AI Agents</a></li>
+                <li><a href="https://github.com/sharat/cluster-cli">GitHub</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main role="main">
+        <section class="hero">
+            <h1>cluster-cli</h1>
+            <p>A fast, interactive terminal UI for monitoring Kubernetes cluster health in real-time</p>
+            
+            <div class="install-command">
+                <pre id="install-cmd">curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash</pre>
+                <button class="copy-button" onclick="copyInstall()" aria-label="Copy install command">Copy</button>
+            </div>
+
+            <div class="cta-buttons">
+                <a href="https://github.com/sharat/cluster-cli/releases" class="btn btn-primary">Download</a>
+                <a href="https://github.com/sharat/cluster-cli/blob/main/docs/overview.md" class="btn btn-secondary">Documentation</a>
+            </div>
+        </section>
+
+        <section id="features">
+            <h2>Features</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <h3><span class="feature-icon" aria-hidden="true">📊</span> Real-Time Dashboard</h3>
+                    <p>Unified view of nodes, incidents, and pods with live health scoring (0-100, A-F grading).</p>
+                </div>
+                <div class="feature-card">
+                    <h3><span class="feature-icon" aria-hidden="true">🔍</span> Incident Queue</h3>
+                    <p>Ranked warning and failure signals from nodes, pods, and events. Press Enter to drill down.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><span class="feature-icon" aria-hidden="true">📈</span> Resource Monitoring</h3>
+                    <p>CPU/memory usage with sparklines, pressure indicators, and node pool filtering.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><span class="feature-icon" aria-hidden="true">🔧</span> Pod Management</h3>
+                    <p>Multi-container and native sidecar support, log streaming, search, export, and crash loop detection.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><span class="feature-icon" aria-hidden="true">🩺</span> Pod Diagnosis</h3>
+                    <p>Explains why a pod is unhealthy, with the likely cause and the next read-only kubectl command to run.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><span class="feature-icon" aria-hidden="true">⚖️</span> Right-Sizing</h3>
+                    <p>Compares requests with peak usage per workload, flags over- and under-provisioning, and suggests requests.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><span class="feature-icon" aria-hidden="true">⏱️</span> Incident Timeline</h3>
+                    <p>Chronological view of events with precursor detection and time-based correlation.</p>
+                </div>
+                <div class="feature-card">
+                    <h3><span class="feature-icon" aria-hidden="true">🤖</span> AI Agent Integration</h3>
+                    <p>MCP server for Claude Desktop, Cursor, VS Code. Natural language cluster queries.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="terminal-demo">
+            <h2>In Action</h2>
+            <div class="terminal-container">
+                <div class="terminal-header">
+                    <div class="terminal-button red"></div>
+                    <div class="terminal-button yellow"></div>
+                    <div class="terminal-button green"></div>
+                </div>
+                <div class="terminal" id="terminal-output">
+                    <div><span class="terminal-prompt">$ </span><span class="terminal-command" id="typed-command"></span><span class="terminal-cursor"></span></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="install">
+            <h2>Installation</h2>
+            <h3>Quick Install</h3>
+            <div class="code-block">
+                <pre>curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <h3>Build from Source</h3>
+            <div class="code-block">
+                <pre>git clone https://github.com/sharat/cluster-cli.git
+cd cluster-cli
+cargo build --release</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <p>Requires Rust 1.85+ and kubectl configured with cluster access.</p>
+            <p>See <a href="https://github.com/sharat/cluster-cli/blob/main/docs/installation.md">full installation guide</a> for all platforms and methods.</p>
+        </section>
+
+        <section id="keys">
+            <h2>Key Bindings</h2>
+            <p>cluster-cli is fully keyboard-driven for fast navigation.</p>
+            
+            <h3>Navigation</h3>
+            <div class="keybindings-grid">
+                <div class="keybinding">
+                    <kbd class="key">q</kbd> <kbd class="key">Ctrl+C</kbd>
+                    <p>Quit application</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">1</kbd> <kbd class="key">2</kbd> <kbd class="key">3</kbd>
+                    <p>Focus Nodes / Incidents / Pods</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">Tab</kbd>
+                    <p>Cycle between panels</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">↑</kbd> <kbd class="key">↓</kbd> <kbd class="key">j</kbd> <kbd class="key">k</kbd>
+                    <p>Move cursor</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">Enter</kbd>
+                    <p>View details or drill into incident</p>
+                </div>
+            </div>
+
+            <h3>Actions</h3>
+            <div class="keybindings-grid">
+                <div class="keybinding">
+                    <kbd class="key">t</kbd>
+                    <p>Open incident timeline</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">T</kbd>
+                    <p>Timeline filtered to incident</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">u</kbd>
+                    <p>Open right-sizing view</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">w</kbd>
+                    <p>Toggle workload popup</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">n</kbd>
+                    <p>Open namespace selector</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">s</kbd>
+                    <p>Cycle pod sort modes</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">E</kbd>
+                    <p>Export pods to CSV</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">r</kbd>
+                    <p>Manual refresh</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">R</kbd>
+                    <p>Change refresh interval</p>
+                </div>
+            </div>
+
+            <h3>Pod Detail View</h3>
+            <div class="keybindings-grid">
+                <div class="keybinding">
+                    <kbd class="key">f</kbd>
+                    <p>Toggle log follow mode</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">c</kbd>
+                    <p>Cycle containers</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">p</kbd>
+                    <p>Toggle previous logs</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">/</kbd>
+                    <p>Search logs</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">t</kbd>
+                    <p>Toggle timestamps</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">w</kbd>
+                    <p>Toggle line wrapping</p>
+                </div>
+            </div>
+
+            <h3>Timeline View</h3>
+            <div class="keybindings-grid">
+                <div class="keybinding">
+                    <kbd class="key">s</kbd>
+                    <p>Toggle sort order</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">f</kbd>
+                    <p>Cycle kind filter</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">F</kbd>
+                    <p>Cycle severity filter</p>
+                </div>
+                <div class="keybinding">
+                    <kbd class="key">c</kbd>
+                    <p>Clear all filters</p>
+                </div>
+            </div>
+
+            <p>See <a href="https://github.com/sharat/cluster-cli/blob/main/docs/ui.md">complete UI guide</a> for all keyboard shortcuts.</p>
+        </section>
+
+        <section id="headless">
+            <h2>Headless Mode</h2>
+            <p>Use cluster-cli in scripts, CI/CD pipelines, and automation with stable JSON output.</p>
+
+            <h3>Cluster Health</h3>
+            <div class="code-block">
+                <pre>cluster status --json
+cluster status --json --verbose  # Include detailed findings</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <h3>List Incidents</h3>
+            <div class="code-block">
+                <pre>cluster incidents --json
+cluster incidents --json --verbose  # All incidents (not just top 10)</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <h3>List Pods and Nodes</h3>
+            <div class="code-block">
+                <pre>cluster pods --json --verbose  # Include container details
+cluster nodes --json --verbose  # Include node conditions</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <h3>Stream Logs</h3>
+            <div class="code-block">
+                <pre>cluster logs &lt;pod-name&gt; --tail 100
+cluster logs &lt;pod-name&gt; -c &lt;container&gt; --follow --timestamps</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <h3>CI/CD Health Check Example</h3>
+            <div class="code-block">
+                <pre>#!/bin/bash
+HEALTH=$(cluster status --json -n production | jq -r '.data.score')
+if [ "$HEALTH" -ge 80 ]; then
+  echo "✓ Cluster health: $HEALTH (OK)"
+  exit 0
+else
+  echo "✗ Cluster health: $HEALTH (CRITICAL)"
+  exit 1
+fi</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <p>All JSON responses include <code>version</code> field (current: 1.0.0) for schema versioning.</p>
+            <p>See <a href="https://github.com/sharat/cluster-cli/blob/main/docs/headless.md">headless mode documentation</a> for complete JSON API reference.</p>
+        </section>
+
+        <section id="mcp" class="mcp-section">
+            <h2>AI Agent Integration (MCP Server)</h2>
+            <p>Connect cluster-cli to AI agents like Claude Desktop, Cursor, and VS Code using the Model Context Protocol (MCP).</p>
+
+            <h3>Starting the MCP Server</h3>
+            <div class="code-block">
+                <pre>cluster mcp</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <h3>Cursor Configuration</h3>
+            <p>Add to <code>.cursor/mcp_config.json</code>:</p>
+            <div class="code-block">
+                <pre>{
+  "mcpServers": {
+    "cluster-cli": {
+      "command": "cluster",
+      "args": ["mcp"]
+    }
+  }
+}</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <h3>Claude Desktop Configuration</h3>
+            <p>Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS):</p>
+            <div class="code-block">
+                <pre>{
+  "mcpServers": {
+    "cluster-cli": {
+      "command": "/Users/username/.local/bin/cluster",
+      "args": ["mcp"]
+    }
+  }
+}</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <h3>VS Code Configuration</h3>
+            <p>Add to <code>.vscode/settings.json</code>:</p>
+            <div class="code-block">
+                <pre>{
+  "mcp.servers": {
+    "cluster-cli": {
+      "command": "cluster",
+      "args": ["mcp"]
+    }
+  }
+}</pre>
+                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+            </div>
+
+            <h3>Available Tools</h3>
+            <ul>
+                <li><strong>get_cluster_health</strong> - Health score, grade, critical resource counts</li>
+                <li><strong>list_incidents</strong> - Ranked incidents by severity</li>
+                <li><strong>list_pods</strong> - Pod status, resource usage, readiness</li>
+                <li><strong>describe_pod</strong> - Detailed pod information</li>
+                <li><strong>explain_pod</strong> - Diagnosis findings with severity, likely cause, and next kubectl command</li>
+                <li><strong>get_logs</strong> - Fetch pod logs</li>
+                <li><strong>list_nodes</strong> - Node metrics and conditions</li>
+                <li><strong>list_contexts</strong> - Available kubectl contexts</li>
+            </ul>
+
+            <h3>Example Queries</h3>
+            <ul>
+                <li>"What's the health of my production cluster?"</li>
+                <li>"Show me all crash looping pods"</li>
+                <li>"Explain why the api pod is failing"</li>
+                <li>"Which pods have high memory usage?"</li>
+            </ul>
+
+            <p><strong>Security Note:</strong> The MCP server is read-only. No mutation operations are exposed.</p>
+            <p>See <a href="https://github.com/sharat/cluster-cli/blob/main/docs/mcp.md">MCP server documentation</a> for complete setup guide and tool reference.</p>
+        </section>
+    </main>
+
+    <footer role="contentinfo">
+        <p>cluster-cli is open source under the MIT License.</p>
+        <p>
+            <a href="https://github.com/sharat/cluster-cli">GitHub</a> • 
+            <a href="./README.html">Documentation</a> • 
+            <a href="https://github.com/sharat/cluster-cli/releases">Releases</a> • 
+            <a href="https://github.com/sharat/cluster-cli/issues">Issues</a>
+        </p>
+    </footer>
+
+    <script>
+        // Copy to clipboard functions
+        function copyInstall() {
+            const cmd = document.getElementById('install-cmd').textContent;
+            copyToClipboard(cmd, event.target);
+        }
+
+        function copyCode(button) {
+            const pre = button.previousElementSibling;
+            const code = pre.textContent;
+            copyToClipboard(code, button);
+        }
+
+        function copyToClipboard(text, button) {
+            navigator.clipboard.writeText(text).then(() => {
+                button.textContent = 'Copied!';
+                button.classList.add('copied');
+                setTimeout(() => {
+                    button.textContent = 'Copy';
+                    button.classList.remove('copied');
+                }, 2000);
+            });
+        }
+
+        // Terminal animation
+        const commands = [
+            { cmd: 'cluster', output: ['', '(opens the dashboard)', 'Health: 85 (B) | 3 nodes | 42 pods | 2 incidents'] },
+            { cmd: 'cluster status --json', output: ['', '{"version":"1.0.0","data":{"score":85,"grade":"B"}}'] },
+            { cmd: 'cluster pods --json', output: ['', '{"version":"1.0.0","data":[{"name":"api-6d4f9-x2k",...}]}'] },
+            { cmd: 'cluster mcp', output: ['', 'Starting cluster-cli MCP server v0.4.0', 'Ready for AI agent connections...'] }
+        ];
+        
+        let currentCommand = 0;
+        let typingIndex = 0;
+        let isTyping = true;
+
+        function typeCommand() {
+            if (isTyping) {
+                const cmd = commands[currentCommand].cmd;
+                if (typingIndex < cmd.length) {
+                    document.getElementById('typed-command').textContent = cmd.substring(0, typingIndex + 1);
+                    typingIndex++;
+                    setTimeout(typeCommand, 50);
+                } else {
+                    isTyping = false;
+                    setTimeout(() => showOutput(), 500);
+                }
+            }
+        }
+
+        function showOutput() {
+            const output = commands[currentCommand].output;
+            const terminal = document.getElementById('terminal-output');
+            const commandLine = terminal.querySelector('div');
+            
+            // Remove cursor
+            terminal.querySelector('.terminal-cursor').style.display = 'none';
+            
+            // Add output lines
+            output.forEach((line, index) => {
+                setTimeout(() => {
+                    const div = document.createElement('div');
+                    div.className = 'terminal-output';
+                    div.textContent = line;
+                    terminal.appendChild(div);
+                    
+                    if (index === output.length - 1) {
+                        setTimeout(nextCommand, 2000);
+                    }
+                }, index * 100);
+            });
+        }
+
+        function nextCommand() {
+            currentCommand = (currentCommand + 1) % commands.length;
+            typingIndex = 0;
+            isTyping = true;
+            
+            // Clear terminal
+            const terminal = document.getElementById('terminal-output');
+            terminal.innerHTML = '<div><span class="terminal-prompt">$ </span><span class="terminal-command" id="typed-command"></span><span class="terminal-cursor"></span></div>';
+            
+            // Show cursor
+            terminal.querySelector('.terminal-cursor').style.display = 'inline-block';
+            
+            setTimeout(typeCommand, 500);
+        }
+
+        // Start animation when page loads
+        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            setTimeout(typeCommand, 1000);
+        }
+
+        // Smooth scroll with offset for sticky header
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    const offset = 80; // Header height
+                    const targetPosition = target.getBoundingClientRect().top + window.pageYOffset - offset;
+                    window.scrollTo({
+                        top: targetPosition,
+                        behavior: 'smooth'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

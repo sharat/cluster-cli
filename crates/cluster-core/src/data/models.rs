@@ -130,6 +130,20 @@ pub struct ContainerInfo {
     pub state: String,
     pub last_termination_reason: Option<String>,
     pub last_exit_code: Option<i32>,
+    /// This container's own memory limit in MB; 0 when none is set.
+    pub memory_limit_mb: u64,
+    /// Whether the kubelet considers the container started (its startup probe,
+    /// if any, has passed). A native sidecar must start, not become ready,
+    /// before the containers after it run.
+    pub started: bool,
+}
+
+/// The workload that owns a pod. A ReplicaSet owner is resolved to its
+/// Deployment when the pod-template-hash label shows the usual naming.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PodOwner {
+    pub kind: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +178,28 @@ pub struct PodInfo {
     pub containers: Vec<ContainerInfo>,
     /// `status.reason`, e.g. `Evicted`, `NodeLost`, `Shutdown`.
     pub status_reason: Option<String>,
+    /// Regular init container statuses, kept apart so app-container views are
+    /// unchanged.
+    pub init_containers: Vec<ContainerInfo>,
+    /// Native sidecars: init containers with `restartPolicy: Always`, which
+    /// keep running alongside the app containers.
+    pub sidecar_containers: Vec<ContainerInfo>,
+    /// Controlling owner from ownerReferences; None for a bare pod.
+    pub owner: Option<PodOwner>,
+    /// Whether `kubectl top` reported usage for this pod. When false,
+    /// `cpu_millicores` and `memory_mb` are 0 because nothing was measured.
+    pub metrics_available: bool,
+    /// Limits of the containers that run for the pod's life.
+    pub running_limits: RunningLimits,
+}
+
+/// Combined limits of the app containers and native sidecars (regular init
+/// containers have finished by then). A resource is None when any of those
+/// containers has no limit for it, since the pod as a whole is then unbounded.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RunningLimits {
+    pub cpu_millicores: Option<u64>,
+    pub memory_mb: Option<u64>,
 }
 
 impl PodInfo {
@@ -175,6 +211,12 @@ impl PodInfo {
     /// Evicted pod left behind as a record; its replacement runs elsewhere.
     pub fn is_evicted(&self) -> bool {
         self.phase == "Failed" && self.status_reason.as_deref() == Some("Evicted")
+    }
+
+    /// App containers followed by native sidecars: everything that runs for the
+    /// pod's life (regular init containers excluded).
+    pub fn running_containers(&self) -> impl Iterator<Item = &ContainerInfo> {
+        self.containers.iter().chain(&self.sidecar_containers)
     }
 }
 

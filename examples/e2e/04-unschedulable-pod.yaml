@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: unschedulable-pod
+  namespace: default
+spec:
+  containers:
+  - name: app
+    image: nginx:1.25
+    resources:
+      requests:
+        memory: "10000Gi"
+        cpu: "1000"
+      limits:
+        memory: "10000Gi"
+        cpu: "1000"

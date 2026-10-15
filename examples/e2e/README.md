@@ -1,186 +1,252 @@
 # End-to-End Testing for cluster-cli
 
-This directory contains end-to-end test infrastructure for both the TUI (`cluster`) and GPUI desktop app (`cluster-desktop`).
+This directory contains both automated CI/CD testing infrastructure and manual testing scenarios for cluster-cli.
 
-## Test Setup
+## 📸 Automated CI/CD Testing (GitHub Actions)
 
-The e2e test creates two kind clusters with various workload states to validate the full application stack:
+The E2E test suite automatically runs on every pull request, creating a kind cluster with test workloads and capturing TUI screenshots.
 
-### Cluster 1: `kind-cluster-cli-test-1`
-Comprehensive test workloads in the `cluster-cli-test` namespace:
-- **Healthy deployment**: 3-replica nginx deployment with proper resource requests/limits
-- **Crash-looping pod**: Busybox container that exits with error every 5 seconds
-- **Pending pod**: Pod with impossible resource requests (999 CPU, 999Gi memory) that will never schedule
-- **OOMKilled pod**: Busybox trying to allocate unlimited memory with a 32Mi limit
-- **StatefulSet**: 2-replica stateful workload
-- **DaemonSet**: Node-level workload
-- **HPA**: Horizontal Pod Autoscaler targeting the healthy deployment
-- **Service**: ClusterIP service for the healthy app
+### Overview
 
-### Cluster 2: `kind-cluster-cli-test-2`
-Simple production-like workload in the `production` namespace:
-- 2-replica nginx deployment
+The automated test suite:
+- Creates a local kind cluster with test workloads
+- Deploys various pod states (healthy, crash-looping, ImagePullBackOff, OOMKilled, unschedulable, job, rolling updates)
+- Builds and runs cluster-cli headlessly in a tmux session
+- Navigates through key TUI views (dashboard, pod detail, node detail, incidents)
+- Captures screenshots as ANSI text and converts to PNG images
+- Posts results as PR comments on GitHub
 
-## Running the Tests
+### Files for CI/CD Testing
 
-### Prerequisites
-
-- Docker (for kind)
-- kubectl
-- Rust toolchain (cargo)
-
-### Quick Start
-
-```bash
-# Run full e2e test (creates clusters, deploys workloads, builds binaries)
-./examples/e2e/run-e2e-test.sh
+```
+examples/e2e/
+├── manifests/                     # Kubernetes test workloads for CI
+│   ├── healthy-deployment.yaml    # 3-replica healthy nginx deployment
+│   ├── crashloop-pod.yaml         # Pod that crashes and restarts
+│   ├── imagepullbackoff-pod.yaml  # Pod with missing image
+│   ├── oom-pod.yaml               # Pod that gets OOMKilled
+│   ├── unschedulable-pod.yaml     # Pod that can't be scheduled
+│   ├── test-job.yaml              # Kubernetes Job
+│   ├── rollout-deployment.yaml    # Deployment for testing rollouts
+│   ├── sidecar-crash-pod.yaml     # Native sidecar that crash-loops next to a running app
+│   ├── idle-api-deployment.yaml   # Over-provisioned: requests far more than it uses
+│   └── busy-worker-deployment.yaml # Under-provisioned: burns CPU above its request
+├── test-views.sh                  # Script to drive TUI and capture screenshots
+├── convert-screenshots.sh         # Convert ANSI text to PNG images
+├── test-local.sh                  # Local verification script
+└── ansi-to-png.js                 # Node.js helper for ANSI conversion
 ```
 
-### Manual Testing
+### Running Automated Tests Locally
+
+#### Prerequisites
 
 ```bash
-# 1. Create clusters and deploy workloads
-./examples/e2e/run-e2e-test.sh
+# Install kind for local Kubernetes clusters
+brew install kind  # macOS
+# or
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
 
-# 2. In another terminal, test the TUI
-./target/release/cluster -n cluster-cli-test
+# Install kubectl
+brew install kubectl  # macOS
 
-# 3. Test the desktop app (multi-cluster view)
-./target/release/cluster-desktop
+# Install tmux (for headless terminal)
+brew install tmux  # macOS
+sudo apt-get install tmux  # Ubuntu/Debian
+
+# Install screenshot conversion tools (choose one)
+cargo install termshot  # Option 1: Rust-based
+# or
+npm install -g ansi-to-svg && brew install librsvg  # Option 2: Node + SVG
 ```
 
-### Testing with Xvfb (Headless)
-
-For CI/testing without a real display:
+#### Running the Full E2E Test
 
 ```bash
-# Install Xvfb and screenshot tools
-sudo apt-get install -y xvfb scrot imagemagick
+# 1. Create a kind cluster
+kind create cluster --name cluster-cli-e2e
 
-# Run desktop app under Xvfb
-xvfb-run -a -s '-screen 0 1920x1080x24' ./target/release/cluster-desktop &
-XVFB_PID=$!
+# 2. Deploy test workloads
+kubectl apply -f examples/e2e/manifests/
 
-# Wait for app to load
-sleep 5
+# 3. Wait for failure states to appear (30-60 seconds)
+watch kubectl get pods
 
-# Capture screenshot
-DISPLAY=:99 scrot -o screenshot.png
+# 4. Build cluster-cli
+cargo build --release
 
-# Cleanup
-kill $XVFB_PID
+# 5. Run screenshot capture
+mkdir -p screenshots
+./examples/e2e/test-views.sh ./target/release/cluster ./screenshots
+
+# 6. Convert to PNG (if you have conversion tools installed)
+./examples/e2e/convert-screenshots.sh ./screenshots
+
+# 7. Cleanup
+kind delete cluster --name cluster-cli-e2e
 ```
 
-## Test Workloads
+---
 
-All test workloads are defined in `test-workloads.yaml`. They demonstrate:
+## 🔍 Manual Timeline Feature Testing
 
-1. **Health scoring**: Mix of healthy and unhealthy pods affects the cluster grade
-2. **Pod states**: Running, Pending, CrashLoopBackOff, OOMKilled
-3. **Workload types**: Deployment, StatefulSet, DaemonSet, Pod
-4. **Resource management**: Various resource requests and limits
-5. **Scaling**: HPA configuration
-6. **Networking**: Service exposure
+The numbered manifests and test scripts are designed for manually exploring the incident timeline feature.
 
-## What the Tests Validate
+### Test Scenario
 
-### TUI (`cluster`)
-- ✅ Dashboard view with cluster health score
-- ✅ Node metrics display
-- ✅ Pod list with status indicators
-- ✅ Incident/event tracking
-- ✅ Workload summaries
-- ✅ Pod detail view with logs
-- ✅ Real-time updates (kubectl watch)
+The test deploys several workloads that trigger various timeline events:
 
-### Desktop App (`cluster-desktop`)
-- ✅ Multi-cluster overview (both contexts visible)
-- ✅ Cluster cards with health grades
-- ✅ Per-cluster detail view
-- ✅ Pod list and filtering
-- ✅ Pod detail with live logs
-- ✅ Namespace picker
-- ✅ Desktop notifications for incidents
+1. **01-healthy-deployment** - A baseline healthy deployment (nginx)
+2. **02-crashloop-deployment** - A container that crashes repeatedly (busybox with exit 1)
+3. **03-oom-deployment** - A memory-intensive workload (stress tool exceeding limits)
+4. **04-unschedulable-pod** - A pod with impossible resource requests
+5. **05-rollout-with-bad-image** - A deployment that gets updated with a bad image (triggers rollout event)
 
-## Expected Behavior
+### Files for Manual Testing
 
-### Health Scoring
-With the test workloads, Cluster 1 should show:
-- **Grade**: Likely D or F due to crash-looping and OOM pods
-- **Critical Pods**: 2-3 (crashloop, oom, potentially the pending pod)
-- **Incidents**: CrashLoopBackOff, OOMKilled, FailedScheduling events
+```
+examples/e2e/
+├── 01-healthy-deployment.yaml
+├── 02-crashloop-deployment.yaml
+├── 03-oom-deployment.yaml
+├── 04-unschedulable-pod.yaml
+├── 05-rollout-with-bad-image.yaml
+├── kind-cluster.yaml              # Optional: kind cluster config
+├── test-workloads.yaml            # Combined manifest
+├── run-e2e-test.sh                # Automated deployment script
+└── test.sh                        # Test runner
+```
 
-Cluster 2 should show:
-- **Grade**: A or B (healthy production deployment)
-- **Critical Pods**: 0
-- **Incidents**: None or minimal
+### Running Manual Timeline Tests
 
-### Pod States
-- `healthy-app-*` pods: Green/Healthy status
-- `crashloop-pod`: Red/Critical with increasing restart count
-- `pending-pod`: Yellow/Warning, reason: "Insufficient cpu/memory"
-- `oom-pod`: Red/Critical, last terminated reason: "OOMKilled"
+#### Prerequisites
+- A running Kubernetes cluster (kind, minikube, k3d, or real cluster)
+- kubectl configured to access the cluster
+- cluster-cli binary built (`cargo build --release`)
 
-## Cleanup
+#### Steps
 
-The test script automatically cleans up both clusters on exit. To keep the clusters for manual testing:
+1. Create a test cluster (if using kind):
+```bash
+kind create cluster --name test-timeline
+# or with custom config:
+kind create cluster --name test-timeline --config examples/e2e/kind-cluster.yaml
+```
+
+2. Run the deployment script:
+```bash
+cd examples/e2e
+./run-e2e-test.sh
+```
+
+3. Run cluster-cli to view the timeline:
+```bash
+cd ../..
+./target/release/cluster
+```
+
+4. Navigate the timeline:
+- Press `t` to view the full timeline
+- Press `T` from an incident to filter the timeline by that workload
+- Press `f`/`F`/`c` to filter by namespace/kind/severity
+- Press `s` to toggle newest-first sorting
+- Press `q` to quit
+
+#### Expected Results
+
+The timeline should show:
+- **ImagePullBackOff** events (if images fail to pull)
+- **FailedScheduling** events (unschedulable-pod)
+- **Rollout** events (deployment updates)
+- **CrashLoop** events (crashloop-app restarts)
+- **OOMKilled** events (if memory limits are exceeded)
+
+If a rollout occurs within 10 minutes before crashes/restarts, those entries will be marked with a ⚡ precursor indicator.
+
+#### Cleanup
 
 ```bash
-# Run script and press Ctrl+C when prompted
-./examples/e2e/run-e2e-test.sh
-# Press Ctrl+C instead of Enter
-
-# Clusters will remain active. To delete manually later:
-kind delete cluster --name cluster-cli-test-1
-kind delete cluster --name cluster-cli-test-2
+kind delete cluster --name test-timeline
 ```
 
-## CI Integration
+---
 
-For GitHub Actions or similar CI:
+## 🛠️ Customizing Views (CI Testing)
+
+The `test-views.sh` script accepts a comma-separated list of views to capture:
+
+```bash
+# Default views
+./examples/e2e/test-views.sh ./target/release/cluster ./screenshots dashboard,pod-detail,node-detail,incidents
+
+# Add timeline view (if implemented on your branch)
+./examples/e2e/test-views.sh ./target/release/cluster ./screenshots dashboard,pod-detail,node-detail,incidents,timeline
+```
+
+### Available Views
+
+- `dashboard` - Main cluster overview (default landing view)
+- `pod-detail` - Detailed view of a selected pod
+- `diagnosis` - Pod detail with the Diagnosis panel for each failing test pod; override the pods with `DIAGNOSIS_PODS=a,b`
+- `node-detail` - Detailed view of a selected node
+- `incidents` - Events and incidents view
+- `timeline` - Timeline view (if available on branch)
+- `rightsizing` - Right-sizing view (needs metrics-server; the CI workflow installs it in kind)
+
+---
+
+## 📋 Adding New Test Workloads
+
+To add a new test scenario:
+
+1. Create a YAML manifest in `examples/e2e/manifests/` (for CI) or as a numbered file (for manual testing)
+2. Update the appropriate test script to wait for your specific condition
+3. Update this README to document the new workload
+
+Example manifest structure:
 
 ```yaml
-- name: Run e2e tests
-  run: |
-    # Install kind
-    curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
-    chmod +x ./kind
-    sudo mv ./kind /usr/local/bin/kind
-    
-    # Run tests
-    ./examples/e2e/run-e2e-test.sh
-    
-    # Optional: Capture screenshots for artifacts
-    xvfb-run -a ./target/release/cluster-desktop &
-    sleep 10
-    DISPLAY=:99 scrot screenshots/desktop-view.png
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-test-pod
+  namespace: default
+  labels:
+    app: my-test
+spec:
+  containers:
+  - name: container
+    image: nginx:alpine
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 20m
+        memory: 32Mi
 ```
 
-## Troubleshooting
+---
 
-### Docker Not Available
-```
-ERROR: failed to create cluster: failed to get docker info
-```
-**Solution**: Ensure Docker is running: `sudo systemctl start docker`
+## 🐛 Troubleshooting
 
-### Port Conflicts
-```
-ERROR: failed to create cluster: port 6443 is already in use
-```
-**Solution**: Delete existing kind clusters: `kind delete cluster --name <name>`
+### Screenshots are blank or incomplete
+- Increase `WAIT_DATA` or `WAIT_RENDER` in `test-views.sh`
+- Check that cluster-cli successfully connects to the cluster
+- Verify test workloads are deployed: `kubectl get pods`
 
-### Build Failures
-```
-error: could not compile `cluster-desktop`
-```
-**Solution**: Install system dependencies:
-```bash
-sudo apt-get install -y \
-  libfreetype6-dev \
-  libfontconfig1-dev \
-  libxkbcommon-dev \
-  libxkbcommon-x11-dev \
-  libwayland-dev \
-  libvulkan-dev
-```
+### Conversion to PNG fails
+- Install one of the conversion tool combinations (see Prerequisites)
+- Check that ANSI text files exist in the screenshots directory
+- Try running conversion manually: `./examples/e2e/convert-screenshots.sh ./screenshots`
+
+### kind cluster fails to start
+- Check Docker is running
+- Try: `kind delete cluster --name cluster-cli-e2e` then recreate
+- Check kind logs: `kind export logs ./kind-logs --name cluster-cli-e2e`
+
+### Test workloads don't reach failure states
+- Wait longer (crash loops need ~2+ restarts, ImagePullBackOff and OOM may need 30-60 seconds)
+- Check pod status: `kubectl describe pod crashloop-pod`
+- Check events: `kubectl get events --sort-by='.lastTimestamp'`

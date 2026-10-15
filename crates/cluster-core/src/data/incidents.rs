@@ -47,7 +47,7 @@ pub fn build_incident_buckets(signals: &ClusterSignals) -> Vec<IncidentBucket> {
             );
         }
 
-        for container in &pod.containers {
+        for container in pod.running_containers() {
             let state_lower = container.state.to_ascii_lowercase();
 
             // Check for image pull failures in the state summary string
@@ -537,6 +537,11 @@ mod tests {
             is_ready: true,
             crash_looping,
             oom_killed,
+            init_containers: vec![],
+            sidecar_containers: vec![],
+            owner: None,
+            metrics_available: true,
+            running_limits: Default::default(),
             node_name: Some("node-a".to_string()),
             status_reason: None,
             containers: vec![ContainerInfo {
@@ -546,6 +551,8 @@ mod tests {
                 state: state.to_string(),
                 last_termination_reason: oom_killed.then(|| "OOMKilled".to_string()),
                 last_exit_code: None,
+                memory_limit_mb: 0,
+                started: true,
             }],
         }
     }

@@ -1,34 +1,23 @@
 ---
-# Namespace for test workloads
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: cluster-cli-test
-
----
-# Healthy deployment with 3 replicas
+# Healthy deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: healthy-app
-  namespace: cluster-cli-test
-  labels:
-    app: healthy-app
+  namespace: default
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
-      app: healthy-app
+      app: healthy
   template:
     metadata:
       labels:
-        app: healthy-app
+        app: healthy
     spec:
       containers:
       - name: nginx
-        image: nginx:1.25-alpine
-        ports:
-        - containerPort: 80
+        image: nginx:1.27
         resources:
           requests:
             memory: "64Mi"
@@ -36,21 +25,18 @@ spec:
           limits:
             memory: "128Mi"
             cpu: "200m"
-
 ---
-# Crash-looping pod (invalid command)
+# Crash-looping pod
 apiVersion: v1
 kind: Pod
 metadata:
-  name: crashloop-pod
-  namespace: cluster-cli-test
-  labels:
-    app: crashloop-test
+  name: crash-loop
+  namespace: default
 spec:
   containers:
-  - name: crasher
-    image: busybox:1.36
-    command: ["/bin/sh", "-c", "echo 'Starting...'; sleep 5; exit 1"]
+  - name: crash
+    image: busybox
+    command: ["sh", "-c", "exit 1"]
     resources:
       requests:
         memory: "32Mi"
@@ -58,147 +44,52 @@ spec:
       limits:
         memory: "64Mi"
         cpu: "100m"
-  restartPolicy: Always
-
 ---
-# Pending pod (impossible resource request)
+# OOMKilled pod
 apiVersion: v1
 kind: Pod
 metadata:
-  name: pending-pod
-  namespace: cluster-cli-test
-  labels:
-    app: pending-test
+  name: oom-test
+  namespace: default
 spec:
   containers:
-  - name: pending
-    image: nginx:1.25-alpine
+  - name: memory-hog
+    image: polinux/stress
+    command: ["stress", "--vm", "1", "--vm-bytes", "150M"]
     resources:
       requests:
-        memory: "999Gi"
-        cpu: "999"
-  restartPolicy: Always
-
+        memory: "64Mi"
+        cpu: "100m"
+      limits:
+        memory: "128Mi"
+        cpu: "200m"
 ---
-# OOMKilled pod (memory limit too low)
+# Image pull failure
 apiVersion: v1
 kind: Pod
 metadata:
-  name: oom-pod
-  namespace: cluster-cli-test
-  labels:
-    app: oom-test
+  name: bad-image
+  namespace: default
 spec:
   containers:
-  - name: oom-test
-    image: busybox:1.36
-    command: ["/bin/sh", "-c"]
-    args:
-      - |
-        echo "Allocating memory..."
-        tail /dev/zero
+  - name: app
+    image: nonexistent/image:invalid
     resources:
       requests:
         memory: "32Mi"
         cpu: "50m"
-      limits:
-        memory: "32Mi"
-        cpu: "100m"
-  restartPolicy: Always
-
 ---
-# Service for the healthy app
+# Pending pod (insufficient resources)
 apiVersion: v1
-kind: Service
+kind: Pod
 metadata:
-  name: healthy-app-svc
-  namespace: cluster-cli-test
+  name: pending-pod
+  namespace: default
 spec:
-  selector:
-    app: healthy-app
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 80
-  type: ClusterIP
-
----
-# HPA for testing workload details
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: healthy-app-hpa
-  namespace: cluster-cli-test
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: healthy-app
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-
----
-# StatefulSet for testing
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: test-statefulset
-  namespace: cluster-cli-test
-spec:
-  serviceName: "test-statefulset"
-  replicas: 2
-  selector:
-    matchLabels:
-      app: stateful-test
-  template:
-    metadata:
-      labels:
-        app: stateful-test
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:1.25-alpine
-        ports:
-        - containerPort: 80
-        resources:
-          requests:
-            memory: "64Mi"
-            cpu: "100m"
-          limits:
-            memory: "128Mi"
-            cpu: "200m"
-
----
-# DaemonSet for testing
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: test-daemonset
-  namespace: cluster-cli-test
-spec:
-  selector:
-    matchLabels:
-      app: daemon-test
-  template:
-    metadata:
-      labels:
-        app: daemon-test
-    spec:
-      containers:
-      - name: fluentd
-        image: busybox:1.36
-        command: ["/bin/sh", "-c", "while true; do echo 'Logging...'; sleep 30; done"]
-        resources:
-          requests:
-            memory: "32Mi"
-            cpu: "50m"
-          limits:
-            memory: "64Mi"
-            cpu: "100m"
+  containers:
+  - name: app
+    image: nginx:1.27
+    resources:
+      requests:
+        memory: "1Ti"
+        cpu: "100"

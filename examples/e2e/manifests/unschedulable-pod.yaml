@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: unschedulable-pod
+  namespace: default
+  labels:
+    app: unschedulable-test
+spec:
+  containers:
+  - name: pending
+    image: nginx:1.27-alpine
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 20m
+        memory: 32Mi
+  nodeSelector:
+    non-existent-node-label: "true"

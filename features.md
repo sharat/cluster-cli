@@ -370,6 +370,7 @@ The interface uses consistent color cues for:
 - `k` / `Up` moves selection up
 - `Enter` drills into the selected pod or node, or opens the best matching incident target
 - `w` toggles the workload popup
+- `u` opens the right-sizing view (requests vs. peak usage per workload, with suggested requests; `j`/`k` scroll, `r` refreshes, `Esc` returns)
 - `s` cycles pod sort modes
 - `E` opens CSV export
 - `q` or `Ctrl+C` quits
