@@ -67,6 +67,7 @@
                 --code-bg: #0f172a; /* slate-900 */
                 --code-text: #e2e8f0; /* slate-200 */
                 --shadow: rgba(0, 0, 0, 0.3);
+                --accent: #2dd4bf; /* teal-400, 4.5:1+ on dark surfaces */
             }
         }
 
@@ -89,6 +90,7 @@
         /* Smooth scrolling */
         html {
             scroll-behavior: smooth;
+            scroll-padding-top: 5rem; /* clear the sticky header for anchor links */
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -198,6 +200,7 @@
             border: none;
             color: white;
             padding: 0.5rem 1rem;
+            min-height: 2.5rem;
             border-radius: 4px;
             cursor: pointer;
             font-size: 0.875rem;
@@ -211,7 +214,7 @@
         }
 
         .copy-button.copied {
-            background: #10b981;
+            background: #047857; /* white text 5.5:1 */
         }
 
         .cta-buttons {
@@ -336,6 +339,7 @@
 
         .terminal-header {
             display: flex;
+            align-items: center;
             gap: 0.5rem;
             margin-bottom: 1rem;
         }
@@ -445,13 +449,48 @@
             color: var(--text-muted);
         }
 
-        footer a {
+        footer a, p a {
             color: var(--accent);
-            text-decoration: none;
+            text-decoration: underline;
+            text-underline-offset: 3px;
         }
 
-        footer a:hover, footer a:focus {
-            text-decoration: underline;
+        ul:not(.nav-links) {
+            padding-left: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .skip-link {
+            position: absolute;
+            left: 1rem;
+            top: -4rem;
+            z-index: 200;
+            background: var(--bg-primary);
+            color: var(--accent);
+            padding: 0.75rem 1rem;
+            border: 2px solid var(--accent);
+            border-radius: 4px;
+        }
+
+        .skip-link:focus {
+            top: 1rem;
+        }
+
+        .terminal-pause {
+            margin-left: auto;
+            background: transparent;
+            color: var(--code-text);
+            border: 1px solid var(--code-text);
+            border-radius: 4px;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+
+        .terminal-pause:focus-visible {
+            outline: 2px solid #ffffff;
+            outline-offset: 2px;
         }
 
         /* Animations */
@@ -506,8 +545,9 @@
     </style>
 </head>
 <body>
-    <header role="banner">
-        <nav role="navigation" aria-label="Main navigation">
+    <a href="#main" class="skip-link">Skip to main content</a>
+    <header>
+        <nav aria-label="Main navigation">
             <a href="#" class="logo">cluster-cli</a>
             <ul class="nav-links">
                 <li><a href="#features">Features</a></li>
@@ -520,14 +560,14 @@
         </nav>
     </header>
 
-    <main role="main">
+    <main id="main">
         <section class="hero">
             <h1>cluster-cli</h1>
             <p>A fast, interactive terminal UI for monitoring Kubernetes cluster health in real-time</p>
             
             <div class="install-command">
-                <pre id="install-cmd">curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash</pre>
-                <button class="copy-button" onclick="copyInstall()" aria-label="Copy install command">Copy</button>
+                <pre id="install-cmd" tabindex="0">curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash</pre>
+                <button class="copy-button" type="button" data-label="Copy install command">Copy</button>
             </div>
 
             <div class="cta-buttons">
@@ -574,17 +614,20 @@
             </div>
         </section>
 
-        <section id="terminal-demo">
-            <h2>In Action</h2>
+        <section id="terminal-demo" aria-labelledby="demo-heading">
+            <h2 id="demo-heading">In Action</h2>
             <div class="terminal-container">
                 <div class="terminal-header">
-                    <div class="terminal-button red"></div>
-                    <div class="terminal-button yellow"></div>
-                    <div class="terminal-button green"></div>
+                    <div class="terminal-button red" aria-hidden="true"></div>
+                    <div class="terminal-button yellow" aria-hidden="true"></div>
+                    <div class="terminal-button green" aria-hidden="true"></div>
+                    <button class="terminal-pause" id="terminal-pause" type="button" aria-pressed="false">Pause animation</button>
                 </div>
-                <div class="terminal" id="terminal-output">
+                <p class="sr-only">Example commands: cluster opens the dashboard; cluster status --json prints health as JSON; cluster pods --json lists pods; cluster mcp starts the MCP server.</p>
+                <div class="terminal" id="terminal-output" aria-hidden="true">
                     <div><span class="terminal-prompt">$ </span><span class="terminal-command" id="typed-command"></span><span class="terminal-cursor"></span></div>
                 </div>
+                <div class="sr-only" id="copy-status" role="status" aria-live="polite"></div>
             </div>
         </section>
 
@@ -592,16 +635,16 @@
             <h2>Installation</h2>
             <h3>Quick Install</h3>
             <div class="code-block">
-                <pre>curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <pre tabindex="0">curl -fsSL https://raw.githubusercontent.com/sharat/cluster-cli/main/install.sh | bash</pre>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <h3>Build from Source</h3>
             <div class="code-block">
-                <pre>git clone https://github.com/sharat/cluster-cli.git
+                <pre tabindex="0">git clone https://github.com/sharat/cluster-cli.git
 cd cluster-cli
 cargo build --release</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <p>Requires Rust 1.85+ and kubectl configured with cluster access.</p>
@@ -737,35 +780,35 @@ cargo build --release</pre>
 
             <h3>Cluster Health</h3>
             <div class="code-block">
-                <pre>cluster status --json
+                <pre tabindex="0">cluster status --json
 cluster status --json --verbose  # Include detailed findings</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <h3>List Incidents</h3>
             <div class="code-block">
-                <pre>cluster incidents --json
+                <pre tabindex="0">cluster incidents --json
 cluster incidents --json --verbose  # All incidents (not just top 10)</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <h3>List Pods and Nodes</h3>
             <div class="code-block">
-                <pre>cluster pods --json --verbose  # Include container details
+                <pre tabindex="0">cluster pods --json --verbose  # Include container details
 cluster nodes --json --verbose  # Include node conditions</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <h3>Stream Logs</h3>
             <div class="code-block">
-                <pre>cluster logs &lt;pod-name&gt; --tail 100
+                <pre tabindex="0">cluster logs &lt;pod-name&gt; --tail 100
 cluster logs &lt;pod-name&gt; -c &lt;container&gt; --follow --timestamps</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <h3>CI/CD Health Check Example</h3>
             <div class="code-block">
-                <pre>#!/bin/bash
+                <pre tabindex="0">#!/bin/bash
 HEALTH=$(cluster status --json -n production | jq -r '.data.score')
 if [ "$HEALTH" -ge 80 ]; then
   echo "✓ Cluster health: $HEALTH (OK)"
@@ -774,7 +817,7 @@ else
   echo "✗ Cluster health: $HEALTH (CRITICAL)"
   exit 1
 fi</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <p>All JSON responses include <code>version</code> field (current: 1.0.0) for schema versioning.</p>
@@ -787,14 +830,14 @@ fi</pre>
 
             <h3>Starting the MCP Server</h3>
             <div class="code-block">
-                <pre>cluster mcp</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <pre tabindex="0">cluster mcp</pre>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <h3>Cursor Configuration</h3>
             <p>Add to <code>.cursor/mcp_config.json</code>:</p>
             <div class="code-block">
-                <pre>{
+                <pre tabindex="0">{
   "mcpServers": {
     "cluster-cli": {
       "command": "cluster",
@@ -802,13 +845,13 @@ fi</pre>
     }
   }
 }</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <h3>Claude Desktop Configuration</h3>
             <p>Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS):</p>
             <div class="code-block">
-                <pre>{
+                <pre tabindex="0">{
   "mcpServers": {
     "cluster-cli": {
       "command": "/Users/username/.local/bin/cluster",
@@ -816,13 +859,13 @@ fi</pre>
     }
   }
 }</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <h3>VS Code Configuration</h3>
             <p>Add to <code>.vscode/settings.json</code>:</p>
             <div class="code-block">
-                <pre>{
+                <pre tabindex="0">{
   "mcp.servers": {
     "cluster-cli": {
       "command": "cluster",
@@ -830,7 +873,7 @@ fi</pre>
     }
   }
 }</pre>
-                <button class="copy-button" onclick="copyCode(this)" aria-label="Copy code">Copy</button>
+                <button class="copy-button" type="button">Copy</button>
             </div>
 
             <h3>Available Tools</h3>
@@ -858,39 +901,44 @@ fi</pre>
         </section>
     </main>
 
-    <footer role="contentinfo">
+    <footer>
         <p>cluster-cli is open source under the MIT License.</p>
         <p>
             <a href="https://github.com/sharat/cluster-cli">GitHub</a> • 
-            <a href="./README.html">Documentation</a> • 
+            <a href="https://github.com/sharat/cluster-cli/tree/main/docs">Documentation</a> • 
             <a href="https://github.com/sharat/cluster-cli/releases">Releases</a> • 
             <a href="https://github.com/sharat/cluster-cli/issues">Issues</a>
         </p>
     </footer>
 
     <script>
-        // Copy to clipboard functions
-        function copyInstall() {
-            const cmd = document.getElementById('install-cmd').textContent;
-            copyToClipboard(cmd, event.target);
-        }
+        // Copy to clipboard
+        const copyStatus = document.getElementById('copy-status');
 
-        function copyCode(button) {
-            const pre = button.previousElementSibling;
-            const code = pre.textContent;
-            copyToClipboard(code, button);
-        }
+        document.querySelectorAll('.copy-button').forEach(button => {
+            const pre = button.parentElement.querySelector('pre');
+            const heading = button.closest('.code-block')?.previousElementSibling;
+            const label = button.dataset.label ||
+                (heading && /^H3$/.test(heading.tagName) ? 'Copy ' + heading.textContent.trim() : 'Copy code');
+            button.setAttribute('aria-label', label);
 
-        function copyToClipboard(text, button) {
-            navigator.clipboard.writeText(text).then(() => {
-                button.textContent = 'Copied!';
-                button.classList.add('copied');
+            button.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(pre.textContent);
+                    button.textContent = 'Copied!';
+                    button.classList.add('copied');
+                    copyStatus.textContent = 'Copied to clipboard';
+                } catch {
+                    button.textContent = 'Copy failed';
+                    copyStatus.textContent = 'Copy failed. Select the text and copy it manually.';
+                }
                 setTimeout(() => {
                     button.textContent = 'Copy';
                     button.classList.remove('copied');
+                    copyStatus.textContent = '';
                 }, 2000);
             });
-        }
+        });
 
         // Terminal animation
         const commands = [
@@ -903,8 +951,12 @@ fi</pre>
         let currentCommand = 0;
         let typingIndex = 0;
         let isTyping = true;
+        let paused = false;
+        const pauseButton = document.getElementById('terminal-pause');
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
         function typeCommand() {
+            if (paused) return;
             if (isTyping) {
                 const cmd = commands[currentCommand].cmd;
                 if (typingIndex < cmd.length) {
@@ -935,7 +987,7 @@ fi</pre>
                     terminal.appendChild(div);
                     
                     if (index === output.length - 1) {
-                        setTimeout(nextCommand, 2000);
+                        setTimeout(() => { if (!paused) nextCommand(); }, 2000);
                     }
                 }, index * 100);
             });
@@ -956,26 +1008,24 @@ fi</pre>
             setTimeout(typeCommand, 500);
         }
 
-        // Start animation when page loads
-        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        pauseButton.addEventListener('click', () => {
+            paused = !paused;
+            pauseButton.setAttribute('aria-pressed', String(paused));
+            pauseButton.textContent = paused ? 'Play animation' : 'Pause animation';
+            if (!paused) {
+                if (isTyping) typeCommand(); else nextCommand();
+            }
+        });
+
+        // Start animation when page loads; reduced-motion users get a paused, static terminal
+        if (reduceMotion) {
+            paused = true;
+            pauseButton.setAttribute('aria-pressed', 'true');
+            pauseButton.textContent = 'Play animation';
+            document.getElementById('typed-command').textContent = commands[0].cmd;
+        } else {
             setTimeout(typeCommand, 1000);
         }
-
-        // Smooth scroll with offset for sticky header
-        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                const target = document.querySelector(this.getAttribute('href'));
-                if (target) {
-                    const offset = 80; // Header height
-                    const targetPosition = target.getBoundingClientRect().top + window.pageYOffset - offset;
-                    window.scrollTo({
-                        top: targetPosition,
-                        behavior: 'smooth'
-                    });
-                }
-            });
-        });
     </script>
 </body>
 </html>
