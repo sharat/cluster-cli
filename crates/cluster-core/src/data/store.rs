@@ -173,9 +173,6 @@ impl ClusterStore {
         let health = health::calculate_health(&signals);
         let incident_buckets = incidents::build_incident_buckets(&signals);
 
-        let mut errors = self.errors.clone();
-        errors.extend(self.workloads.warnings.iter().map(|warning| format!("Workloads/{warning}")));
-
         ClusterSnapshot {
             nodes,
             workloads,
@@ -184,7 +181,7 @@ impl ClusterStore {
             incident_buckets,
             health,
             fetched_at: self.polled_at.unwrap_or_else(Instant::now),
-            error: (!errors.is_empty()).then(|| errors.join(" | ")),
+            error: (!self.errors.is_empty()).then(|| self.errors.join(" | ")),
             context_name: self.context_name.clone(),
             coverage: DataCoverage { metrics_available, nodes_visible: self.nodes_visible },
             resource_problems: self.problems.clone(),
@@ -307,5 +304,16 @@ mod tests {
         assert_eq!(snapshot.incident_buckets[0].reason, "APIServiceUnavailable");
         assert!(snapshot.health.score < 100);
         assert!(snapshot.metrics_sampled);
+    }
+
+    #[test]
+    fn snapshot_does_not_duplicate_workload_warnings_from_poll_errors() {
+        let mut store = ClusterStore::new("default");
+        store.workloads.warnings.push("Deployments: forbidden".to_string());
+        store.errors.push("Workloads/Deployments: forbidden".to_string());
+
+        let snapshot = store.snapshot(None, true);
+
+        assert_eq!(snapshot.error.as_deref(), Some("Workloads/Deployments: forbidden"));
     }
 }

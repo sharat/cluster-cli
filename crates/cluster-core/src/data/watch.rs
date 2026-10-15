@@ -10,7 +10,6 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, BufReader};
-use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::debug;
@@ -116,6 +115,14 @@ fn is_permanent_watch_error(message: &str) -> bool {
         || message.contains("doesn't have a resource type")
 }
 
+fn watch_command(context: Option<&str>) -> tokio::process::Command {
+    let mut command = collector::kubectl_command();
+    if let Some(context) = context {
+        command.args(["--context", context]);
+    }
+    command
+}
+
 async fn run_watch(
     kind: WatchKind,
     context: Option<&str>,
@@ -127,10 +134,8 @@ async fn run_watch(
     let args = expand_all_namespaces(&args);
     ensure_readonly_kubectl_args("kubectl", &args)?;
 
-    let mut command = Command::new("kubectl");
-    if let Some(context) = context {
-        command.args(["--context", context]);
-    }
+    let _permit = collector::acquire_kubectl_permit().await?;
+    let mut command = watch_command(context);
     let mut child = command
         .args(&args)
         .stdin(Stdio::null())
@@ -291,5 +296,21 @@ mod tests {
             ]
         );
         assert!(ensure_readonly_kubectl_args("kubectl", &expanded).is_ok());
+    }
+
+    #[test]
+    fn watch_command_uses_shared_kubectl_configuration() {
+        let command = watch_command(Some("staging"));
+        let command = command.as_std();
+        let args: Vec<_> = command.get_args().collect();
+
+        assert_eq!(
+            args,
+            [std::ffi::OsStr::new("--context"), std::ffi::OsStr::new("staging")]
+        );
+        assert!(command.get_envs().any(|(key, value)| {
+            key == std::ffi::OsStr::new("KUBECTL_KUBERC")
+                && value == Some(std::ffi::OsStr::new("false"))
+        }));
     }
 }
