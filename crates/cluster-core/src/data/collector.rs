@@ -115,8 +115,8 @@ pub fn kubectl_command() -> Command {
     command
 }
 
-pub(crate) async fn acquire_kubectl_permit(
-) -> Result<tokio::sync::SemaphorePermit<'static>, KubectlError> {
+pub(crate) async fn acquire_kubectl_permit()
+-> Result<tokio::sync::SemaphorePermit<'static>, KubectlError> {
     KUBECTL_PERMITS
         .acquire()
         .await

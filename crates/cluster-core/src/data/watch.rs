@@ -304,10 +304,7 @@ mod tests {
         let command = command.as_std();
         let args: Vec<_> = command.get_args().collect();
 
-        assert_eq!(
-            args,
-            [std::ffi::OsStr::new("--context"), std::ffi::OsStr::new("staging")]
-        );
+        assert_eq!(args, [std::ffi::OsStr::new("--context"), std::ffi::OsStr::new("staging")]);
         assert!(command.get_envs().any(|(key, value)| {
             key == std::ffi::OsStr::new("KUBECTL_KUBERC")
                 && value == Some(std::ffi::OsStr::new("false"))
