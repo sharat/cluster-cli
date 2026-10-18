@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Show each workload collection warning once in the error banner instead of repeating the same line from the poll and the snapshot
 - Run `kubectl get --watch` through the shared kubectl setup so user kuberc preferences stay disabled and live streams count toward the process cap
+- Show a "metrics unavailable" warning in the TUI when `kubectl top` fails (e.g. no metrics-server) instead of silently showing empty usage
 
 ## [0.4.0] - 2026-10-14
 
